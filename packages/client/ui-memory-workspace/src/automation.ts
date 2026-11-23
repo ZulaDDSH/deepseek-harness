@@ -128,12 +128,14 @@ function legacyEntity(path: string): string {
   return `dsh-workspace:${basename(path) || 'root'}-${workspaceHash(path)}`
 }
 
-function workspaceEntities(cwd: string): string[] {
+interface WorkspaceEntities { readonly current: string; readonly names: readonly string[] }
+
+function workspaceEntities(cwd: string): WorkspaceEntities {
   const path = canonicalWorkspace(cwd)
   const current = entityOf(path)
   const legacy = new Set([legacyEntity(cwd), legacyEntity(path)])
   legacy.delete(current)
-  return [current, ...legacy]
+  return { current, names: [current, ...legacy] }
 }
 
 function workspaceHash(cwd: string): string {
@@ -283,6 +285,7 @@ export class MemoryAutomation {
   private readonly recalls = new Map<string, Promise<string>>()
   private readonly cli = new Set<string>()
   private readonly bound = new WeakMap<McpHumanOperations, { key: string; project: string | undefined }>()
+  private readonly known = new WeakMap<McpHumanOperations, Map<string, string>>()
   private readonly reported = new Set<string>()
   private line: Promise<unknown> = Promise.resolve()
   private activity: MemoryActivity = {}
@@ -434,6 +437,11 @@ export class MemoryAutomation {
     const reply = await callMemorix(provider, 'memorix_session_start', { projectRoot, agent: 'dsh' }, signal, 'workspace binding')
     const project = BOUND_PROJECT.exec(reply)?.[1]?.trim()
     this.bound.set(provider, { key, project })
+    if (project !== undefined && project !== '') {
+      const keys = this.known.get(provider) ?? new Map<string, string>()
+      keys.set(key, project)
+      this.known.set(provider, keys)
+    }
     return project
   }
 
@@ -496,21 +504,21 @@ export class MemoryAutomation {
   private recallFirst(session: SessionLike, prompt: string): Promise<string> {
     const query = scrub(prompt)
     if (query === '') return Promise.resolve('')
-    const entities = workspaceEntities(session.header.cwd ?? '')
+    const workspace = workspaceEntities(session.header.cwd ?? '')
     let timer: NodeJS.Timeout | undefined
     const budget = new AbortController()
     const expired = new Promise<undefined>((resolve) => { timer = setTimeout(() => { budget.abort(); resolve(undefined) }, RECALL_BUDGET_MS) })
-    return Promise.race([this.recallNotes(session, query, budget.signal, entities), expired]).then((text) => {
+    return Promise.race([this.recallNotes(session, query, budget.signal, workspace), expired]).then((text) => {
       if (text !== undefined) return text
       this.report(new Error(`memory search did not finish within ${RECALL_BUDGET_MS / 1000} s, so this chat starts with the latest notes`), 'recall')
-      return this.recentNotes(session, entities)
+      return this.recentNotes(session, workspace.current)
     }, (error: unknown) => {
       this.report(error, 'recall')
       return ''
     }).finally(() => { clearTimeout(timer) })
   }
 
-  private async recallNotes(session: SessionLike, query: string, budget: AbortSignal, entities: readonly string[]): Promise<string> {
+  private async recallNotes(session: SessionLike, query: string, budget: AbortSignal, workspace: WorkspaceEntities): Promise<string> {
     const cwd = session.header.cwd ?? ''
     const provider = await this.host.provider()
     this.requireEnabled()
@@ -519,14 +527,14 @@ export class MemoryAutomation {
     try {
       rows = await this.exclusive(() => {
         budget.throwIfAborted()
-        return this.search(provider, session, cwd, query, database, entities, budget)
+        return this.search(provider, session, cwd, query, database, workspace.names, budget)
       })
       this.succeeded('recall')
     } catch (error) {
       if (!budget.aborted) this.report(error, 'recall')
     }
     this.requireEnabled()
-    return recallText(rows.length > 0 ? rows : this.recent(session, database, entities), this.config.memoryCharacters)
+    return recallText(rows.length > 0 ? rows : this.recent(session, provider, database, workspace.current), this.config.memoryCharacters)
   }
 
   private async lookup(session: SessionLike, query: string, signal: AbortSignal): Promise<string> {
@@ -536,7 +544,7 @@ export class MemoryAutomation {
       const provider = await this.host.provider()
       const database = this.host.database(provider)
       const cwd = session.header.cwd ?? ''
-      const rows = await this.exclusive(() => this.search(provider, session, cwd, text, database, workspaceEntities(cwd), signal))
+      const rows = await this.exclusive(() => this.search(provider, session, cwd, text, database, workspaceEntities(cwd).names, signal))
       this.requireEnabled()
       this.succeeded('recall')
       return recallText(rows, this.config.memoryCharacters)
@@ -546,23 +554,25 @@ export class MemoryAutomation {
     }
   }
 
-  private async recentNotes(session: SessionLike, entities: readonly string[]): Promise<string> {
+  private async recentNotes(session: SessionLike, entityName: string): Promise<string> {
     try {
-      const database = this.host.database(await this.host.provider())
+      const provider = await this.host.provider()
+      const database = this.host.database(provider)
       this.requireEnabled()
-      return recallText(this.recent(session, database, entities), this.config.memoryCharacters)
+      return recallText(this.recent(session, provider, database, entityName), this.config.memoryCharacters)
     } catch (error) {
       this.report(error, 'recall')
       return ''
     }
   }
 
-  private recent(session: SessionLike, database: string, entities: readonly string[]): MemorixRecentObservation[] {
-    const before = new Date().toISOString()
-    return entities
-      .flatMap(entityName => memorixRecent(database, { entityName, excludeTopicPrefix: `dsh-session:${session.id}:`, before, limit: RECALL_DIGESTS }))
-      .sort((left, right) => (left.createdAt < right.createdAt ? 1 : left.createdAt > right.createdAt ? -1 : 0))
-      .slice(0, RECALL_DIGESTS)
+  private recent(session: SessionLike, provider: McpHumanOperations, database: string, entityName: string): MemorixRecentObservation[] {
+    const project = this.known.get(provider)?.get(session.header.cwd ?? '')
+    if (project === undefined) return []
+    return memorixRecent(database, {
+      entityName, project, excludeTopicPrefix: `dsh-session:${session.id}:`,
+      before: new Date().toISOString(), limit: RECALL_DIGESTS,
+    })
   }
 
   private async search(provider: McpHumanOperations, session: SessionLike, cwd: string, query: string,

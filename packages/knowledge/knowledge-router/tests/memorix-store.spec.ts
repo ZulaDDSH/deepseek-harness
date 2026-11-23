@@ -123,10 +123,13 @@ describe('Memorix read-only browsing', () => {
     insert.run(4, 'ws', 'p', 'late', 'after', 'dsh-session:d:1', 'active', '2026-04-01T00:00:00.000Z')
     insert.run(5, 'other', 'p', 'elsewhere', 'x', 'dsh-session:e:1', 'active', '2026-02-01T00:00:00.000Z')
     insert.run(6, 'ws', 'p', 'gone', 'x', 'dsh-session:f:1', 'archived', '2026-02-02T00:00:00.000Z')
+    insert.run(7, 'ws', 'q', 'foreign', 'x', 'dsh-session:g:1', 'active', '2026-02-20T00:00:00.000Z')
     db.close()
-    const query = { entityName: 'ws', excludeTopicPrefix: 'dsh-session:c:', before: '2026-03-01T00:00:00.000Z', limit: 5 }
+    const query = { entityName: 'ws', project: 'p', excludeTopicPrefix: 'dsh-session:c:', before: '2026-03-01T00:00:00.000Z', limit: 5 }
     expect(memorixRecent(path, query).map(row => row.title)).toEqual(['mid', 'old'])
     expect(memorixRecent(path, { ...query, limit: 1 })).toHaveLength(1)
+    expect(memorixRecent(path, { ...query, project: 'q' }).map(row => row.title)).toEqual(['foreign'])
+    expect(memorixRecent(path, { ...query, project: 'none' })).toEqual([])
   })
 
   it('accepts the 1.3.0 and 1.9.10 migration sets and tolerates migrations it does not know', async () => {
