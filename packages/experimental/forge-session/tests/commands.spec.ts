@@ -48,6 +48,11 @@ describe('commandEvidence', () => {
     ['{ gh pr create --fill; }', created],
     ['time gh pr create --fill', created],
     ["cat <<'EOF' > body.md\nnotes\nEOF\ngh pr create --body-file body.md", created],
+    ["bash <<'EOF'\ngh pr create --fill\nEOF", created],
+    ['ssh host <<EOF\ngh pr create\nEOF', created],
+    ['sudo python3 - <<EOF\nimport os\nEOF\ngh pr new', created],
+    ['cat <<EOF | bash\ngh pr create\nEOF', created],
+    ['echo ssh; cat <<EOF\nx\nEOF\ngh pr create', created],
   ])('classifies %j', (command, evidence) => {
     expect(commandEvidence(command)).toEqual(evidence)
   })
@@ -67,6 +72,9 @@ describe('commandEvidence', () => {
     'cat <<EOF\ngit push\nEOF',
     "bash -c 'echo gh pr create'",
     'bash script.sh gh pr create',
+    "bash script.sh -c 'gh pr create'",
+    'cat <<A <<B\ngh pr create\nA\ngh pr new\nB',
+    'echo bash && cat <<EOF\ngh pr create\nEOF',
   ])('ignores %j', (command) => {
     expect(commandEvidence(command)).toBeUndefined()
   })

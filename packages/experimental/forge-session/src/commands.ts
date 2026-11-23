@@ -18,11 +18,12 @@ const LINE_URL = /^(https?:\/\/[^\s"'<>]+?\/pull\/\d+)\/?$/
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z\d_]*=/
 const PUSH_COMMAND = /\bgit(?:\s+(?:-[Cc]\s+\S+|--[\w-]+(?:=\S+)?))*\s+push\b/
 const CHANGE_REQUEST_URL = /\bhttps?:\/\/[^\s"'<>]+?\/pull\/\d+(?![\w-])/g
-const HEREDOC = /(?<!<)<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1([^\n]*)\r?\n[\s\S]*?\r?\n[ \t]*\2[ \t]*\r?(?=\n|$)/g
+const HEREDOC_OPERATOR = /(?<!<)<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1/g
+const EXECUTING_CONSUMER = /(?:^|[\s`(])(?:\S*\/)?(?:bash|sh|zsh|dash|ksh|ssh|pwsh|powershell|python[\d.]*|node|perl|ruby|php|deno|bun|eval|source|xargs|\.)(?=[\s;&|)`]|$)/
 const SHELL_KEYWORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{', 'time', 'command', 'exec', 'nohup'])
 const SHELL_INTERPRETERS = new Set(['bash', 'sh', 'zsh', 'dash'])
 const SCRIPT_FLAG = /^-[a-z]*c[a-z]*$/
-const PUSH_TARGET_LINE =/^To (\S+)$/
+const PUSH_TARGET_LINE = /^To (\S+)$/
 const PUSH_REF_LINE = /^ [ +*=] (\[[^\]]+\]|\S+) +\S+ -> (\S+)(?: \(.*\))?$/
 
 /**
@@ -62,11 +63,11 @@ export function commandIn(args: unknown): string | undefined {
  * refs. When a command does both, the URLs a result prints bind as created.
  * Create detection reads shell words, so quoted or echoed mentions do not
  * classify; the other forms still match text.
- * @param command - shell command text.
+ * @param source - shell command text.
  * @returns the evidence, or undefined when the command has none of these forms.
  */
 export function commandEvidence(source: string): CommandEvidence | undefined {
-  const command = source.replace(HEREDOC, '<<$2$3')
+  const command = stripHeredocBodies(source)
   const create = createsChangeRequest(command)
   const references = ghReferences(command)
   const reference = REFERENCE_COMMAND.test(command) || references.length > 0
@@ -126,6 +127,38 @@ function topLevelUrl(text: string): string[] | undefined {
   return url === undefined ? [] : [url]
 }
 
+function stripHeredocBodies(source: string): string {
+  const lines = source.split('\n')
+  const kept: string[] = []
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index] ?? ''
+    const operators = [...line.matchAll(HEREDOC_OPERATOR)]
+    const first = operators[0]
+    const last = operators.at(-1)
+    let next = index + 1
+    const terminated = first !== undefined && operators.every((operator) => {
+      const terminator = new RegExp(`^[ \\t]*${operator[2]}[ \\t]*\\r?$`)
+      const found = lines.findIndex((candidate, at) => at >= next && terminator.test(candidate))
+      if (found < 0) return false
+      next = found + 1
+      return true
+    })
+    if (!terminated || first === undefined || last === undefined) {
+      kept.push(line)
+      continue
+    }
+    const before = line.slice(0, first.index).split(/[;&|(]/).at(-1) ?? ''
+    const after = line.slice(last.index + last[0].length).split(/;|&&|\|\|/)[0] ?? ''
+    if (EXECUTING_CONSUMER.test(`${before} ${after}`)) {
+      kept.push(line)
+    } else {
+      kept.push(line.replace(HEREDOC_OPERATOR, '<<$2'))
+      index = next - 1
+    }
+  }
+  return kept.join('\n')
+}
+
 function createsChangeRequest(command: string): boolean {
   let tokens: parse.ParseEntry[]
   try {
@@ -144,8 +177,7 @@ function createsChangeRequest(command: string): boolean {
     if (words[start] === 'env') start = skipAssignments(words, start + 1)
     const [resource, operation, verb] = words.slice(start, start + 3)
     if (resource === 'gh') return operation === 'pr' && (verb === 'create' || verb === 'new')
-    const flag = words.findIndex((word, index) => index > start && SCRIPT_FLAG.test(word))
-    return SHELL_INTERPRETERS.has(resource ?? '') && flag > 0 && createsChangeRequest(words[flag + 1] ?? '')
+    return SHELL_INTERPRETERS.has(resource ?? '') && SCRIPT_FLAG.test(operation ?? '') && createsChangeRequest(verb ?? '')
   })
 }
 
