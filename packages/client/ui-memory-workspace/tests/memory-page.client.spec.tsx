@@ -312,6 +312,13 @@ it('shows the setup hint only when Memorix itself is unavailable', async () => {
   expect(screen.queryByText(en.setupHint)).toBeNull()
 })
 
+it('lists the chunks Graphify left out of the graph', async () => {
+  mount(memoryWith({ graph: () => Promise.resolve({ ok: true, value: { path: 'g.json', html: '<html></html>', documents: 1, skipped: ['observation 4 (document:x): bad title'] } }) }))
+  await idle()
+  fireEvent.click(screen.getByRole('tab', { name: en.graph }))
+  expect(await screen.findByText(`${en.graphSkipped}: observation 4 (document:x): bad title`)).toBeTruthy()
+})
+
 it('shows the upload hint instead of an empty viewer when no document is imported', async () => {
   mount(memoryWith({ graph: () => Promise.resolve({ ok: true, value: { path: 'g.json', html: '', documents: 0 } }) }))
   await idle()

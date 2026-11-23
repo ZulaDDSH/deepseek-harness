@@ -184,9 +184,11 @@ describe('Memory workspace', () => {
     await writeFile(join(directory, 'graph.html'), html)
     const graph = await graphCtx.memoryWorkspace.graph()
     expect(graph.html).toBe(html)
+    expect(graph.skipped).toBeUndefined()
     expect(graph.path).toBe(graphPath)
     expect(runNativeCommand).toHaveBeenLastCalledWith('graphify', [
       'memorix', '--database', join(directory, 'memorix.db'), '--graph', graphPath,
+      '--max-documents', '500', '--max-source-bytes', String(64 * 1024 * 1024),
     ], expect.any(AbortSignal), 'hidden')
     await writeFile(graphPath, 'x'.repeat(513))
     await expect(graphCtx.memoryWorkspace.graph()).rejects.toThrow('configured byte limit')
@@ -294,6 +296,21 @@ describe('Memory workspace provider access', () => {
     vi.mocked(runNativeCommand).mockClear()
     expect(await ctx.memoryWorkspace.graph()).toEqual({ path: resolve(directory, 'imports', 'graphify-out', 'graph.json'), html: '', documents: 0 })
     expect(runNativeCommand).not.toHaveBeenCalled()
+  })
+
+  it('passes the configured document limits and returns the chunks the adapter skipped', async () => {
+    const directory = await temporary()
+    createDatabase(directory).close()
+    addDocument(directory)
+    const graphPath = join(directory, 'graph.json')
+    await writeFile(graphPath, '{}')
+    await writeFile(join(directory, 'graph.html'), '<html></html>')
+    const ctx = await connect({ graphPath, maxGraphDocuments: 7, maxGraphSourceBytes: 4096 }, localProvider(directory))
+    vi.mocked(runNativeCommand).mockClear()
+    vi.mocked(runNativeCommand).mockResolvedValueOnce({ stdout: '', stderr: 'noise\ngraphify-native skipped: observation 4 (document:x): bad title\r\ngraphify-native skipped: 3 more damaged chunks\n' })
+    const graph = await ctx.memoryWorkspace.graph()
+    expect(graph.skipped).toEqual(['observation 4 (document:x): bad title', '3 more damaged chunks'])
+    expect(vi.mocked(runNativeCommand).mock.calls[0]?.[1].slice(-4)).toEqual(['--max-documents', '7', '--max-source-bytes', '4096'])
   })
 
   it('stops a stalled Graphify run at its deadline and skips rebuilds whose caller is gone', async () => {

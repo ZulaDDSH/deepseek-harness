@@ -19,6 +19,8 @@ import { documentText } from './document-text.ts'
 import { MemoryAutomation } from './automation.ts'
 import { runNativeCommand } from '@deepseek-ai/dsh-native-command'
 
+const SKIPPED_PREFIX = 'graphify-native skipped: '
+
 declare module '@deepseek-ai/cordis' { interface Context { memoryWorkspace: MemoryWorkspace } }
 
 /** Local storage selections and upload limits. */
@@ -46,6 +48,8 @@ export interface Config {
   /** Maximum complete Graphify export size. */
   maxGraphBytes: number
   graphTimeoutMs: number
+  maxGraphDocuments: number
+  maxGraphSourceBytes: number
   /** Master switch for chat saves and recall; the Settings toggle changes it without a restart. */
   chatMemory?: Volatile<boolean>
   /** Save each finished chat turn and compaction summaries to Memorix without a model call. */
@@ -72,6 +76,8 @@ export default class MemoryWorkspace extends TypertRemoteService {
     chunkCharacters: z.natural().min(1).default(4800),
     maxGraphBytes: z.natural().min(1).default(16 * 1024 * 1024),
     graphTimeoutMs: z.natural().min(1).default(120_000),
+    maxGraphDocuments: z.natural().min(1).default(500),
+    maxGraphSourceBytes: z.natural().min(1).default(64 * 1024 * 1024),
     chatMemory: z.boolean().default(true).volatile(),
     autoSave: z.boolean().default(true),
     recall: z.boolean().default(true),
@@ -229,10 +235,13 @@ export default class MemoryWorkspace extends TypertRemoteService {
     const database = this.database(provider)
     const documents = memorixPage(database, { table: 'observations', offset: 0, limit: 1, query: '', view: 'documents' }).total
     if (documents === 0) return { path, html: '', documents }
+    const skipped: string[] = []
     const deadline = AbortSignal.timeout(this.config.graphTimeoutMs)
     try {
-      await runNativeCommand(this.config.graphifyCommand, [...this.config.graphifyArgs,
-        'memorix', '--database', database, '--graph', path], AbortSignal.any([caller, deadline]), 'hidden')
+      const { stderr } = await runNativeCommand(this.config.graphifyCommand, [...this.config.graphifyArgs,
+        'memorix', '--database', database, '--graph', path,
+        '--max-documents', String(this.config.maxGraphDocuments), '--max-source-bytes', String(this.config.maxGraphSourceBytes)], AbortSignal.any([caller, deadline]), 'hidden')
+      for (const line of stderr.split(/\r?\n/)) if (line.startsWith(SKIPPED_PREFIX)) skipped.push(line.slice(SKIPPED_PREFIX.length).trimEnd())
     } catch (error) {
       if (deadline.aborted && !caller.aborted) {
         throw new Error(`Graphify did not finish within ${this.config.graphTimeoutMs / 1000} s and was stopped; raise graphTimeoutMs on ui-memory-workspace or import fewer documents`, { cause: error })
@@ -240,7 +249,7 @@ export default class MemoryWorkspace extends TypertRemoteService {
       throw this.graphifyFailure(error)
     }
     await this.readExport(path, false, caller)
-    return { path, html: new TextDecoder('utf-8', { fatal: true }).decode(await this.readExport(join(dirname(path), 'graph.html'), true, caller)), documents }
+    return { path, html: new TextDecoder('utf-8', { fatal: true }).decode(await this.readExport(join(dirname(path), 'graph.html'), true, caller)), documents, ...skipped.length > 0 && { skipped } }
   }
 
   private graphifyFailure(error: unknown): unknown {

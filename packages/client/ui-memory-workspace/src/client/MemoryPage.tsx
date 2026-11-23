@@ -345,6 +345,7 @@ export function MemoryPage({ memory, t }: PageProps): ReactNode {
         {graph !== null && graph.documents > 0 && <>
           <iframe className={css.graph} title={t('graph')} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={graph.html} />
           <p className={css.caption}>{t('source')}: {graph.path}</p>
+          {graph.skipped?.map((reason, index) => <p key={index} role="status" className={css.caption}>{t('graphSkipped')}: {reason}</p>)}
         </>}
       </>}
     </div>
