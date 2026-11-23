@@ -11,6 +11,8 @@ import { SessionLogGroups } from './groups.ts'
 import type { InspectorPickTarget } from '../chat-node/pick-match.ts'
 import type { SessionLogAnchor } from './chat-target.ts'
 
+const NOTIFY_INTERVAL_MS = 16
+
 interface LogRoot {
   readonly row: InspectorRow
   readonly entry: SessionEventLikeEntry
@@ -21,7 +23,12 @@ interface LogRoot {
 
 /** Session-owned log projection; subscriptions exist only while the table is observed. */
 export class SessionLogModel implements ObservableSnapshot<readonly InspectorRow[]> {
-  private readonly rows = createSnapshotStore<readonly InspectorRow[]>([])
+  private working: InspectorRow[] = []
+  private published: readonly InspectorRow[] = []
+  private dirty = false
+  private readonly listeners = new Set<() => void>()
+  private cooldown: ReturnType<typeof setTimeout> | undefined
+  private queued = false
   private readonly records = new Map<string, SnapshotStore<InspectorRecord | undefined>>()
   private readonly roots: LogRoot[] = []
   private readonly attempts = new Map<string, LogRoot>()
@@ -41,7 +48,10 @@ export class SessionLogModel implements ObservableSnapshot<readonly InspectorRow
   }
 
   /** @returns Stable table order; row contents have independent sources. */
-  getSnapshot = (): readonly InspectorRow[] => this.rows.getSnapshot()
+  getSnapshot = (): readonly InspectorRow[] => {
+    if (this.dirty) { this.published = this.working.slice(); this.dirty = false }
+    return this.published
+  }
 
   /**
    * Recover an event's placement without interpreting formatted table cells.
@@ -84,7 +94,7 @@ export class SessionLogModel implements ObservableSnapshot<readonly InspectorRow
     const key = entry.type === 'transient' ? `attempt:${entry.event.data.attemptId}`
       : this.settledRoots.get(entry.event.seq) ?? `event:${entry.event.seq}`
     if (target.groupPart === 'reasoning') {
-      const block = this.rows.getSnapshot().find((row) => {
+      const block = this.working.find((row) => {
         if (row.parent !== key) return false
         const value = this.records.get(row.key)?.getSnapshot()?.value
         return value !== null && typeof value === 'object' && 'type' in value && value.type === 'block-start'
@@ -97,14 +107,21 @@ export class SessionLogModel implements ObservableSnapshot<readonly InspectorRow
 
   /** @param listener - Structural invalidation callback. @returns Subscription disposer. */
   subscribe = (listener: () => void): (() => void) => {
-    const stop = this.rows.subscribe(listener)
+    const entry = { listener }
+    this.listeners.add(entry)
     if (this.subscribers++ === 0) {
       this.disconnect = this.source.subscribe(() => { this.accept(this.source.getSnapshot()) })
       this.accept(this.source.getSnapshot())
     }
     return () => {
-      stop()
-      if (--this.subscribers === 0) { this.disconnect?.(); this.disconnect = undefined }
+      this.listeners.delete(entry)
+      if (--this.subscribers === 0) {
+        this.disconnect?.()
+        this.disconnect = undefined
+        clearTimeout(this.cooldown)
+        this.cooldown = undefined
+        this.queued = false
+      }
     }
   }
 
@@ -137,12 +154,29 @@ export class SessionLogModel implements ObservableSnapshot<readonly InspectorRow
     }
     const append = window.revision === this.revision + 1 && window.change.kind === 'append'
     if (!append) { this.roots.length = 0; this.attempts.clear(); this.groups = new SessionLogGroups() }
-    const next = append ? this.rows.getSnapshot().slice() : []
+    const next = append ? this.working : []
     const entries = append ? window.change.entries : window.entries
     for (const entry of entries) this.add(entry, next)
     this.revision = window.revision
     if (!append) this.prune(next)
-    this.rows.set(next)
+    this.working = next
+    this.dirty = true
+    this.notify()
+  }
+
+  private notify(): void {
+    if (this.listeners.size === 0) return
+    if (this.cooldown !== undefined) { this.queued = true; return }
+    this.fire()
+  }
+
+  private fire(): void {
+    this.queued = false
+    this.cooldown = setTimeout(() => {
+      this.cooldown = undefined
+      if (this.queued) this.fire()
+    }, NOTIFY_INTERVAL_MS)
+    for (const { listener } of [...this.listeners]) listener()
   }
 
   private prune(rows: readonly InspectorRow[]): void {

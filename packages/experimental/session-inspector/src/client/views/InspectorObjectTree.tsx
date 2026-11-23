@@ -29,16 +29,18 @@ interface BranchProps extends ValueTreeProps {
   readonly root?: boolean
   readonly accessor?: boolean
   readonly absent?: boolean
+  readonly depth?: number
 }
 
 const PAGE_SIZE = 50
+const JSON_EXPAND_DEPTH = 4
 
-function ObjectBranch({ value, name, path, ancestors, root, accessor, absent, navigation, t }: BranchProps) {
+function ObjectBranch({ value, name, path, ancestors, root, accessor, absent, navigation, t, depth = 0 }: BranchProps) {
   const json = navigation === undefined
   const objects = navigation?.objects
   const revision = navigation?.revision
-  const [expanded, setExpanded] = useState(root === true || json)
-  const [limit, setLimit] = useState(json ? Infinity : PAGE_SIZE)
+  const [expanded, setExpanded] = useState(root === true || (json && depth < JSON_EXPAND_DEPTH))
+  const [limit, setLimit] = useState(PAGE_SIZE)
   const content = useMemo(() => {
     try {
       const reference = !root && value !== null && typeof value === 'object' ? objects?.reference(value) : undefined
@@ -82,7 +84,7 @@ function ObjectBranch({ value, name, path, ancestors, root, accessor, absent, na
     {expanded && <ul>
       {content.entries.slice(0, limit).map(({ key, properties, ...entry }) => <ObjectBranch key={key} {...entry}
         name={properties ? t('object.properties') : entry.name}
-        path={properties ? path : `${path}.${entry.name}`} ancestors={children} navigation={navigation} t={t} />)}
+        path={properties ? path : `${path}.${entry.name}`} ancestors={children} navigation={navigation} t={t} depth={depth + 1} />)}
       {content.entries.length === 0 && <li className={css.objectMuted}>{t('object.empty')}</li>}
       {content.entries.length > limit && <li><button type="button" className={css.objectReference}
         onClick={() => { setLimit(value => value + PAGE_SIZE) }}>{t('object.more')}</button></li>}
@@ -96,9 +98,9 @@ function ValueTree(props: ValueTreeProps) {
 }
 
 /**
- * Display serialized Inspector JSON with every container initially expanded and no reference navigation.
+ * Display serialized Inspector JSON with the first four nesting levels expanded and no reference navigation.
  * @param props - Successful inspectorJson output and localized tree labels; empty text represents undefined.
- * @returns The same value tree as Chat details, without collection paging or runtime-object links.
+ * @returns The same value tree as Chat details, with paged collections and without runtime-object links.
  */
 export function InspectorJsonTree({ text, t }: PropsLocale<'session-inspector'> & { readonly text: string }) {
   const value = useMemo<unknown>(() => text === '' ? undefined : JSON.parse(text), [text])

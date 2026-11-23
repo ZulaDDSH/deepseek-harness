@@ -110,6 +110,14 @@ it('virtualizes the table and updates the selected row in place with an animatio
   expect(cancel).toHaveBeenCalled()
 })
 
+function openAll(container: HTMLElement): void {
+  for (let pass = 0; pass < 8; pass++) {
+    const closed = [...container.querySelectorAll('details:not([open])')]
+    if (closed.length === 0) return
+    for (const branch of closed) { (branch as HTMLDetailsElement).open = true; fireEvent(branch, new Event('toggle')) }
+  }
+}
+
 it('opens cyclic raw nodes, contains formatter errors, and permits closing and reopening details', () => {
   const node = chatNodeWithLocation()
   const rows = createSnapshotStore<readonly InspectorRow[]>([{ key: 'node', depth: 0 }, { key: 'error', depth: 0 }])
@@ -128,6 +136,7 @@ it('opens cyclic raw nodes, contains formatter errors, and permits closing and r
   }
   const ui = render(<InspectorTable {...props} />)
   fireEvent.click(ui.getByRole('button', { name: 'assistant' }))
+  openAll(ui.container)
   expect(ui.getByText('$:').closest('ul')!.textContent).toContain('[Circular]')
   fireEvent.click(ui.getByRole('button', { name: 'unserializable' }))
   expect(ui.getByRole('alert').textContent).toContain('unavailable value')
@@ -140,6 +149,7 @@ it('opens cyclic raw nodes, contains formatter errors, and permits closing and r
   ui.unmount()
   const reopened = render(<InspectorTable {...props} />)
   fireEvent.click(reopened.getByRole('button', { name: 'assistant' }))
+  openAll(reopened.container)
   expect(reopened.getByText('$:').closest('ul')!.textContent).toContain('[Circular]')
 })
 
