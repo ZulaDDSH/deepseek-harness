@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// Build-time input only. The installed bundle includes the adapter and its license.
 const name = 'dsh-plugin-claude-code'
 const version = '0.2.5'
 const archive = `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`
@@ -25,7 +24,6 @@ try {
   const dest = new URL('./bridge/', import.meta.url)
   await cp(join(source, 'dist'), dest, { recursive: true, filter: (path) => !path.endsWith('.d.ts') })
   await cp(join(source, 'LICENSE'), new URL('LICENSE', dest))
-  // The adapter reports the upstream version to its own SDK tool bridge.
   const metadata = JSON.parse(await readFile(join(source, 'package.json'), 'utf8'))
   await writeFile(
     new URL('package.json', dest),

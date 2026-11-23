@@ -13,8 +13,6 @@ export function readOwnership(root) {
   }
 }
 
-// Main owns its native route. Keep existing assignments, then migrate older
-// profiles first. A previously rejected sign-in cannot promote itself.
 export function reconcileOwnership(entries, state) {
   const byId = new Map(entries.map((e) => [e.id, e]))
   for (const [key, id] of state.owners) {

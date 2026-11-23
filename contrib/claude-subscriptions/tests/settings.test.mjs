@@ -34,7 +34,7 @@ test('both settings locations offer browser sign-in and report the existing prof
   }
   plugin.apply({
     get: () => ({ rpc }),
-    effect: () => {}, // CSS is owned by the browser renderer.
+    effect: () => {},
     slots: {
       inject: (_name, mount) => mount(),
       register: (slot, component) => components.set(slot.name, component),

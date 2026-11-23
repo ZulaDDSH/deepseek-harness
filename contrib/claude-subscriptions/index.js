@@ -5,7 +5,6 @@ import { join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { readOwnership, updateOwnership } from './ownership.js'
 
-// Use the same CLI, spend checks and tool bridge as the installed primary provider.
 const base = new URL('./bridge/index.js', import.meta.url)
 const fromBridge = (file) => import(new URL(file + '.js', base))
 const { ClaudeCodeAdapter } = await fromBridge('adapter')
@@ -65,8 +64,6 @@ async function checkAccount(account, workspace) {
       resolve(status.configDirectory).toLowerCase() !== resolve(account.dir).toLowerCase())
   )
     throw new Error('Claude Code did not use the selected account directory.')
-  // Migrated CLI profiles can lack the cached email and organization in auth status.
-  // Ask the same official client for its account description, without sending a prompt.
   const info = status.email ? status : await readFromCli(account, (session) => session.accountInfo())
   const email = info.email?.trim()
   if (!email) throw new Error('Claude Code could not verify the account email. Complete sign-in again.')
@@ -207,8 +204,6 @@ function addProfile(input, state) {
   return account
 }
 
-// The user starts this from the account page. Claude Code owns the browser redirect
-// and its console fallback. Neither an OAuth code nor a token enters the renderer.
 function startLogin(account) {
   const env = environment(account)
   const executable = findClaudeExecutable(env.PATH)
@@ -266,7 +261,6 @@ export function apply(ctx) {
       })
     )
       throw new Error('This profile shares its Claude Code directory.')
-    // Recheck the selected directory and identity immediately before logging out.
     const current = await checkAccount(a, a.dir)
     if (current.accountKey !== key || readOwnership(root).owners.get(key) === a.id) return
     const result = await runner.run({

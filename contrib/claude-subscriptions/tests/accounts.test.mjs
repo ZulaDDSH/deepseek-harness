@@ -17,7 +17,6 @@ test('browser sign-in registers one model route per distinct account across rest
   const work = join(root, 'Work')
   const duplicate = join(root, 'Personal')
   for (const dir of [main, work, duplicate]) await mkdir(dir, { recursive: true })
-  // Child process and environment mocks live only in this isolated test worker.
   process.env.USERPROFILE = process.env.HOME = home
   process.env.DSH_HOME = join(home, 'harness')
   process.env.PATH = home
