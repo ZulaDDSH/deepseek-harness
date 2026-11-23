@@ -17,7 +17,8 @@ export function webShortcutStorage(window: Window, platform: ShortcutPlatform,
   const persistence = new ShortcutPersistence({
     read: () => window.localStorage.getItem(SHORTCUT_STORAGE_KEY),
     write: (raw) => { window.localStorage.setItem(SHORTCUT_STORAGE_KEY, raw) },
-  }, 'web', platform, true, publish)
+  }, 'web', platform, true, publish,
+  transaction => window.navigator.locks === undefined ? transaction() : window.navigator.locks.request(SHORTCUT_STORAGE_KEY, transaction))
   const changed = (event: StorageEvent): void => {
     if (event.key === null || event.key === SHORTCUT_STORAGE_KEY) void persistence.readCurrent()
   }
