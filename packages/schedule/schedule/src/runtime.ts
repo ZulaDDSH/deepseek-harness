@@ -39,6 +39,8 @@ const STOP_FLUSH_GRACE_MS = 5_000
 /** Fixed per-task delivery floor interval, timed or manual, of a target other than `new`; it matches the shortest recurrence spacing. */
 export const MIN_DELIVERY_INTERVAL_MS = MIN_EVERY_INTERVAL_SECONDS * 1_000
 
+class DeliveryStepAbandonedError extends Error {}
+
 /** Resolved deployment limits of one runtime. */
 export interface ScheduleRuntimeLimits {
   /** Retention window and record cap applied on each delivery commit. */
@@ -88,6 +90,7 @@ export class ScheduleRuntime {
   private running: Promise<void> | undefined
   private readonly executing = new Set<ScheduleId>()
   private readonly stop = new AbortController()
+  private readonly manual = new Set<Promise<unknown>>()
   private stopping = false
   private requested = false
   private failureStreak = 0
@@ -151,6 +154,7 @@ export class ScheduleRuntime {
     this.clearTimer()
     // requestDrive reports execution failures; teardown only waits for quiescence.
     await this.running?.catch(() => undefined)
+    await Promise.allSettled([...this.manual])
   }
 
   /**
@@ -162,7 +166,7 @@ export class ScheduleRuntime {
   async runNow(id: ScheduleId, signal?: AbortSignal): Promise<
     { readonly task: ScheduleTask; readonly admitted: boolean } | undefined
   > {
-    return this.ctx.agents.withoutInitiator(async () => {
+    const run = this.ctx.agents.withoutInitiator(async () => {
       const task = await this.exclusive(() => {
         signal?.throwIfAborted()
         if (this.stopping) throw new Error('Schedule runtime is stopping')
@@ -197,10 +201,9 @@ export class ScheduleRuntime {
         const delivered = await this.transact(async () => {
           const current = this.current(id)
           if (current === undefined) return
-          if (!isDeepStrictEqual(current.target, staged.current.target)) return current
-          const next = this.delivered(current, {
+          const next = this.keepTarget(this.delivered(current, {
             scheduledAt: occurrenceAt, deliveredAt, messageId: sent.messageId, targetSessionId: resolved.target.sessionId,
-          })
+          }), current, staged.current)
           await this.commit(next)
           committed.add(id)
           return next
@@ -210,6 +213,12 @@ export class ScheduleRuntime {
         this.settle(sent.held, committed, sent.execution)
       }
     })
+    this.manual.add(run)
+    try {
+      return await run
+    } finally {
+      this.manual.delete(run)
+    }
   }
 
   /**
@@ -368,6 +377,7 @@ export class ScheduleRuntime {
     try {
       agent = await this.activate(receipt.targetSessionId)
     } catch (error: unknown) {
+      if (error instanceof DeliveryStepAbandonedError) throw error
       this.ctx.logger.warn(`schedule: could not restore the last delivery's Session for task "${task.record.id}": ${String(error)}`)
       return false
     }
@@ -435,9 +445,9 @@ export class ScheduleRuntime {
     let grace: ReturnType<typeof setTimeout> | undefined
     let onAbort: (() => void) | undefined
     const expired = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => { reject(new Error(`schedule: delivery step exceeded ${DELIVERY_STEP_TIMEOUT_MS} ms`)) }, DELIVERY_STEP_TIMEOUT_MS)
+      timer = setTimeout(() => { reject(new DeliveryStepAbandonedError(`schedule: delivery step exceeded ${DELIVERY_STEP_TIMEOUT_MS} ms`)) }, DELIVERY_STEP_TIMEOUT_MS)
       timer.unref()
-      const stopping = (): void => { reject(new Error('Schedule runtime is stopping')) }
+      const stopping = (): void => { reject(new DeliveryStepAbandonedError('Schedule runtime is stopping')) }
       onAbort = enqueued ? () => { grace = setTimeout(stopping, STOP_FLUSH_GRACE_MS) } : stopping
       if (this.stop.signal.aborted) onAbort()
       else this.stop.signal.addEventListener('abort', onAbort, { once: true })
@@ -453,12 +463,19 @@ export class ScheduleRuntime {
     { task, occurrence }: StagedMember, sessionId: SessionIdType, sent: EnqueuedReminder, deliveredAt: string,
   ): Promise<boolean> {
     const current = this.current(task.record.id)
-    if (current === undefined || !isDeepStrictEqual(current.target, task.target)) return false
+    if (current === undefined) return false
     const receipt = { scheduledAt: occurrence.occurrenceAt, deliveredAt, messageId: sent.messageId, targetSessionId: sessionId }
     const sameRule = current.status === 'active'
       && isDeepStrictEqual({ ...current.record, title: '', prompt: '' }, { ...task.record, title: '', prompt: '' })
-    await this.commit(sameRule ? this.advanced(current, occurrence, receipt) : this.delivered(current, receipt))
+    const next = sameRule ? this.advanced(current, occurrence, receipt) : this.delivered(current, receipt)
+    await this.commit(this.keepTarget(next, current, task))
     return true
+  }
+
+  private keepTarget(next: ScheduleTask, current: ScheduleTask, expected: ScheduleTask): ScheduleTask {
+    return isDeepStrictEqual(current.target, expected.target)
+      ? next
+      : { ...next, target: current.target, pendingDelivery: current.pendingDelivery }
   }
 
   /** Release each uncommitted held slot now and each committed one at the target Agent's whole-agent idle boundary. */

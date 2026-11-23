@@ -153,3 +153,61 @@ describe('stalled Session flush', () => {
     expect(test.stalled.followup).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('changes and recovery around an in-flight delivery', () => {
+  it('records the receipt and advances when the target changed during the flush instead of delivering again', async () => {
+    const test = await setup()
+    test.activation.resolve({ agent: test.stalled })
+    const flushed = Promise.withResolvers<undefined>()
+    test.flush.mockImplementationOnce(() => flushed.promise)
+    await vi.advanceTimersByTimeAsync(300_000)
+    await within(test.service.edit({ id: test.due.id, action: 'update', patch: { target: { kind: 'session', sessionId: OTHER } } }))
+    flushed.resolve(undefined)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(test.stalled.followup).toHaveBeenCalledTimes(1)
+    expect(test.other.followup).not.toHaveBeenCalled()
+    expect(taskTable(test.ctx).get(test.due.id)).toMatchObject({
+      target: { kind: 'session', sessionId: OTHER }, record: { scheduledAt: '2026-09-16T00:10:00.000Z' },
+      lastDelivery: { scheduledAt: '2026-09-16T00:05:00.000Z', targetSessionId: STALLED },
+    })
+  })
+
+  it('drains a manual run through its receipt commit when disposal starts during its flush', async () => {
+    const test = await setup()
+    test.activation.resolve({ agent: test.stalled })
+    const flushed = Promise.withResolvers<undefined>()
+    test.flush.mockImplementationOnce(() => flushed.promise)
+    const running = test.service.run({ id: test.due.id })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(test.stalled.followup).toHaveBeenCalledTimes(1)
+    const disposing = test.ctx.fiber.dispose()
+    await vi.advanceTimersByTimeAsync(1_000)
+    flushed.resolve(undefined)
+    await disposing
+    expect(await running).toMatchObject({ id: test.due.id, lastDelivery: { targetSessionId: STALLED } })
+  })
+
+  it('fails the delivery when recovery of the last delivery stalls instead of enqueueing a second copy', async () => {
+    const test = await setup()
+    test.activation.resolve({ agent: test.stalled })
+    await vi.advanceTimersByTimeAsync(300_000)
+    expect(test.stalled.followup).toHaveBeenCalledTimes(1)
+    test.resolve.mockImplementationOnce(() => new Promise(() => {}))
+    await vi.advanceTimersByTimeAsync(300_000 + DELIVERY_STEP_TIMEOUT_MS + 1_000)
+    expect(test.stalled.followup).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(test.stalled.followup).toHaveBeenCalledTimes(2)
+  })
+
+  it('delivers an unrelated due reminder once the stalled group reaches its deadline', async () => {
+    const test = await setup()
+    const unrelated = await test.service.create({
+      title: 'Unrelated', prompt: 'Unrelated prompt', timing: { kind: 'every', every_seconds: 300 }, target: { kind: 'session', sessionId: OTHER },
+    })
+    await vi.advanceTimersByTimeAsync(300_000)
+    expect(test.other.followup).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(DELIVERY_STEP_TIMEOUT_MS)
+    expect(test.other.followup).toHaveBeenCalledTimes(1)
+    expect(taskTable(test.ctx).get(unrelated.id)?.lastDelivery).toMatchObject({ targetSessionId: OTHER })
+  })
+})
