@@ -357,6 +357,22 @@ describe('WebSearchCardController legacy key', () => {
     b.controller.dispose()
   })
 
+  it('leaves the provider selection unapplied when the first key write is refused', async () => {
+    const b = bench({ accept: true, configured: false })
+    serve(b)
+    await vi.waitFor(() => { expect(b.state().search.options).toHaveLength(2) })
+    b.credentials.set.mockImplementationOnce(() => Promise.resolve({
+      ok: false as const, error: new RemoteError('credential/rejected', 'refused', { ref: LEGACY_KEY }),
+    }))
+    b.face.selectProvider('searchProvider', 'deepseek-official')
+    b.face.edit('legacyApiKey', 'typed')
+    b.face.save()
+    await vi.waitFor(() => { expect(b.state()).toMatchObject({ failed: true, dirty: true, saving: false }) })
+    expect(b.web.mutate).not.toHaveBeenCalled()
+    expect(b.state().legacyKey).toMatchObject({ text: 'typed', configured: false })
+    b.controller.dispose()
+  })
+
   it('reports a provider read that throws as a failure and recovers on retry', async () => {
     const remote = remoteApi(true)
     const listProviders = vi.fn((): Promise<ProviderResponse> => { throw new Error('no Connection') })
