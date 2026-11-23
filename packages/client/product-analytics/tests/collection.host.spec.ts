@@ -309,3 +309,9 @@ it('replaces string attributes over 256 UTF-8 bytes before they reach the export
   await b.ctx.productAnalytics.report({ eventName: 'plugin_install_click', timestamp: 3, attributes: { input_value: 'x'.repeat(256) } })
   expect(b.emit.mock.calls.map(([record]) => record.attributes?.input_value)).toEqual(['[oversized]', '[oversized]', 'x'.repeat(256)])
 })
+
+it('reports an event that arrives without an attributes object', async () => {
+  const b = await setup(true)
+  await b.ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: 100 } as never)
+  expect(b.emit.mock.calls[0]?.[0].attributes).toEqual({ ...commonEnvironment, device_id: 'login-device', user_id: 'user-1', app_version: 'test-version' })
+})

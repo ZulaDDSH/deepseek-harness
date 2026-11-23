@@ -144,7 +144,7 @@ export default class ProductAnalytics extends TypertRemoteService {
       this.ctx.productTelemetry.emit({
         ...event, body: event.eventName,
         attributes: {
-          ...boundAttributes(event.attributes),
+          ...boundAttributes(event.attributes ?? {}),
           ...metadata,
           ...missing === '' ? {} : { missing_fields: missing },
           ...identity?.deviceId === undefined ? {} : { device_id: identity.deviceId },
