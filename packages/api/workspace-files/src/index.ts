@@ -29,7 +29,7 @@ import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { Remote, RemoteError, TypertRemoteService, type TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, RemoteError, TypertRemoteService, principalOf, type TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
 import { WorkspaceChangeFeed } from './changes.ts'
 import { searchWorkspace, type SearchLimits } from './search.ts'
 import type {
@@ -88,7 +88,7 @@ export interface Config {
   /** Cap on returned directory entries; the rest is dropped and reported cut. */
   readonly maxEntries: number
   readonly confineReads: boolean
-  readonly readRoots: readonly string[]
+  readonly readRoots: string[]
   /** Budgets on one search's matches, listed files, deadline and ripgrep process. */
   readonly search: SearchLimits
 }
@@ -404,8 +404,7 @@ export class WorkspaceFiles extends TypertRemoteService {
   @Remote({ mode: 'stream' })
   changes(workspaceFileScope: WorkspaceFileScope, path: string, signal: AbortSignal): AsyncIterable<WorkspaceFileWatchFrame> {
     const { workspaceRoot } = workspaceFileScope
-    const confined = this.config.confineReads && workspaceFileScope.trusted !== true
-    return this.feed.follow(workspaceRoot, path, signal, confined ? target => this.inReadRoot(workspaceRoot, target, signal) : undefined)
+    return this.feed.follow(workspaceRoot, path, signal, this.scoped(workspaceFileScope) ? target => this.inReadRoot(workspaceRoot, target, signal) : undefined)
   }
 
   private async relativePath(scope: WorkspaceFileScope, baseFile: string, path: string, signal: AbortSignal): Promise<string> {
@@ -474,6 +473,10 @@ export class WorkspaceFiles extends TypertRemoteService {
     return target
   }
 
+  private scoped(workspaceFileScope: WorkspaceFileScope): boolean {
+    return this.config.confineReads && workspaceFileScope.trusted !== true && principalOf(this.ctx.invocation) !== undefined
+  }
+
   private async inReadRoot(workspaceRoot: string, target: FsTarget, signal: AbortSignal): Promise<boolean> {
     for (const allowed of this.config.readRoots) {
       if (this.ctx.fs.contains(await this.ctx.fs.resolve(allowed, { cwd: workspaceRoot, signal }), target)) return true
@@ -495,7 +498,7 @@ export class WorkspaceFiles extends TypertRemoteService {
     if (entry.type !== 'file') {
       throw new RemoteError('workspace-file/not-regular-file', `"${path}" is a ${entry.type}`, { path, kind: entry.type })
     }
-    const target = this.config.confineReads && workspaceFileScope.trusted !== true
+    const target = this.scoped(workspaceFileScope)
       ? await this.confine(root, workspaceRoot, path, signal)
       : await this.ctx.fs.resolve(path, { cwd: workspaceRoot, signal })
     const info = await this.ctx.fs.stat(target, signal)
