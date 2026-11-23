@@ -328,7 +328,7 @@ describe('Automatic chat saves', () => {
     expect(calls).toHaveLength(0)
     expect(searches).toHaveLength(0)
     expect(bindings).toHaveLength(0)
-    expect(await ctx.memoryWorkspace.status()).toEqual({ chatMemory: false, server: 'ready' })
+    expect(await ctx.memoryWorkspace.status()).toEqual({ chatMemory: false, server: 'ready', maxDocumentBytes: 16 * 1024 * 1024 })
   })
 
   it('reports a Memorix server that is not mounted as a save failure instead of an error', async () => {
@@ -713,6 +713,6 @@ describe('Memory policy and first-message recall', () => {
 
   it('reports the chat-memory switch and a connected Memorix with no recorded failures', async () => {
     const { ctx } = await fixture()
-    expect(await ctx.memoryWorkspace.status()).toEqual({ chatMemory: true, server: 'ready' })
+    expect(await ctx.memoryWorkspace.status()).toEqual({ chatMemory: true, server: 'ready', maxDocumentBytes: 16 * 1024 * 1024 })
   })
 })

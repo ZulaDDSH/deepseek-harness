@@ -167,6 +167,7 @@ export default class MemoryWorkspace extends TypertRemoteService {
     return {
       ...this.automation.snapshot(),
       chatMemory: this.config.chatMemory?.get() ?? true,
+      maxDocumentBytes: this.config.maxDocumentBytes,
       ...await this.connectionStatus(),
     }
   }

@@ -22,6 +22,7 @@ export interface MemoryActivity {
 /** Automatic chat memory switch, Memorix state and the latest outcomes shown on the Memory page. */
 export interface MemoryStatus extends MemoryActivity {
   chatMemory: boolean
+  maxDocumentBytes: number
   /** `ready` once the Memorix client is connected, `starting` while it connects, `unavailable` when it failed or is not mounted. */
   server: 'ready' | 'starting' | 'unavailable'
   /** Why Memorix is unavailable; absent otherwise. */

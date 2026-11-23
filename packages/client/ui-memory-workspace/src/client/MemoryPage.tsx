@@ -202,16 +202,23 @@ export function MemoryPage({ memory, t }: PageProps): ReactNode {
     setBusy(true)
     setImportError('')
     const outcomes: MemoryImportResult[] = []
+    const refused: string[] = []
+    let failed = ''
     setImports([])
     setUploading(true)
     try {
       for (const file of Array.from(files)) {
+        if (status !== null && file.size > status.maxDocumentBytes) {
+          refused.push(`${file.name}: ${t('fileTooLarge')} ${Number((status.maxDocumentBytes / 1_048_576).toFixed(2))} MiB`)
+          continue
+        }
         const bytes = new Uint8Array(await file.arrayBuffer())
         outcomes.push(answer(await memory.importDocument(file.name, bytesToBase64(bytes))))
         setImports([...outcomes])
       }
-    } catch (failure) { setImportError(reason(failure)) }
+    } catch (failure) { failed = reason(failure) }
     finally {
+      setImportError([...refused, failed].filter(text => text !== '').join('\n'))
       if (outcomes.some(result => result.completed > 0)) setRevision(value => value + 1)
       setBusy(false)
       setUploading(false)
