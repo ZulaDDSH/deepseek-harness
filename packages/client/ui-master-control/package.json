@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-master-control",
   "description": "Master Control for the dsh web client: a sidebar panel above Plugins listing every Session with its live status, opening it, and interrupting a running turn",
-  "version": "0.2.2-alpha.2",
+  "version": "0.2.2-alpha.3",
   "publishConfig": {
     "access": "public"
   },
