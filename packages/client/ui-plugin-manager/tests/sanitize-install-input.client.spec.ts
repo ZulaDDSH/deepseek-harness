@@ -1,7 +1,17 @@
 import { expect, it } from 'vitest'
 import { sanitizeInstallInput } from '../src/client/sanitize-install-input.ts'
 
-it.each(['dsh-example', '@scope/plugin', '@scope/plugin@1.2.3', 'plugin@latest'])('retains a registry identifier: %s', (spec) => {
+it.each([
+  'dsh-example',
+  '@scope/plugin',
+  '@scope/plugin@1.2.3',
+  'plugin@latest',
+  '@sk-team/pkg',
+  'sk-utils',
+  'pk_helper',
+  'rk-ui-kit@1.0.0',
+  'akiamusicplayer1',
+])('retains a registry identifier: %s', (spec) => {
   expect(sanitizeInstallInput(spec)).toBe(spec)
 })
 
@@ -22,6 +32,8 @@ it.each([
   'github_pat_fixture',
   'xoxb-fixture',
   'AKIAFIXTURES',
+  'plugin@AKIAFIXTURES',
+  'sk_live_abcdef0123456789',
   'plugin@sk-proj-abc123DEF456',
   'abcdef0123456789abcdef0123456789',
   'abcdef0123456789abcdef0123456789@latest',
