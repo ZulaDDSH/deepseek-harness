@@ -22,7 +22,7 @@ concurrency:
 jobs:
   publish-status:
     if: >-
-      github.repository == 'deepseek-harness/deepseek-harness' &&
+      github.repository == (vars.WEIGHTED_APPROVAL_REPOSITORY || 'deepseek-harness/deepseek-harness') &&
       (github.event_name != 'pull_request_target' || github.event.pull_request.state == 'open') &&
       (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
       (github.event_name != 'issue_comment' || (github.event.issue.pull_request && github.event.issue.state == 'open' &&
@@ -49,8 +49,8 @@ jobs:
         with:
           client-id: ${{ vars.DSH_APPROVAL_APP_CLIENT_ID }}
           private-key: ${{ secrets.DSH_APPROVAL_APP_PRIVATE_KEY }}
-          owner: deepseek-harness
-          repositories: deepseek-harness
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
           permission-checks: write
       - name: Revoke previous approval status
         id: revoke
