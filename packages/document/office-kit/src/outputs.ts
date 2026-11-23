@@ -25,10 +25,14 @@ interface Entry {
   removal?: Promise<boolean>
 }
 
-interface SaveTicket {
+export interface OutputReservation {
   readonly owner: string
   released: boolean
-  done: Promise<unknown>
+  finish(): void
+}
+
+interface OpenReservation extends OutputReservation {
+  readonly settled: Promise<void>
 }
 
 /** Names {@link ownerDirectory} generates. */
@@ -70,7 +74,7 @@ export class OutputStore {
   private disposed = false
   private readonly sweep: Promise<void>
   private saving: Promise<unknown> = Promise.resolve()
-  private readonly tickets = new Set<SaveTicket>()
+  private readonly reservations = new Set<OpenReservation>()
   /** Deletions and releases in progress, awaited by disposal. */
   private readonly pending = new Set<Promise<unknown>>()
 
@@ -82,6 +86,16 @@ export class OutputStore {
     this.sweep = this.sweepExpired()
   }
 
+  reserve(owner: string): OutputReservation {
+    const settled = Promise.withResolvers<void>()
+    const reservation: OpenReservation = {
+      owner, released: false, settled: settled.promise,
+      finish: () => { this.reservations.delete(reservation); settled.resolve() },
+    }
+    this.reservations.add(reservation)
+    return reservation
+  }
+
   /**
    * Save one output for an owner.
    * @param owner - opaque owner identity, such as a Session id.
@@ -91,18 +105,16 @@ export class OutputStore {
    * @throws {OfficeKitError} `output-too-large` when the file alone exceeds the byte budget, and `unavailable` after
    * disposal or when retained files whose deletion failed leave too little of the budget.
    */
-  save(owner: string, name: string, data: Uint8Array, signal?: AbortSignal): Promise<string> {
-    const ticket: SaveTicket = { owner, released: false, done: Promise.resolve() }
-    const saved = this.saving.then(() => this.saveNow(owner, name, data, ticket, signal))
+  save(owner: string, name: string, data: Uint8Array, signal?: AbortSignal, reservation?: OutputReservation): Promise<string> {
+    const fence = reservation ?? this.reserve(owner)
+    const saved = this.saving.then(() => this.saveNow(owner, name, data, fence, signal))
     this.saving = saved.catch((_failedSave: unknown) => undefined)
-    ticket.done = this.saving
-    this.tickets.add(ticket)
-    void this.saving.then(() => { this.tickets.delete(ticket) })
+    if (reservation === undefined) void this.saving.then(() => { fence.finish() })
     return saved
   }
 
   /** Saves run one at a time so the byte budget covers every retained file. */
-  private async saveNow(owner: string, name: string, data: Uint8Array, ticket: SaveTicket, signal: AbortSignal | undefined): Promise<string> {
+  private async saveNow(owner: string, name: string, data: Uint8Array, ticket: OutputReservation, signal: AbortSignal | undefined): Promise<string> {
     await this.sweep
     if (this.disposed) throw new OfficeKitError('unavailable', 'The document converter is unavailable.')
     this.throwIfStale(ticket, signal)
@@ -135,7 +147,7 @@ export class OutputStore {
     return path
   }
 
-  private throwIfStale(ticket: SaveTicket, signal: AbortSignal | undefined): void {
+  private throwIfStale(ticket: OutputReservation, signal: AbortSignal | undefined): void {
     signal?.throwIfAborted()
     if (ticket.released) throw new OfficeKitError('unavailable', 'The owner of this output was released before it was saved.')
   }
@@ -150,9 +162,9 @@ export class OutputStore {
   }
 
   private async releaseNow(owner: string): Promise<void> {
-    const saves = [...this.tickets].filter(ticket => ticket.owner === owner)
-    for (const ticket of saves) ticket.released = true
-    await Promise.all(saves.map(ticket => ticket.done))
+    const open = [...this.reservations].filter(reservation => reservation.owner === owner)
+    for (const reservation of open) reservation.released = true
+    await Promise.all(open.map(reservation => reservation.settled))
     await Promise.all([...this.entries.values()].filter(entry => entry.owner === owner).map(entry => this.remove(entry)))
     await this.removeEmpty(join(this.options.root, ownerDirectory(owner)))
   }

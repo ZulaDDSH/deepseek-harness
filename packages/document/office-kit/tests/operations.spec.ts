@@ -1,5 +1,5 @@
 /** Image rendering, format conversion, and recalculation read bounded engine output from private scratch files. */
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -274,4 +274,33 @@ it('rejects a saved output after cancellation and a relative output directory', 
   await expect(provider.convertTo({ extension: 'docx', format: 'pdf', source: source(),
     output: { owner: 'session', name: 'doc.pdf' } }, controller.signal)).rejects.toThrow()
   expect(() => new OfficeKit(new Context(), Config({ outputDirectory: 'relative' }))).toThrow('outputDirectory must be an absolute path')
+})
+
+it.each(['convertTo', 'recalculate'] as const)('keeps no output when its Session is disposed while %s is still converting', async (method) => {
+  const provider = await mount()
+  const entered = Promise.withResolvers<undefined>()
+  const release = Promise.withResolvers<undefined>()
+  const pause = async ({ outputPath }: { outputPath: string }) => {
+    entered.resolve(undefined)
+    await release.promise
+    await writeFile(outputPath, XLSX)
+    return { backend: 'native' as const, missingFonts: [] }
+  }
+  converter.convert.mockImplementationOnce(pause)
+  converter.recalculate.mockImplementationOnce(pause)
+  const output = { owner: 'gone', name: 'book.xlsx' }
+  const converting = method === 'convertTo'
+    ? provider.convertTo({ extension: 'xlsx', format: 'xlsx', source: source(), output })
+    : provider.recalculate({ extension: 'xlsx', format: 'xlsx', source: source(), output })
+  const rejected = expect(converting).rejects.toMatchObject({ code: 'unavailable' })
+  await entered.promise
+  ctx.emit('session/disposed', { id: 'gone' } as never)
+  release.resolve(undefined)
+  await rejected
+  const kept = await readdir(provider.outputDirectory).catch(() => [] as string[])
+  for (const owner of kept) expect(await readdir(join(provider.outputDirectory, owner))).toEqual([])
+  const next = method === 'convertTo'
+    ? await provider.convertTo({ extension: 'xlsx', format: 'xlsx', source: source('next'), output: { owner: 'gone', name: 'again.xlsx' } })
+    : await provider.recalculate({ extension: 'xlsx', format: 'xlsx', source: source('next'), output: { owner: 'gone', name: 'again.xlsx' } })
+  await access(next.path)
 })
