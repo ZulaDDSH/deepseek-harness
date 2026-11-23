@@ -29,7 +29,7 @@ Load this plugin in any composition where the agent should keep shell state betw
 
 ### When to choose it
 
-Choose the persistent tool when work depends on cross-call state: a one-shot `dsh-tool-bash` call cannot remember a `cd` or an exported variable. Choose the one-shot tool when every command should start from a known, clean environment, or when the command is short and self-contained. Commands that need interactive stdin are unsupported here — a foreground child that reads input blocks until the command timeout — so interactive work belongs to the terminal tools.
+Choose the persistent tool when work depends on cross-call state: a one-shot `dsh-tool-bash` call cannot remember a `cd` or an exported variable. Choose the one-shot tool when every command should start from a known, clean environment, or when the command is short and self-contained. Commands that need interactive stdin are unsupported here — where the provider proves the child's stdin wait the call returns early with partial output and leaves the shell open, so that child can consume the next call's command, and elsewhere the call runs to the command timeout — so interactive work belongs to the terminal tools.
 
 ### Minimal configuration
 
@@ -143,7 +143,7 @@ Append-only tool results follow the reusable request prefix.
 These limits define when the tool is a poor fit or needs special care. They are current package constraints, not a task backlog.
 
 - **The tool requires an owning agent and a real PTY backend** — agent-less calls and backends that cannot start an interactive shell fail.
-- **An interactive foreground child returns early with partial output only where the subprocess provider proves its stdin wait** — elsewhere the call runs to `timeoutMs`.
+- **An interactive foreground child returns early with partial output only where the subprocess provider proves its stdin wait** — elsewhere the call runs to `timeoutMs`. The early return leaves the shell open with the child still attached, so the next call's wrapped command can be read by that child as its input until that call reaches `timeoutMs` and resets the shell; the tool cannot tell a child's input wait from the shell's own prompt and has no input operation, and it does not reset on the early return because `exec` and interrupts return the same way.
 - **Explicit `exit` and timeout discard shell state** — cancellation also resets and discards the result, even when a complete status marker is already observable; the next call starts a fresh shell.
 - **Environment facts such as network access and package mirrors belong in the configured `description`** — not this package's default.
 - **Raw control characters other than newline and carriage return reach readline as typed keys** — a literal TAB, ESC, or DEL in the command is consumed as an editing key, so content that needs them, such as a Makefile heredoc, should be written with a file tool or produced by `printf` escapes.
