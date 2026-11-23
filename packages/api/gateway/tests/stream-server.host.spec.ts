@@ -5,6 +5,8 @@ import { remoteErrorOf, type PeerId, type PeerScope } from '@deepseek-ai/dsh-typ
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import WebSocket from 'ws'
 import {
+  MAX_CONNECTION_INBOX_BYTES,
+  MAX_STREAMS_PER_CONNECTION,
   RemoteStreamMuxServer,
   type RemoteStreamFailureMapper,
   type RemoteStreamOpener,
@@ -547,6 +549,75 @@ describe('Remote stream mux server uplink', () => {
         },
       }])
     })
+    client.close()
+    await once(client, 'close')
+  })
+
+  it('refuses a stream open beyond the per-connection limit and admits one after a stream ends', async () => {
+    const entry = await startMux(async (_endpoint, _payload, _uplink, _peer, control) => waitForAbort(control.signal))
+    const client = await connect(entry.url)
+    const frames = collectFrames(client)
+    const received = countMessages(acceptedSocket(entry.mux))
+    for (let index = 0; index < MAX_STREAMS_PER_CONNECTION; index += 1) client.send(openFrame(`s${String(index)}`))
+    client.send(openFrame('extra'))
+    await vi.waitFor(() => { expect(received.count).toBe(MAX_STREAMS_PER_CONNECTION + 1) })
+    await vi.waitFor(() => {
+      expect(frames).toEqual([{
+        type: 'error',
+        streamId: 'extra',
+        error: {
+          code: 'gateway/protocol',
+          message: `api gateway: Remote stream limit of ${String(MAX_STREAMS_PER_CONNECTION)} per connection reached`,
+          details: { endpoint: 'fixture/follow' },
+        },
+      }])
+    })
+    expect(client.readyState).toBe(WebSocket.OPEN)
+
+    client.send(JSON.stringify({ type: 'cancel', streamId: 's0' }))
+    client.send(openFrame('again'))
+    client.send(JSON.stringify({ type: 'cancel', streamId: 'again' }))
+    await vi.waitFor(() => { expect(received.count).toBe(MAX_STREAMS_PER_CONNECTION + 4) })
+    expect(frames).toHaveLength(1)
+    client.close()
+    await once(client, 'close')
+  })
+
+  it('fails a stream whose item exceeds the connection-wide uplink budget and frees it on cancel', async () => {
+    const entry = await startMux(async (endpoint, _payload, uplink, _peer, control) =>
+      endpoint === 'fixture/echo' ? echoUplink(uplink) : waitForAbort(control.signal), 2_000, MAX_CONNECTION_INBOX_BYTES)
+    const client = await connect(entry.url)
+    const frames = collectFrames(client)
+    const received = countMessages(acceptedSocket(entry.mux))
+    const chunk = 'x'.repeat(2 * 1024 * 1024)
+    let sent = 0
+    let streams = 0
+    while (sent + chunk.length + 64 <= MAX_CONNECTION_INBOX_BYTES) {
+      client.send(openFrame(`b${String(streams)}`))
+      client.send(itemFrame(`b${String(streams)}`, chunk))
+      sent += chunk.length + 64
+      streams += 1
+    }
+    client.send(openFrame('over'))
+    client.send(itemFrame('over', chunk))
+    await vi.waitFor(() => { expect(received.count).toBe(streams * 2 + 2) })
+    await vi.waitFor(() => {
+      expect(frames).toEqual([{
+        type: 'error',
+        streamId: 'over',
+        error: {
+          code: 'gateway/uplink-overflow',
+          message: `api gateway: Remote stream connection uplink exceeded ${String(MAX_CONNECTION_INBOX_BYTES)} buffered bytes`,
+          details: { endpoint: 'fixture/follow' },
+        },
+      }])
+    })
+
+    for (let index = 0; index < streams; index += 1) client.send(JSON.stringify({ type: 'cancel', streamId: `b${String(index)}` }))
+    client.send(openFrame('after', 'fixture/echo'))
+    client.send(itemFrame('after', chunk))
+    await vi.waitFor(() => { expect(frames.at(-1)).toEqual({ type: 'item', streamId: 'after', value: chunk }) })
+    expect(frames).toHaveLength(2)
     client.close()
     await once(client, 'close')
   })

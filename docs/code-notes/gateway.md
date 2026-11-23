@@ -1,0 +1,5 @@
+# gateway code notes
+
+`packages/api/gateway/src/stream-server.ts:RemoteStreamMuxConnection::openStream`: a connection used to admit any number of distinct logical stream ids, each with its own handler and inbox. It now refuses an `open` once `MAX_STREAMS_PER_CONNECTION` streams are active, answering that stream id with a `gateway/protocol` error frame and leaving the socket and the other streams alone. The refused id is not registered, so its later `item`, `end` and `cancel` frames are dropped like frames for a finished stream.
+
+`packages/api/gateway/src/stream-server.ts:ConnectionInboxBudget`: `streamInboxBytes` bounds one stream, so many streams could still buffer without limit. All inboxes of one connection now charge a shared budget of `max(MAX_CONNECTION_INBOX_BYTES, streamInboxBytes)` bytes; an item that would exceed it fails only its own stream with `gateway/uplink-overflow`. The budget is released when an item is read, or when the inbox fails or returns, so cancellation and disconnect leave it at zero.
