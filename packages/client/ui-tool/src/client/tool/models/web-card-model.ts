@@ -72,11 +72,14 @@ export function webCardModel(block: ToolCallBlock): WebCardModelProps | null {
     }
   }
   if (typeof meta.url !== 'string') return null
-  if (meta.statusCode !== undefined && (typeof meta.statusCode !== 'number' || !Number.isInteger(meta.statusCode))) return null
+  const finalUrl = meta.finalUrl === undefined ? meta.url : meta.finalUrl
+  if (finalUrl !== null && typeof finalUrl !== 'string') return null
+  if (meta.statusCode !== undefined && meta.statusCode !== null && (typeof meta.statusCode !== 'number' || !Number.isInteger(meta.statusCode))) return null
   return {
     kind: 'fetch',
-    url: meta.url,
-    ...meta.statusCode === undefined ? {} : { statusCode: meta.statusCode },
+    url: finalUrl ?? meta.url,
+    ...typeof meta.statusCode === 'number' ? { statusCode: meta.statusCode } : {},
+    ...finalUrl === null ? { finalUrlUnreported: true } : {},
     truncated: meta.truncated,
   }
 }

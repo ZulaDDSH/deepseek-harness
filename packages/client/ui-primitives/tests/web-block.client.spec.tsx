@@ -210,8 +210,10 @@ describe('WebBlock fetch card', () => {
     expect(view.getByText('HTTP 404')).toBeTruthy()
   })
 
-  it('omits the status when the fetch service reported none', () => {
-    const view = render(<WebBlock kind="fetch" url="https://example.com/page" truncated={false} />)
-    expect(view.container.textContent).not.toContain('HTTP')
+  it('labels an unreported status instead of showing a status code', () => {
+    const view = render(<WebBlock kind="fetch" url="https://example.com/page" truncated={false} finalUrlUnreported />)
+    expect(view.getByText('已获取 · 未报告 HTTP 状态')).toBeTruthy()
+    expect(view.getByText('未报告最终 URL')).toBeTruthy()
+    expect(view.container.textContent).not.toContain('HTTP 200')
   })
 })

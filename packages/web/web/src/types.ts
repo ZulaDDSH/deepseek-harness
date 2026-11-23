@@ -90,10 +90,9 @@ export interface WebFetchRequest {
  * represent the resource.
  */
 export interface WebFetchResult {
-  /** The final URL after allowed redirects (the request URL is in the request). */
   readonly url: string
-  /** HTTP status code of the fetched response. */
-  readonly statusCode?: number
+  readonly finalUrl: string | null
+  readonly statusCode: number | null
   /** Decoded body, classified by content kind. */
   readonly body: WebFetchBody
   /** True when the provider capped the decoded body. */

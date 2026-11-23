@@ -101,7 +101,7 @@ export class HttpFetchProvider implements WebFetchProvider {
         continue
       }
 
-      return await this.readBody(response, currentUrl, signal)
+      return await this.readBody(response, initialUrl, currentUrl, signal)
     }
   }
 
@@ -121,7 +121,7 @@ export class HttpFetchProvider implements WebFetchProvider {
   }
 
   /** Read, byte-cap, classify, and decode the final response body. */
-  private async readBody(response: Response, finalUrl: URL, signal: AbortSignal): Promise<WebFetchResult> {
+  private async readBody(response: Response, requestedUrl: string, finalUrl: URL, signal: AbortSignal): Promise<WebFetchResult> {
     const contentType = response.headers.get('content-type')
     const kind = classifyContentType(contentType)
     if (kind === undefined) {
@@ -154,7 +154,8 @@ export class HttpFetchProvider implements WebFetchProvider {
     const body: WebFetchBody = kind === 'html' ? { kind: 'html', content } : { kind: 'text', content }
 
     return {
-      url: finalUrl.toString(),
+      url: requestedUrl,
+      finalUrl: finalUrl.toString(),
       statusCode: response.status,
       body,
       truncated: truncatedByBytes || truncatedByChars,

@@ -644,7 +644,7 @@ describe('image attachments', () => {
     ])
     const results = record.events.flatMap(event => event.type === 'tool/result' ? [event.data] : [])
     expect(results.map(data => data.message.isError)).toEqual([false, false])
-    expect(results[0]?.meta).toEqual({ url: 'https://b.example/macaw', statusCode: 200, truncated: false })
+    expect(results[0]?.meta).toEqual({ url: 'https://b.example/macaw', finalUrl: null, statusCode: null, truncated: false })
     const reasoning = record.events.flatMap(event => event.type === 'assistant/message'
       ? event.data.message.content.flatMap(block => block.type === 'reasoning' ? [block.text] : [])
       : [])

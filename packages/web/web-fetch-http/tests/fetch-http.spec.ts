@@ -304,7 +304,8 @@ describe('HttpFetchProvider redirects', () => {
     }
     const result = await provider().fetch({ url: `${base}/start` })
     expect(result.body.content).toBe('arrived')
-    expect(result.url).toBe(`${base}/end`)
+    expect(result.url).toBe(`${base}/start`)
+    expect(result.finalUrl).toBe(`${base}/end`)
   })
 
   it('blocks a cross-origin redirect with WEB_REDIRECT_BLOCKED', async () => {

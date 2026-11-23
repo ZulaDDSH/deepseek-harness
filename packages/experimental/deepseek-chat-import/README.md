@@ -164,7 +164,7 @@ The first request after resume has no reusable cached prefix; later requests ext
 - **Separate title limit** — the session-title service does not expose its `maxTitleBytes`, so a composition that changes it sets this package's `maxTitleBytes` to the same value.
 - **Content not imported** — other branches, content-filtered rounds, `CONTENT_RISK` disclaimers, `TIP`, `TOOL_FIND`, and `PARTIAL_FILE_READ` records, encrypted `READ_LINK` bodies (only the exported URL and title are shown), search-result `snippet` and `site_name`, the `pinned` flag, per-token times, and `accumulated_token_usage`.
 - **English diagnostics** — the explanations of excluded replies and of a failed search are fixed English text in the log and the tool result, and a `too-large` failure reported by the Host shows its English message in the dialog.
-- **Inferred tool records** — imported `web_search` / `web_fetch` calls have no matching request-header tool record, and the fetch card's `statusCode: 200` is inferred from a successful open.
+- **Inferred tool records** — imported `web_search` / `web_fetch` calls have no matching request-header tool record, and the fetch card reports the status and final URL as not reported, because a successful open does not show them.
 
 <a id="dev-note"></a>
 ### Dev Note

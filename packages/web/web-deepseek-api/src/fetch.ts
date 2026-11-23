@@ -20,11 +20,6 @@ export interface DeepSeekFetchApiOptions {
   guidance: DeepSeekWebGuidance
 }
 
-/**
- * Fetch page Markdown through the DeepSeek Fetch API. The API reports neither the
- * target's status nor a final URL, and it fails when the target yields no usable
- * content, so a success is the requested page retrieved with HTTP 200.
- */
 export class DeepSeekFetchApiProvider implements WebFetchProvider {
   readonly id = DEEPSEEK_FETCH_API_PROVIDER_ID
   /** Picker description: what this provider suits and what it costs or cannot do. */
@@ -55,7 +50,7 @@ export class DeepSeekFetchApiProvider implements WebFetchProvider {
       body: { url: request.url },
       decode: (payload): WebFetchResult => {
         if (!isRecord(payload) || typeof payload.content !== 'string') throw invalidResponse()
-        return { url: request.url, body: { kind: 'text', content: payload.content }, truncated: false }
+        return { url: request.url, finalUrl: null, statusCode: null, body: { kind: 'text', content: payload.content }, truncated: false }
       },
       guidance: options.guidance,
     }, signal)

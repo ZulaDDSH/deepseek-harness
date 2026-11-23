@@ -376,6 +376,15 @@ function renderFetchOutput(result: WebFetchResult, maxOutputChars: number): Rend
  */
 const renderCache = new WeakMap<WebFetchResult, Map<number, RenderedFetch>>()
 
+function fetchStatusPhrase(statusCode: number | null, finalUrlReported: boolean): string {
+  if (statusCode === null) {
+    return finalUrlReported
+      ? 'HTTP status not reported by the fetch service'
+      : 'HTTP status and final URL not reported by the fetch service'
+  }
+  return finalUrlReported ? `HTTP ${statusCode}` : `HTTP ${statusCode}; final URL not reported by the fetch service`
+}
+
 /**
  * The uncached conversion behind {@link renderFetchOutput}. Separated so the
  * memo wraps exactly one call site and the conversion logic stays pure.
@@ -385,8 +394,8 @@ const renderCache = new WeakMap<WebFetchResult, Map<number, RenderedFetch>>()
  * @returns the bounded text and effective truncation.
  */
 function computeFetchOutput(result: WebFetchResult, maxOutputChars: number): RenderedFetch {
-  const status = result.statusCode === undefined ? 'HTTP status and final URL not reported by the fetch service' : `HTTP ${result.statusCode}`
-  const header = `Fetched ${result.url} (${status})\n\n${EXTERNAL_WEB_CONTENT_NOTICE}\n\n`
+  const status = fetchStatusPhrase(result.statusCode, result.finalUrl !== null)
+  const header = `Fetched ${result.finalUrl ?? result.url} (${status})\n\n${EXTERNAL_WEB_CONTENT_NOTICE}\n\n`
   const rendered = renderBody(result.body, maxOutputChars)
   const prefix = `${header}${rendered.text}`
   const truncated = result.truncated || rendered.sourceTruncated || prefix.length > maxOutputChars
@@ -429,10 +438,9 @@ export function presentFetchCall(args: { url: string }): GenericCallView {
  * header line (see the web-result-card Agent Note).
  */
 export interface WebFetchMeta {
-  /** The final URL after allowed redirects. */
   url: string
-  /** HTTP status code of the fetched response. */
-  statusCode?: number
+  finalUrl: string | null
+  statusCode: number | null
   /** True when the provider, a source cut, or the output cap trimmed the content. */
   truncated: boolean
 }
@@ -452,7 +460,8 @@ export interface WebFetchMeta {
 export function fetchMetaFromValue(value: WebFetchResult, maxOutputChars: number): JsonValue {
   return {
     url: value.url,
-    ...value.statusCode === undefined ? {} : { statusCode: value.statusCode },
+    finalUrl: value.finalUrl,
+    statusCode: value.statusCode,
     truncated: renderFetchOutput(value, maxOutputChars).truncated,
   }
 }
@@ -467,9 +476,16 @@ export function fetchMetaFromValue(value: WebFetchResult, maxOutputChars: number
  */
 export function fetchMetaFromResult(meta: unknown): WebFetchMeta | undefined {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined
-  const { url, statusCode, truncated } = meta as Record<string, unknown>
-  if (typeof url !== 'string' || (statusCode !== undefined && typeof statusCode !== 'number') || typeof truncated !== 'boolean') return undefined
-  return { url, ...statusCode === undefined ? {} : { statusCode }, truncated }
+  const { url, finalUrl, statusCode, truncated } = meta as Record<string, unknown>
+  if (typeof url !== 'string' || typeof truncated !== 'boolean') return undefined
+  if (finalUrl !== undefined && finalUrl !== null && typeof finalUrl !== 'string') return undefined
+  if (statusCode !== undefined && statusCode !== null && typeof statusCode !== 'number') return undefined
+  return {
+    url,
+    finalUrl: finalUrl === undefined ? url : finalUrl,
+    statusCode: typeof statusCode === 'number' ? statusCode : null,
+    truncated,
+  }
 }
 
 /**
@@ -492,8 +508,9 @@ export function presentFetchResult(args: { url: string }, result: ToolResult): W
     card: 'web',
     kind: 'fetch',
     title: args.url,
-    url: meta.url,
-    ...meta.statusCode === undefined ? {} : { statusCode: meta.statusCode },
+    url: meta.finalUrl ?? meta.url,
+    ...meta.statusCode === null ? {} : { statusCode: meta.statusCode },
+    ...meta.finalUrl === null ? { finalUrlUnreported: true } : {},
     truncated: meta.truncated,
   }
 }
@@ -531,7 +548,8 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number, maxOutputChar
         additionalProperties: false,
         properties: {
           url: { type: 'string', required: true },
-          statusCode: { type: 'integer' },
+          finalUrl: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+          statusCode: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
           body: {
             required: true,
             oneOf: [
@@ -570,7 +588,8 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number, maxOutputChar
       )
       return {
         url: result.url,
-        ...result.statusCode === undefined ? {} : { statusCode: result.statusCode },
+        finalUrl: result.finalUrl,
+        statusCode: result.statusCode,
         body: { kind: result.body.kind, content: result.body.content },
         truncated: result.truncated,
       }

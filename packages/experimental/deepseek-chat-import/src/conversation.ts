@@ -477,7 +477,7 @@ function openCall(id: string, fragment: Extract<KnownFragment, { type: 'TOOL_OPE
   const title = nonEmpty(fragment.title)
   const notice = 'The page content is not included in the DeepSeek chat export.'
   const value: WebFetchResult = {
-    url, statusCode: 200, truncated: false,
+    url, finalUrl: null, statusCode: null, truncated: false,
     body: { kind: 'text', content: title === undefined ? notice : `${title}\n\n${notice}` },
   }
   return {

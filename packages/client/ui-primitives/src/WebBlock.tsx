@@ -39,10 +39,9 @@ export interface WebFetchBlockProps {
   kind: 'fetch'
   /** Localized chrome supplied by the owning render site. */
   labels: WebBlockLabels
-  /** The final URL after allowed redirects; becomes a safe external link when http(s). */
   url: string
-  /** HTTP status code of the fetched response. */
   statusCode?: number | undefined
+  finalUrlUnreported?: boolean | undefined
   /** True when the provider or the output cap cut the fetched content. */
   truncated: boolean
   /** Extra class merged onto the wrapper (callers position; this component draws). */
@@ -57,6 +56,8 @@ export interface WebBlockLabels {
   noResults: string
   sourcesTruncated: string
   http: string
+  statusNotReported: string
+  finalUrlNotReported: string
   contentTruncated: string
   markdown: MarkdownLabels
 }
@@ -174,12 +175,15 @@ function WebSearchBlock({ answer, sources, truncated, labels, className }: WebSe
  * @param props - see {@link WebFetchBlockProps}.
  * @returns the fetch card element.
  */
-function WebFetchBlock({ url, statusCode, truncated, labels, className }: WebFetchBlockProps) {
+function WebFetchBlock({ url, statusCode, finalUrlUnreported, truncated, labels, className }: WebFetchBlockProps) {
   return (
     <div className={clsx(css.block, css.fetch, className)} data-web="fetch">
       <SafeLink url={url} label={url} className={css.fetchUrl} />
       <div className={css.fetchMeta}>
-        {statusCode !== undefined && <span className={css.status}>{labels.http} {statusCode}</span>}
+        {statusCode === undefined
+          ? <span className={css.status} data-web-status="unreported">{labels.statusNotReported}</span>
+          : <span className={css.status}>{labels.http} {statusCode}</span>}
+        {finalUrlUnreported === true && <span className={css.status} data-web-final-url="unreported">{labels.finalUrlNotReported}</span>}
         {truncated && <span className={css.truncated}>{labels.contentTruncated}</span>}
       </div>
     </div>

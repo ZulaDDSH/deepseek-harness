@@ -264,7 +264,7 @@ describe('convertConversation', () => {
       truncated: false,
     })
     expect(resultText(results[0]?.data.message.content)).toContain('- [Route A](https://a.example/route) — Take bus 1')
-    expect(results[1]?.data.meta).toEqual({ url: 'https://a.example/route', statusCode: 200, truncated: false })
+    expect(results[1]?.data.meta).toEqual({ url: 'https://a.example/route', finalUrl: null, statusCode: null, truncated: false })
     expect(resultText(results[1]?.data.message.content)).toContain('Route A\n\nThe page content is not included in the DeepSeek chat export.')
     expect(results[2]?.data).not.toHaveProperty('meta')
     expect(results[2]?.data.message.content).toEqual([{ type: 'text', text: 'Error: the page could not be opened.' }])
