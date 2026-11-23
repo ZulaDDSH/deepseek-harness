@@ -496,12 +496,6 @@ export class LocalPtySession implements TerminalBackendSession {
     return { delivered: true, targetPgid }
   }
 
-  watchLine(line: string): { seen(): boolean; dispose(): void } {
-    const watch = { line, tail: this.atLineBoundary ? '\n' : '', matched: false }
-    this.lineWatches.add(watch)
-    return { seen: () => watch.matched, dispose: () => { this.lineWatches.delete(watch) } }
-  }
-
   status(): TerminalSessionStatus {
     return this.statusValue
   }

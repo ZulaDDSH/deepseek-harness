@@ -311,12 +311,6 @@ export class CordisCatalogProjector {
           continue
         }
         if (member.kind !== 'method') continue
-        const jsDoc = member.jsDoc || documentedContract(
-          this.policy.codeNotes,
-          `${member.location.file}:${declaration.name}.${member.name}`,
-        )
-        const parsed = parseJsDoc(jsDoc)
-        if (parsed.deprecated) continue
         const where = `service method ctx.${service.key}.${member.name} (${pointer(member.location)})`
         if (this.face.face === 'host') {
           checkTypeLinks(where, signatureTypeNames(this.renderer, member.signature), this.policy, typeLinkViolations)
