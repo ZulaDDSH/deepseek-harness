@@ -30,6 +30,7 @@ import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-cmdline'
 import type {} from '@deepseek-ai/dsh-session-query'
+import type {} from '@deepseek-ai/dsh-goal'
 import type {} from '@deepseek-ai/dsh-subagent'
 // Optional service peers stay type-only so profiles can omit their packages.
 import type {} from '@deepseek-ai/dsh-permission-presets'
@@ -434,6 +435,7 @@ async function run(ctx: Context, config: Config, io: HeadlessIo): Promise<void> 
         const idleSeq = agent.session.seq
         // Child settlement can wake the parent before the child wait observes it.
         if (!await subagents?.waitForTreeWork(agent)
+          && !await awaitGoalContinuation(ctx, agent)
           && agent.status === 'idle' && agent.session.seq === idleSeq) break
       }
     } finally {
@@ -457,6 +459,37 @@ async function run(ctx: Context, config: Config, io: HeadlessIo): Promise<void> 
     stopTerminals()
     projection?.dispose()
   }
+}
+
+// Constraint: an armed active goal owns the next round, so the one-shot run must not finish while it is pending.
+async function awaitGoalContinuation(ctx: Context, agent: Agent): Promise<boolean> {
+  const goals = ctx.get('goals')
+  const continuing = (): boolean => {
+    try {
+      const goal = goals?.get(agent)
+      return goal?.phase === 'active' && goal.activation === 'armed'
+    } catch (_error: unknown) {
+      return false
+    }
+  }
+  if (!continuing()) return false
+  let wake = Promise.withResolvers<void>()
+  const notify = (): void => wake.resolve()
+  const stops = [
+    ctx.on('agent/status', ({ agent: subject }) => { if (subject === agent) notify() }),
+    ctx.on('agent/disposed', ({ agent: subject }) => { if (subject === agent) notify() }),
+    ctx.on('goal/changed', ({ agent: subject }) => { if (subject === agent) notify() }),
+    ctx.on('goal/activation-changed', ({ sessionId }) => { if (sessionId === agent.session.id) notify() }),
+  ]
+  try {
+    while (agent.status === 'idle' && continuing()) {
+      await wake.promise
+      wake = Promise.withResolvers<void>()
+    }
+  } finally {
+    for (const stop of stops) stop()
+  }
+  return agent.status !== 'idle'
 }
 
 /**

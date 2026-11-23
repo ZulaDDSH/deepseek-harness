@@ -531,6 +531,68 @@ describe('headless runner', () => {
     }
   })
 
+  describe('armed goal continuation', () => {
+    interface GoalStub { phase: 'active' | 'paused' | 'complete'; activation: 'armed' | 'disarmed' }
+
+    async function goalBench(): Promise<{ test: Awaited<ReturnType<typeof bench>>; goal: GoalStub; turns: () => number }> {
+      const goal: GoalStub = { phase: 'active', activation: 'armed' }
+      let turns = 0
+      const test = await bench({
+        afterPrompt(session, message) {
+          turns += 1
+          appendTurn(session, turns, message, turns === 1 ? 'waiting for the watch' : 'goal round done', true)
+        },
+      })
+      test.ctx.provide('goals', { get: () => goal } as never)
+      return { test, goal, turns: () => turns }
+    }
+
+    it('keeps the run open while an armed goal waits, then runs the continuation round', async () => {
+      const { test, goal, turns } = await goalBench()
+      const run = test.run()
+      try {
+        await new Promise(resolve => setTimeout(resolve, 30))
+        expect(test.output().order).not.toContain('exit')
+        expect(turns()).toBe(1)
+        const [agent] = test.ctx.agents.list()
+        agent!.followup(createUserMessage({ content: [{ type: 'text', text: 'continue the goal' }], source: { kind: 'user' } }))
+        goal.phase = 'complete'
+        test.ctx.emit('agent/status', { agent: agent!, status: 'running' } as never)
+        await expect(run).resolves.toMatchObject({ code: 0, out: 'goal round done\n' })
+        expect(turns()).toBe(2)
+      } finally {
+        await test.ctx.fiber.dispose()
+      }
+    })
+
+    it('finishes once the goal is paused while waiting', async () => {
+      const { test, goal, turns } = await goalBench()
+      const run = test.run()
+      try {
+        await new Promise(resolve => setTimeout(resolve, 30))
+        expect(test.output().order).not.toContain('exit')
+        const [agent] = test.ctx.agents.list()
+        goal.phase = 'paused'
+        goal.activation = 'disarmed'
+        test.ctx.emit('goal/activation-changed', { sessionId: agent!.session.id } as never)
+        await expect(run).resolves.toMatchObject({ code: 0, out: 'waiting for the watch\n' })
+        expect(turns()).toBe(1)
+      } finally {
+        await test.ctx.fiber.dispose()
+      }
+    })
+
+    it('finishes when the goal service has no current armed goal', async () => {
+      const test = await bench({ afterPrompt(session, message) { appendTurn(session, 1, message, 'no goal', true) } })
+      test.ctx.provide('goals', { get: () => undefined } as never)
+      try {
+        await expect(test.run()).resolves.toMatchObject({ code: 0, out: 'no goal\n' })
+      } finally {
+        await test.ctx.fiber.dispose()
+      }
+    })
+  })
+
   it('records a fresh Session in the filesystem provider working directory', async () => {
     const cwd = '/remote/workspace'
     const test = await bench({
