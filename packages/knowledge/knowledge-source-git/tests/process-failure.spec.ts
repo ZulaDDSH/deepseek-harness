@@ -19,6 +19,46 @@ function finished(code: number | null, stdout = '', stderr = '', error?: Error):
   return child
 }
 
+function hanging(stdout = ''): ChildProcess {
+  const child = Object.assign(new ChildProcess(), { stdout: new PassThrough(), stderr: new PassThrough() })
+  vi.spyOn(child, 'kill').mockReturnValue(true)
+  if (stdout !== '') queueMicrotask(() => { child.stdout.write(stdout) })
+  return child
+}
+
+describe('Git knowledge process bounds', () => {
+  const source = { repo: './fixture', ref: 'master', paths: [] }
+
+  it('kills the Git child and rejects when the caller aborts', async () => {
+    const child = hanging()
+    vi.mocked(spawn).mockImplementationOnce(() => child)
+    const controller = new AbortController()
+    const pending = resolveGitSource(source, { signal: controller.signal })
+    controller.abort(new Error('cancelled by caller'))
+    await expect(pending).rejects.toThrow('cancelled by caller')
+    expect(child.kill).toHaveBeenCalled()
+  })
+
+  it('does not start Git for an already aborted signal', async () => {
+    await expect(resolveGitSource(source, { signal: AbortSignal.abort(new Error('already aborted')) })).rejects.toThrow('already aborted')
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it('kills the Git child when the deadline passes', async () => {
+    const child = hanging()
+    vi.mocked(spawn).mockImplementationOnce(() => child)
+    await expect(resolveGitSource(source, { timeoutMs: 20 })).rejects.toThrow(/git rev-parse timed out/)
+    expect(child.kill).toHaveBeenCalled()
+  })
+
+  it('kills the Git child and rejects when output exceeds the cap', async () => {
+    const child = hanging('x'.repeat(100))
+    vi.mocked(spawn).mockImplementationOnce(() => child)
+    await expect(resolveGitSource(source, { maxOutputBytes: 10 })).rejects.toThrow(/more than 10 bytes of output/)
+    expect(child.kill).toHaveBeenCalled()
+  })
+})
+
 describe('Git knowledge process failures', () => {
   it('reports spawn failures from source inspection', async () => {
     vi.mocked(spawn).mockImplementationOnce(() => finished(null, '', '', new Error('git unavailable')))
