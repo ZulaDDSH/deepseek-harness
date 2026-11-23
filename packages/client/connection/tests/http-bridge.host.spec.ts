@@ -2,8 +2,8 @@ import { EventEmitter } from 'node:events'
 import { Readable } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it } from 'vitest'
-import { bridge } from '../src/http-bridge.ts'
+import { describe, expect, it, vi } from 'vitest'
+import { BufferedBodyBudget, bridge } from '../src/http-bridge.ts'
 import { Peer } from '../src/peer.ts'
 
 const PEER = new Peer(new Context(), { principal: { kind: 'owner' } })
@@ -215,5 +215,71 @@ describe('HTTP bridge abort', () => {
     expect(status).toBe(415)
     expect(headers).toMatchObject({ connection: 'close' })
     expect(destroyed).toEqual([true])
+  })
+})
+
+describe('HTTP bridge buffered-body budget', () => {
+  function upload() {
+    const request = new Readable({ read() {} }) as IncomingMessage
+    const destroyed: true[] = []
+    const destroy = request.destroy.bind(request)
+    Object.assign(request, {
+      url: '/api/session.prompt', method: 'POST', headers: { 'content-type': 'application/json' },
+      destroy: (error?: Error) => { destroyed.push(true); return destroy(error) },
+    })
+    const result: { status?: number, headers?: unknown } = {}
+    const response = Object.assign(new EventEmitter(), {
+      writableEnded: false,
+      writeHead(code: number, values?: unknown) { result.status = code; result.headers = values; return this },
+      write() { return true },
+      end(this: { writableEnded: boolean }) { this.writableEnded = true; return this },
+    }) as unknown as ServerResponse
+    return { request, response, result, destroyed }
+  }
+
+  function handler(reached: string[]) {
+    return {
+      requestBodyMode: () => 'buffered' as const,
+      fetch: async (input: Request) => { reached.push(String((await input.arrayBuffer()).byteLength)); return new Response('ok') },
+    }
+  }
+
+  it('refuses a body that would exceed the Host-wide budget and admits it once others finish', async () => {
+    const budget = new BufferedBodyBudget(400)
+    const reached: string[] = []
+    const held = Array.from({ length: 4 }, upload)
+    const running = held.map(item => bridge(item.request, item.response, handler(reached), PEER, 100, budget))
+    for (const item of held) item.request.push(Buffer.alloc(50))
+    await vi.waitFor(() => { expect(budget.available).toBe(0) })
+    const refused = upload()
+    const refusal = bridge(refused.request, refused.response, handler(reached), PEER, 100, budget)
+    refused.request.push(Buffer.alloc(50))
+    await refusal
+    expect(refused.result.status).toBe(503)
+    expect(refused.result.headers).toMatchObject({ 'retry-after': '1', connection: 'close' })
+    expect(refused.destroyed.length).toBeGreaterThan(0)
+    expect(reached).toEqual([])
+
+    for (const item of held) item.request.push(null)
+    await Promise.all(running)
+    expect(reached).toEqual(['50', '50', '50', '50'])
+    const later = upload()
+    const done = bridge(later.request, later.response, handler(reached), PEER, 100, budget)
+    later.request.push(Buffer.alloc(50))
+    later.request.push(null)
+    await done
+    expect(later.result.status).toBe(200)
+    expect(budget.available).toBe(400)
+  })
+
+  it('releases its reservation when the client request fails mid-body', async () => {
+    const budget = new BufferedBodyBudget(400)
+    const item = upload()
+    const pending = bridge(item.request, item.response, handler([]), PEER, 100, budget)
+    item.request.push(Buffer.alloc(50))
+    await vi.waitFor(() => { expect(budget.available).toBe(300) })
+    item.request.destroy(new Error('socket reset'))
+    await expect(pending).rejects.toThrow('socket reset')
+    expect(budget.available).toBe(400)
   })
 })

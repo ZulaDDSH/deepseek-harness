@@ -6,7 +6,7 @@ import type {} from '@deepseek-ai/dsh-attachment'
 // Activates the webServer Context merge used below.
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { API_PATH } from './api-path.ts'
-import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
+import { BUFFERED_BODY_BUDGET_FACTOR, BufferedBodyBudget, bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
 import { assertTrustedAuthority } from './api-request-trust.ts'
 import { HostConnectionService } from './rpc-host.ts'
 import { ConnectionAuthentication } from './authentication.ts'
@@ -124,6 +124,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   // Config boundary: a malformed entry fails the load loudly here rather than
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
+  const bodyBudget = new BufferedBodyBudget(maxRequestBodyBytes * BUFFERED_BODY_BUDGET_FACTOR)
   assertImageBodyCapacity(ctx, maxRequestBodyBytes)
   new ConnectionAuthentication(ctx)
   ctx.inject(['connection.authentication'], (connectionCtx) => {
@@ -140,7 +141,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
         auth: 'required',
         handler: async (req, res, peer) => {
           if (peer === undefined || res.destroyed) return
-          await webCtx.waterfall('connection/request', req, res, () => bridge(req, res, fetchHandler, peer, maxRequestBodyBytes))
+          await webCtx.waterfall('connection/request', req, res, () => bridge(req, res, fetchHandler, peer, maxRequestBodyBytes, bodyBudget))
         },
       }
       webCtx.effect(() => webCtx.webServer.register(route), 'client-connection: /api route')
