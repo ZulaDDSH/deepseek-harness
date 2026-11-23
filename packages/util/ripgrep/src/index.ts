@@ -44,6 +44,7 @@ export async function spawnRipgrep(subprocess: Pick<SubprocessRuntime, 'spawn'>,
 export interface RipgrepLinesResult {
   readonly outcome: SubprocessOutcome
   readonly stopped: boolean
+  readonly undecodable?: number
 }
 
 /**
@@ -52,8 +53,8 @@ export interface RipgrepLinesResult {
  * Completion, callback failure and stream failure all await process quiescence;
  * provider failures reject. Exit codes and cancellation remain consumer-owned.
  * @param handle - an owned ripgrep process spawned with piped stdout.
- * Records are decoded as UTF-8, so bytes of a name that is not valid UTF-8
- * arrive replaced with U+FFFD.
+ * A record that is not valid UTF-8 is delivered with U+FFFD replacements and
+ * counted in the result's `undecodable`.
  * @param separator - newline for text output, or NUL for file paths that may contain newlines.
  * @param onLine - synchronous record consumer; false requests early termination.
  * @returns exit facts after stdout and the managed process range settle.
@@ -69,27 +70,35 @@ export async function readRipgrepLines(
     await Promise.allSettled([handle.done, handle.waitForExit()])
     throw new Error('ripgrep requires piped stdout')
   }
-  stdout.setEncoding('utf8')
   let stopped = false
   let completed = false
+  let undecodable = 0
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+  const separatorByte = separator.charCodeAt(0)
+  const decode = (record: Buffer): string => {
+    try { return decoder.decode(record) } catch {
+      undecodable += 1
+      return record.toString('utf8')
+    }
+  }
   const reading = (async () => {
-    let pending = ''
-    for await (const chunk of stdout as AsyncIterable<string>) {
+    let pending: Buffer = Buffer.alloc(0)
+    for await (const chunk of stdout as AsyncIterable<Buffer | string>) {
       if (stopped) continue
-      pending += chunk
+      pending = Buffer.concat([pending, typeof chunk === 'string' ? Buffer.from(chunk) : chunk])
       let end: number
-      while ((end = pending.indexOf(separator)) !== -1) {
-        const line = pending.slice(0, end)
-        pending = pending.slice(end + 1)
+      while ((end = pending.indexOf(separatorByte)) !== -1) {
+        const line = decode(pending.subarray(0, end))
+        pending = pending.subarray(end + 1)
         if (!onLine(line)) {
           stopped = true
-          pending = ''
+          pending = Buffer.alloc(0)
           handle.terminate()
           break
         }
       }
     }
-    if (pending.length > 0 && !onLine(pending)) {
+    if (pending.length > 0 && !onLine(decode(pending))) {
       stopped = true
       handle.terminate()
     }
@@ -97,7 +106,7 @@ export async function readRipgrepLines(
   try {
     const [, outcome] = await Promise.all([reading, handle.done])
     completed = true
-    return { outcome, stopped }
+    return { outcome, stopped, ...undecodable > 0 ? { undecodable } : {} }
   } finally {
     if (!completed) {
       handle.terminate()
