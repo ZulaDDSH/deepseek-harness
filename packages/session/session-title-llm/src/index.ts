@@ -303,12 +303,7 @@ export async function executeSessionTitleLlm(
       assembler.push(next.value)
     }
   } finally {
-    if (!exhausted) {
-      try {
-        void iterator.return?.()?.then(undefined, () => {})
-      } catch (_returnFailed) {
-      }
-    }
+    if (!exhausted) void new Promise<unknown>(resolve => { resolve(iterator.return?.()) }).catch(() => {})
   }
   callDeadline.signal.throwIfAborted()
   const finish = terminalFinish(assembler.finish)

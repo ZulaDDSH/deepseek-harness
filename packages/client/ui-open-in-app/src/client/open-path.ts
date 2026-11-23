@@ -93,15 +93,15 @@ export class OpenInAppPathController {
    */
   async openPath(path: string, action: OpenInAppPathAction, application?: string): Promise<OpenInAppOutcome> {
     const request: SessionOpenWorkspacePathRequest = action === 'reveal' ? { path, action } : { path, ...(application === undefined ? {} : { application }) }
-    let ok = false
-    try {
-      const signal = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(this.openTimeoutMs)])
-      ok = (await this.remote.session.openWorkspacePath(request, signal)).ok
-    } catch {
-    }
+    const ok = await this.acknowledged(request).catch(() => false)
     if (ok) return { kind: action === 'reveal' ? 'revealed' : 'opened' }
     const failure: OpenInAppPathFailure = action === 'open' ? 'openError' : 'revealError'
     return { kind: 'failed', failure }
+  }
+
+  private async acknowledged(request: SessionOpenWorkspacePathRequest): Promise<boolean> {
+    const signal = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(this.openTimeoutMs)])
+    return (await this.remote.session.openWorkspacePath(request, signal)).ok
   }
 
   /**
