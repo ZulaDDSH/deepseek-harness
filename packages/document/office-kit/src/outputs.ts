@@ -25,6 +25,12 @@ interface Entry {
   removal?: Promise<boolean>
 }
 
+interface SaveTicket {
+  readonly owner: string
+  released: boolean
+  done: Promise<unknown>
+}
+
 /** Names {@link ownerDirectory} generates. */
 const OWNER_DIRECTORY = /^session-[0-9a-f]{24}$/u
 /** Names of per-output directories, which `randomUUID()` generates. */
@@ -64,6 +70,7 @@ export class OutputStore {
   private disposed = false
   private readonly sweep: Promise<void>
   private saving: Promise<unknown> = Promise.resolve()
+  private readonly tickets = new Set<SaveTicket>()
   /** Deletions and releases in progress, awaited by disposal. */
   private readonly pending = new Set<Promise<unknown>>()
 
@@ -84,16 +91,21 @@ export class OutputStore {
    * @throws {OfficeKitError} `output-too-large` when the file alone exceeds the byte budget, and `unavailable` after
    * disposal or when retained files whose deletion failed leave too little of the budget.
    */
-  save(owner: string, name: string, data: Uint8Array): Promise<string> {
-    const saved = this.saving.then(() => this.saveNow(owner, name, data))
+  save(owner: string, name: string, data: Uint8Array, signal?: AbortSignal): Promise<string> {
+    const ticket: SaveTicket = { owner, released: false, done: Promise.resolve() }
+    const saved = this.saving.then(() => this.saveNow(owner, name, data, ticket, signal))
     this.saving = saved.catch((_failedSave: unknown) => undefined)
+    ticket.done = this.saving
+    this.tickets.add(ticket)
+    void this.saving.then(() => { this.tickets.delete(ticket) })
     return saved
   }
 
   /** Saves run one at a time so the byte budget covers every retained file. */
-  private async saveNow(owner: string, name: string, data: Uint8Array): Promise<string> {
+  private async saveNow(owner: string, name: string, data: Uint8Array, ticket: SaveTicket, signal: AbortSignal | undefined): Promise<string> {
     await this.sweep
     if (this.disposed) throw new OfficeKitError('unavailable', 'The document converter is unavailable.')
+    this.throwIfStale(ticket, signal)
     if (data.byteLength > this.options.maxBytes) {
       throw new OfficeKitError('output-too-large', `The output exceeds the ${this.options.maxBytes}-byte output store limit.`)
     }
@@ -116,7 +128,16 @@ export class OutputStore {
     const entry: Entry = { path, directory, owner, bytes: data.byteLength, timer }
     this.entries.set(path, entry)
     this.bytes += data.byteLength
+    if (ticket.released || signal?.aborted === true) {
+      await this.remove(entry)
+      this.throwIfStale(ticket, signal)
+    }
     return path
+  }
+
+  private throwIfStale(ticket: SaveTicket, signal: AbortSignal | undefined): void {
+    signal?.throwIfAborted()
+    if (ticket.released) throw new OfficeKitError('unavailable', 'The owner of this output was released before it was saved.')
   }
 
   /**
@@ -129,6 +150,9 @@ export class OutputStore {
   }
 
   private async releaseNow(owner: string): Promise<void> {
+    const saves = [...this.tickets].filter(ticket => ticket.owner === owner)
+    for (const ticket of saves) ticket.released = true
+    await Promise.all(saves.map(ticket => ticket.done))
     await Promise.all([...this.entries.values()].filter(entry => entry.owner === owner).map(entry => this.remove(entry)))
     await this.removeEmpty(join(this.options.root, ownerDirectory(owner)))
   }

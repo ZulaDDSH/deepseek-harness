@@ -244,7 +244,7 @@ export class OfficeKit extends TypertRemoteService {
     signal: AbortSignal | undefined,
   ): Promise<OfficeFileResult> {
     signal?.throwIfAborted()
-    const path = await this.outputs.save(output.owner, output.name, result.data)
+    const path = await this.outputs.save(output.owner, output.name, result.data, signal)
     return { path, bytes: result.data.byteLength, ...(result.pageCount === undefined ? {} : { pageCount: result.pageCount }),
       missingFonts: result.missingFonts }
   }

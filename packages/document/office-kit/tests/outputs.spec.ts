@@ -7,7 +7,7 @@ import { OutputStore, type OutputStoreOptions } from '../src/outputs.ts'
 
 const io = vi.hoisted(() => ({
   rmFailure: undefined as Error | undefined, statFailure: undefined as Error | undefined, writeFailures: [] as Error[],
-  rmGate: undefined as Promise<void> | undefined, rmBlocked: 0,
+  rmGate: undefined as Promise<void> | undefined, rmBlocked: 0, writeGate: undefined as Promise<void> | undefined, writeReached: undefined as (() => void) | undefined,
 }))
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
@@ -20,6 +20,8 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       return actual.rm(...args)
     },
     async writeFile(...args: Parameters<typeof actual.writeFile>) {
+      const gate = io.writeGate
+      if (gate !== undefined) { io.writeReached?.(); await gate }
       const failure = io.writeFailures.shift()
       if (failure !== undefined) throw failure
       return actual.writeFile(...args)
@@ -45,6 +47,8 @@ afterEach(async () => {
   io.writeFailures = []
   io.rmGate = undefined
   io.rmBlocked = 0
+  io.writeGate = undefined
+  io.writeReached = undefined
   vi.useRealTimers()
   await rm(root, { recursive: true, force: true })
 })
@@ -296,4 +300,62 @@ it('fails a save whose retried write is also missing its directory, leaving no d
   const owner = join(root, 'outputs', (await readdir(join(root, 'outputs')))[0]!)
   expect(await readdir(owner)).toEqual([])
   expect(await outputs.save('a', 'b.pdf', Uint8Array.of(1))).toMatch(/b\.pdf$/u)
+})
+
+async function pausedWrite(): Promise<{ reached: Promise<void>; resume: () => void }> {
+  const gate = Promise.withResolvers<undefined>()
+  const reached = Promise.withResolvers<undefined>()
+  io.writeGate = gate.promise
+  io.writeReached = () => { reached.resolve(undefined) }
+  return { reached: reached.promise, resume: () => { io.writeGate = undefined; gate.resolve(undefined) } }
+}
+
+it('deletes a save that finishes writing after its owner was released', async () => {
+  const { outputs } = store({ maxBytes: 100 })
+  const paused = await pausedWrite()
+  const saving = outputs.save('a', 'a.pdf', Uint8Array.of(1))
+  const rejected = expect(saving).rejects.toMatchObject({ code: 'unavailable' })
+  await paused.reached
+  const releasing = outputs.release('a')
+  paused.resume()
+  await rejected
+  await releasing
+  expect(await readdir(join(root, 'outputs'))).toEqual([])
+})
+
+it('writes nothing for a queued save whose owner was released, and keeps other owners', async () => {
+  const { outputs } = store({ maxBytes: 100 })
+  const paused = await pausedWrite()
+  const first = outputs.save('b', 'b.pdf', Uint8Array.of(1))
+  await paused.reached
+  const queued = outputs.save('a', 'a.pdf', Uint8Array.of(2))
+  const queuedRejected = expect(queued).rejects.toMatchObject({ code: 'unavailable' })
+  const releasing = outputs.release('a')
+  paused.resume()
+  const firstPath = await first
+  await queuedRejected
+  await releasing
+  expect(await exists(firstPath)).toBe(true)
+  expect(await readdir(join(root, 'outputs'))).toHaveLength(1)
+})
+
+it('keeps a save made after the release of the same owner id', async () => {
+  const { outputs } = store({ maxBytes: 100 })
+  await outputs.save('a', 'old.pdf', Uint8Array.of(1))
+  await outputs.release('a')
+  expect(await exists(await outputs.save('a', 'new.pdf', Uint8Array.of(2)))).toBe(true)
+})
+
+it('deletes a save whose caller aborted while the file was being written', async () => {
+  const { outputs } = store({ maxBytes: 100 })
+  const controller = new AbortController()
+  const paused = await pausedWrite()
+  const saving = outputs.save('a', 'a.pdf', Uint8Array.of(1), controller.signal)
+  const rejected = expect(saving).rejects.toThrow('stop')
+  await paused.reached
+  controller.abort(new Error('stop'))
+  paused.resume()
+  await rejected
+  const owners = await readdir(join(root, 'outputs'))
+  for (const owner of owners) expect(await readdir(join(root, 'outputs', owner))).toEqual([])
 })
