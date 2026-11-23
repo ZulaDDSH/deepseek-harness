@@ -125,6 +125,7 @@ export class MessageFeedbackService extends TypertRemoteService {
 
   private readonly maxNoteBytes: number
   private readonly operationTails = new Map<SessionId, Promise<void>>()
+  private readonly unconfirmedLive = new Set<SessionId>()
   private mutationAdmissionOpen = true
 
   /**
@@ -230,19 +231,13 @@ export class MessageFeedbackService extends TypertRemoteService {
     }
     const live = this.ctx.sessions.get(sessionId)
     if (live !== undefined) {
-      // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
-      return operation(live.snapshotEvents(), async (event) => {
-        if (event !== undefined) {
-          live.append(event.type, event.data)
-        }
-        // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
+      const confirm = async (): Promise<void> => {
         const last = live.snapshotEvents().at(-1)
         if (!(await this.ctx.sessions.flush(live))) {
           throw new Error(
             `message-feedback: no durability listener participated for live session '${sessionId}'`,
           )
         }
-        // Listener participation alone does not prove this Session has a persistence writer.
         const handle = await this.ctx.sessionPersistence.open(sessionId, 'read')
         try {
           const { events: stored } = await handle.read(last?.seq ?? 0, 1)
@@ -256,6 +251,15 @@ export class MessageFeedbackService extends TypertRemoteService {
         } finally {
           await handle.close()
         }
+        this.unconfirmedLive.delete(sessionId)
+      }
+      if (write && this.unconfirmedLive.has(sessionId)) await confirm()
+      return operation(live.snapshotEvents(), async (event) => {
+        if (event !== undefined) {
+          live.append(event.type, event.data)
+          this.unconfirmedLive.add(sessionId)
+        }
+        await confirm()
       })
     }
     const handle = await this.ctx.sessionPersistence.open(sessionId, write ? 'write' : 'read')

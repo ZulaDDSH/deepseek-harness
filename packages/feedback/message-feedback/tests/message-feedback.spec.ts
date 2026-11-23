@@ -635,7 +635,28 @@ describe('canonical message feedback history', () => {
     expectItem(await ctx.messageFeedback.put({ ...request, ifVersion: item.version }))
     expect(session.snapshotEvents()).toHaveLength(before + 1)
     expect(persistence.durable.get(session.id)?.events).toEqual(session.snapshotEvents())
-    expect(persistence.openCalls).toEqual(['read'])
+    expect(persistence.openCalls).toEqual(['read', 'read'])
+  })
+
+  it('does not report an unconfirmed live item as a conflict while its flush still fails', async () => {
+    const { ctx, persistence } = await harness()
+    const session = ctx.sessions.create(brandString<SessionId>('unconfirmed-conflict'))
+    const fixture = appendMessageFixture(session)
+    const failure = new Error('disk unavailable')
+    let fail = true
+    ctx.on('session/flush', (current) => {
+      if (fail) throw failure
+      persistence.persist(current)
+    })
+    const request = { sessionId: session.id, messageId: fixture.assistantMessageIds[0], rating: 'positive' as const, ifVersion: null }
+    await expect(ctx.messageFeedback.put(request)).rejects.toBe(failure)
+    await expect(ctx.messageFeedback.put(request)).rejects.toBe(failure)
+    fail = false
+    await expect(ctx.messageFeedback.put(request)).resolves.toEqual({
+      ok: false,
+      error: { code: 'version-conflict', current: expect.objectContaining({ rating: 'positive' }) },
+    })
+    expect(persistence.durable.get(session.id)?.events).toEqual(session.snapshotEvents())
   })
 
   it.each(['missing-tail', 'different-tail', 'different-lifecycle'] as const)(
