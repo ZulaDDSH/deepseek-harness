@@ -99,6 +99,17 @@ describe('session snapshot identity redaction', () => {
     expect(redacted?.endsWith('\n')).toBe(false)
   })
 
+  it.each([
+    ['raw parent first', [parentId, '{{session:1}}']],
+    ['canonical parent first', ['{{session:1}}', parentId]],
+  ])('keeps distinct session identities distinct when raw and canonical ids are mixed (%s)', (_label, ids) => {
+    const logs = ids.map(id => JSON.stringify({ type: 'session', id }))
+    const output = redactSessionSnapshotIds(logs).map(log => (JSON.parse(log) as { id: string }).id)
+    expect(new Set(output).size).toBe(2)
+    expect(output[ids.indexOf('{{session:1}}')]).toBe('{{session:1}}')
+    expect(output[ids.indexOf(parentId)]).toBe('{{session:2}}')
+  })
+
   it('keeps a canonical token first seen through a generic id key', () => {
     const canonical = '{{message:7}}'
     const nextMessage = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
