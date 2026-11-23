@@ -95,6 +95,7 @@ function renderRecordingError(error: unknown): string {
  */
 function createWorkflowRecorder(ctx: Context): WorkflowRecorder {
   const active = new Map<WorkflowRunId, Session>()
+  const memberRecordingStopped = new Set<WorkflowRunId>()
   const append = <Type extends keyof ToolWorkflowRecordEventMap>(
     session: Session,
     type: Type,
@@ -117,7 +118,7 @@ function createWorkflowRecorder(ctx: Context): WorkflowRecorder {
 
   ctx.on('workflow/agent-start', (info, agent) => {
     const session = active.get(info.id)
-    if (session === undefined) return
+    if (session === undefined || memberRecordingStopped.has(info.id)) return
     const data: ToolWorkflowAgentStartData = {
       runId: info.id,
       seq: agent.seq,
@@ -125,17 +126,17 @@ function createWorkflowRecorder(ctx: Context): WorkflowRecorder {
       ...agent.phase === undefined ? {} : { phase: agent.phase },
       childId: agent.childId,
     }
-    if (!append(session, 'tool-workflow/agent-start', data)) active.delete(info.id)
+    if (!append(session, 'tool-workflow/agent-start', data)) memberRecordingStopped.add(info.id)
   })
   ctx.on('workflow/agent-end', (info, agent) => {
     const session = active.get(info.id)
-    if (session === undefined) return
+    if (session === undefined || memberRecordingStopped.has(info.id)) return
     const data: ToolWorkflowAgentEndData = {
       runId: info.id,
       seq: agent.seq,
       outcome: agent.outcome,
     }
-    if (!append(session, 'tool-workflow/agent-end', data)) active.delete(info.id)
+    if (!append(session, 'tool-workflow/agent-end', data)) memberRecordingStopped.add(info.id)
   })
 
   return {
@@ -148,8 +149,12 @@ function createWorkflowRecorder(ctx: Context): WorkflowRecorder {
       const session = active.get(runId)
       if (session !== undefined) append(session, 'tool-workflow/run-end', { runId, stopReason })
       active.delete(runId)
+      memberRecordingStopped.delete(runId)
     },
-    abandon: (runId) => { active.delete(runId) },
+    abandon: (runId) => {
+      active.delete(runId)
+      memberRecordingStopped.delete(runId)
+    },
   }
 }
 

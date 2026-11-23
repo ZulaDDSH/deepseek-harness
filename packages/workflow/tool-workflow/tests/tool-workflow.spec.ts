@@ -295,8 +295,8 @@ describe('dsh-tool-workflow', () => {
     const types = session.snapshotEvents().map(event => event.type)
     const expectedPrefixes = {
       'tool-workflow/run-start': [],
-      'tool-workflow/agent-start': ['tool-workflow/run-start'],
-      'tool-workflow/agent-end': ['tool-workflow/run-start', 'tool-workflow/agent-start'],
+      'tool-workflow/agent-start': ['tool-workflow/run-start', 'tool-workflow/run-end'],
+      'tool-workflow/agent-end': ['tool-workflow/run-start', 'tool-workflow/agent-start', 'tool-workflow/run-end'],
       'tool-workflow/run-end': [
         'tool-workflow/run-start', 'tool-workflow/agent-start', 'tool-workflow/agent-end',
       ],
