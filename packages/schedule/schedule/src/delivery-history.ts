@@ -7,6 +7,8 @@ import type {
 /** Milliseconds in one day, the unit the retention window is stated in. */
 const DAY_MS = 86_400_000
 
+export const MAX_HISTORY_PROMPT_BYTES = 1_048_576
+
 /**
  * Prepare one real inbox acknowledgment for the same task write as its status and target.
  * Prunes to the configured window and record cap here, on the only write path, so a task record does not grow
@@ -24,9 +26,16 @@ export function appendDelivery(
   const history = task.deliveryHistory
   const appended = [...history.records, { ...receipt, prompt: task.record.prompt }]
   const floor = Date.parse(receipt.deliveredAt) - bounds.days * DAY_MS
-  const retained = appended
+  const counted = appended
     .filter(record => Date.parse(record.deliveredAt) >= floor)
     .slice(-bounds.records)
+  let bytes = counted.reduce((total, record) => total + Buffer.byteLength(record.prompt ?? ''), 0)
+  let first = 0
+  while (first < counted.length - 1 && bytes > MAX_HISTORY_PROMPT_BYTES) {
+    bytes -= Buffer.byteLength(counted[first]?.prompt ?? '')
+    first += 1
+  }
+  const retained = counted.slice(first)
   return {
     lastDelivery: receipt,
     deliveryHistory: {

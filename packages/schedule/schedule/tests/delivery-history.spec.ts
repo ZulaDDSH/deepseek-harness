@@ -6,7 +6,7 @@ import type { MessageId } from '@deepseek-ai/dsh-llm/types'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ScheduleInputError, createAfterScheduleRecord } from '../src/domain.ts'
 import { scheduleDomain, type ScheduleTask } from '../src/storage.ts'
-import { appendDelivery } from '../src/delivery-history.ts'
+import { MAX_HISTORY_PROMPT_BYTES, appendDelivery } from '../src/delivery-history.ts'
 import type { ScheduleDeliveryRecord, ScheduleId } from '../src/types.ts'
 import { agentFor, boundTask, harness, seedTasks, taskTable } from './harness.ts'
 
@@ -310,4 +310,15 @@ it('drops records outside the day window and keeps the flag once it is set', () 
   }
   expect(appendDelivery(already, { ...fresh, messageId: brandString<MessageId>('message-10') }, { days: 30, records: 200 })
     .deliveryHistory.earlierRecordsPruned).toBe(true)
+})
+
+it('drops the oldest receipts once retained prompt text passes the byte budget, keeping the newest', () => {
+  const big = (index: number): ScheduleDeliveryRecord => ({ ...receipt(index), prompt: 'x'.repeat(MAX_HISTORY_PROMPT_BYTES / 4) })
+  const task = stored([big(1), big(2), big(3), big(4)])
+  const appended = appendDelivery(task, big(5), { days: 30, records: 200 })
+  expect(appended.deliveryHistory.records.map(record => record.messageId)).toEqual(['message-2', 'message-3', 'message-4', 'message-5'])
+  expect(appended.deliveryHistory.earlierRecordsUnavailable).toBe(true)
+  expect(appended.deliveryHistory.earlierRecordsPruned).toBe(true)
+  const lone = appendDelivery(stored([]), { ...big(6), prompt: 'y'.repeat(MAX_HISTORY_PROMPT_BYTES * 2) }, { days: 30, records: 200 })
+  expect(lone.deliveryHistory.records.map(record => record.messageId)).toEqual(['message-6'])
 })

@@ -8,6 +8,14 @@ import {
 } from './domain.ts'
 import type { ScheduleId, SchedulePatch, ScheduleRecord, ScheduleTiming } from './types.ts'
 
+export const MAX_SCHEDULE_PROMPT_BYTES = 65_536
+
+function assertPromptSize(prompt: string): void {
+  if (typeof prompt === 'string' && Buffer.byteLength(prompt) > MAX_SCHEDULE_PROMPT_BYTES) {
+    throw new ScheduleInputError('invalid_prompt', `prompt must be at most ${MAX_SCHEDULE_PROMPT_BYTES} bytes.`)
+  }
+}
+
 /** Read exactly one matching timing payload at the untrusted management boundary. */
 function validateTiming(value: ScheduleTiming): ScheduleTiming {
   const selectors = { after: 'after_seconds', at: 'at', every: 'every_seconds', daily: 'daily', weekly: 'weekly', cron: 'cron', rrule: 'rrule' } as const
@@ -28,6 +36,7 @@ function validateTiming(value: ScheduleTiming): ScheduleTiming {
  * @returns A validated record with its first future occurrence.
  */
 export function createScheduleRecord(id: ScheduleId, title: string, prompt: string, value: ScheduleTiming, now: number): ScheduleRecord {
+  assertPromptSize(prompt)
   const timing = validateTiming(value)
   switch (timing.kind) {
     case 'after': return createAfterScheduleRecord(id, prompt, timing.after_seconds, now, title)
@@ -81,6 +90,7 @@ export function updateScheduleRecord(current: ScheduleRecord, patch: SchedulePat
   if (typeof prompt !== 'string' || prompt.trim().length === 0) {
     throw new ScheduleInputError('invalid_prompt', 'prompt must be non-empty after trimming.')
   }
+  if (patch.prompt !== undefined) assertPromptSize(prompt)
   const timing = patch.timing === undefined ? timingOf(current) : patch.timing
   const changed = patch.timing !== undefined && !isDeepStrictEqual(normalizedTiming(timing), normalizedTiming(timingOf(current)))
   try {
