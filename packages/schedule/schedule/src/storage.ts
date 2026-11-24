@@ -53,7 +53,7 @@ const deliveryHistorySchema = z.object({
   message: 'Delivery history must name a stored prompt snapshot and never carry both an inline prompt and a prompt identity',
 })
 
-type StoredDeliveryRecord = z.infer<typeof deliveryReceiptSchema> & { promptId?: string }
+type StoredDeliveryRecord = Omit<z.infer<typeof deliveryReceiptSchema>, 'targetSessionId'> & { targetSessionId: SessionId; promptId?: string }
 
 export function promptIdOf(prompt: string): string {
   return createHash('sha256').update(prompt).digest('hex')

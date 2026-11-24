@@ -12,6 +12,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import z from '@deepseek-ai/schemastery'
 import type { Session, SessionEvent, SessionHeader, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type SessionPersistence from '@deepseek-ai/dsh-session-persistence'
+import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {
   SessionPersistenceRevision,
   SessionPersistenceSnapshot,

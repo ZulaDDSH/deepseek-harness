@@ -42,6 +42,9 @@
       "path": "../../subagent/subagent"
     },
     {
+      "path": "../../goal/goal"
+    },
+    {
       "path": "../../interaction/permission-presets"
     },
     {

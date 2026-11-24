@@ -74,7 +74,7 @@ interface SubagentHost {
   /** Read the current descriptor identity through the service-owned projection. */
   identityOf(session: Session): SubagentIdentityProjection | undefined
   /** Read a live Session's direct-child catalog through the service-owned projection. */
-  catalogChildrenOf(session: Session): ReadonlyMap<SessionId, string | undefined>
+  catalogChildrenOf(session: Session): Map<SessionId, string | undefined>
   /** Publish lifecycle events through the owning service's scoped dispatcher. */
   readonly emitLifecycle: LifecycleEmitter
 }
@@ -1305,7 +1305,7 @@ export class SubagentManager {
         const messageId = this.submitAdmitted(activation, content, options, root)
         return { messageId, agent: requireLocalActivation(activation).handle.agent }
       })
-      if ('messageId' in result) {
+      if (result.closing === undefined) {
         await this.flushAccepted(result.agent, childId)
         return result.messageId
       }

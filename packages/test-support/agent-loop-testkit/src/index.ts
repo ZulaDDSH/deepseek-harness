@@ -26,7 +26,7 @@ export { unsupportedModel } from './model.ts'
 export { provideWorkingDirectoryFixture } from './working-directory-fixture.ts'
 
 interface DriverInbox extends Inbox {
-  claim(target: InboxTarget, turn: number): UserMessage[]
+  claim(target: InboxTarget, turn: number): { readonly 'next-step': readonly UserMessage[]; readonly 'next-turn': readonly UserMessage[] }
 }
 
 /** Test driver for production Agents created by a mounted AgentLoop. */
