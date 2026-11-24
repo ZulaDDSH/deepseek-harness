@@ -29,7 +29,7 @@ async function setup() {
   const ctx = new Context()
   const fibers = [await ctx.plugin(WireConnection), await ctx.plugin(Policy), await ctx.plugin(SshFileSystem)]
   onTestFinished(async () => { for (const fiber of fibers.reverse()) await fiber.dispose() })
-  return { fs: ctx.fs, dispatch }
+  return { fs: ctx.fs as SshFileSystem, dispatch }
 }
 
 describe('SSH filesystem provider', () => {

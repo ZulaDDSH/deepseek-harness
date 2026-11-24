@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { captureFile } from '../src/capture.ts'
-import { STORE_VERSION, ensurePrivateDirectory, writeRecord } from '../src/store.ts'
+import { STORE_VERSION, ensurePrivateDirectory, writeRecord, type StoredRecord } from '../src/store.ts'
 
 const calls = vi.hoisted(() => ({ mkdir: [] as unknown[][], writeFile: [] as unknown[][] }))
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -28,7 +28,7 @@ async function scratch(): Promise<string> {
   return dir
 }
 
-const record = {
+const record: StoredRecord = {
   version: STORE_VERSION,
   summary: { turn: 1, cwd: '/w', files: [], total: 0, added: 0, deleted: 0 },
   sources: [],

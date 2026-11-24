@@ -424,7 +424,7 @@ it('rejects a selection whose resolution outlasts the first prompt and leaves th
   const paused = new Promise<void>((resolve) => { release = resolve })
   let entered!: () => void
   const resolving = new Promise<void>((resolve) => { entered = resolve })
-  registry['retain'] = async (id) => { entered(); const generation = await retain(id); await paused; return generation }
+  registry['retain'] = async (id?: string) => { entered(); const generation = await retain(id); await paused; return generation }
   const pending = ctx.agentPresets.select(agent, 'minimal')
   const outcome = expect(pending).rejects.toThrow('already started')
   await resolving

@@ -655,7 +655,7 @@ describe('dsh-workflow-ptc', { timeout: 120_000 }, () => {
           id: brandString<SessionId>(`${name}-child`),
           result: Promise.resolve({ output: [{ type: 'text', text: 'fine' }], stopReason: 'completed' }),
           cancel: () => { /* settled already */ },
-          dispose,
+          dispose: async () => { await dispose() },
         }),
       }
       ctx.subagents.registerProvider(provider)

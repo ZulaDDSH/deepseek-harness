@@ -73,6 +73,10 @@ class CooperativeAdapter extends LlmAdapter {
 }
 
 class StalledPrepareAdapter extends LlmAdapter {
+  override async * stream(): AsyncIterable<StreamChunk> {
+    await new Promise<never>(() => {})
+  }
+
   override prepareCall(): Promise<never> {
     return new Promise<never>(() => {})
   }

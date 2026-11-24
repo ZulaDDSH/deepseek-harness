@@ -31,7 +31,7 @@ function searchResult(marker: string, overrides: Partial<WebSearchResult> = {}):
 }
 
 function fetchResult(marker: string): WebFetchResult {
-  return { url: 'https://example.com', statusCode: 200, body: { kind: 'text', content: marker }, truncated: false }
+  return { url: 'https://example.com', finalUrl: 'https://example.com', statusCode: 200, body: { kind: 'text', content: marker }, truncated: false }
 }
 
 /** Mount a WebRuntime on a fresh root context with the given config. */

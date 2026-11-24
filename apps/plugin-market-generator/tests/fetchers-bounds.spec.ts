@@ -40,7 +40,7 @@ it('rejects a compressed tarball whose skipped node_modules entry inflates past 
     'node_modules/big/zeros.bin': new Uint8Array(8 << 20),
   })
   expect(tarball.length).toBeLessThan(limits.maxTarballBytes)
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(tarball)))
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array(tarball))))
   const integrity = `sha512-${createHash('sha512').update(tarball).digest('base64')}`
   await expect(npmTarball('dsh-skip', '1.0.0', { tarball: 'https://registry.example/t.tgz', integrity }, limits))
     .rejects.toThrow(`dsh-skip@1.0.0: unpacked tarball exceeds ${1 << 20} bytes`)

@@ -125,7 +125,7 @@ describe('SDK session/cancel', () => {
         await gate.promise
         return create(...args)
       })
-      const params = { sessionId: 'main', contentBlocks: text('go') }
+      const params = { sessionId: brandString<SessionId>('main'), contentBlocks: text('go') }
       const pending = method === 'prompt' ? server.prompt(params) : server.query(params)
       const settled = expect(pending).rejects.toThrow('cancelled')
       await entered.promise

@@ -211,7 +211,7 @@ describe('TextSearchIndex bounded fuzzy work', () => {
       const index = new TextSearchIndex([{ label }], item => ({ fuzzy: [item.label] }))
       index.search('你ac')
       index.search('你ac')
-      const lengths = prepare.mock.calls.map(([target]) => target.length)
+      const lengths = prepare.mock.calls.map(([target]) => typeof target === 'string' ? target.length : target.target.length)
       expect(lengths.length).toBeGreaterThan(0)
       expect(lengths.length).toBeLessThanOrEqual(32)
       expect(Math.max(...lengths)).toBeLessThanOrEqual(128)

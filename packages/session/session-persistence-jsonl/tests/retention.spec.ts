@@ -103,7 +103,7 @@ describe('session retention', () => {
     await seed(store, root, 'parent', 90)
     await seed(store, root, 'child', 1, { parentSession: brandString<SessionId>('parent') })
     await seed(store, root, 'busy', 90)
-    const handle = await store.open(brandString<SessionId>('busy'))
+    const handle = await store.open(brandString<SessionId>('busy'), 'write')
     const report = await store.sweepRetention()
     expect(report.deleted).toEqual([])
     expect(report.skipped).toEqual(expect.arrayContaining([

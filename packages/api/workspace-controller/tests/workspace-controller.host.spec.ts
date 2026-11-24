@@ -108,9 +108,7 @@ function stageDir(root: string, name: string): string {
   return path
 }
 
-async function nextFrame(
-  iterator: AsyncIterator<WorkspaceFollowFrame>,
-): Promise<WorkspaceFollowFrame> {
+async function nextFrame<T>(iterator: AsyncIterator<T>): Promise<T> {
   const next = await iterator.next()
   if (next.done === true) throw new Error('Workspace stream ended before the expected frame')
   return next.value

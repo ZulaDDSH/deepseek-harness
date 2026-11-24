@@ -121,7 +121,7 @@ describe('SessionController subagent catalog', () => {
           version: 0, childId: childIdFor(index), childCreatedAt: 1_000 + index, mode: 'continuable', label: 'worker',
         })
       }
-      const controlFrames: { frame: unknown; change: { val?: unknown; append?: { from: number; items: unknown[] } } }[] = []
+      const controlFrames: { frame: unknown; change: { val?: unknown; append?: { from: number; items: readonly unknown[] } | undefined } }[] = []
       while (controlFrames.length < total) {
         const next = await control.next()
         if (next.done) break

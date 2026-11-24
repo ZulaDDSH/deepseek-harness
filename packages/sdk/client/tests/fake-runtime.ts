@@ -64,7 +64,7 @@ const env = process.env
 if (env.FAKE_STDERR !== undefined) process.stderr.write(`${env.FAKE_STDERR}\n`)
 if (env.FAKE_STDERR_NO_NEWLINE !== undefined) process.stderr.write(env.FAKE_STDERR_NO_NEWLINE)
 if (env.FAKE_STDERR_BULK !== undefined) {
-  const [count, size, terminated] = env.FAKE_STDERR_BULK.split(',').map(Number)
+  const [count = 0, size = 0, terminated] = env.FAKE_STDERR_BULK.split(',').map(Number)
   for (let index = 0; index < count; index += 1) process.stderr.write(`${index}:${'a'.repeat(size)}${terminated === 1 ? '\n' : ''}`)
 }
 if (env.FAKE_OVERSIZE_STDOUT !== undefined) {

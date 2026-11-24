@@ -72,7 +72,7 @@ describe('local request-image cache', () => {
 
       const reopened = new LocalAttachmentStore(new Context(), { dshHome })
       await expect(reopened.readImage(attachment)).resolves.toEqual(stored)
-      await expect(readFile(reopened.fileHostPath(file))).resolves.toEqual(Buffer.from(fileData))
+      await expect(readFile(reopened.fileHostPath(file)!)).resolves.toEqual(Buffer.from(fileData))
       await expect(reopened.readImageRequest(attachment, policy)).resolves.toEqual(initial)
       await expect(readFile(path)).resolves.toEqual(Buffer.from(initial.data))
       await expect(readdir(fallbackHome)).resolves.toEqual([])
@@ -254,7 +254,7 @@ describe('local request-image cache', () => {
     const hash = String(initial.variantId).slice('sha256:'.length)
     const path = join(dshHome, 'cache', 'attachments', 'request-images', hash.slice(0, 2), hash)
     const corrupted = Buffer.from(await readFile(path))
-    corrupted[Math.floor(corrupted.length / 2)] ^= 0xff
+    corrupted[Math.floor(corrupted.length / 2)]! ^= 0xff
     await writeFile(path, corrupted)
 
     const regenerated = await attachments.readImageRequest(attachment, policy)
