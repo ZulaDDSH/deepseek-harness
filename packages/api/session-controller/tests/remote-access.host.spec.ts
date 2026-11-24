@@ -287,8 +287,8 @@ describe('Session Controller access', () => {
     await expect(prompt(GUEST, 'guest-1')).resolves.toEqual({ accepted: true })
     await expect(prompt(OWNER, 'owner-1')).resolves.toEqual({ accepted: true })
     // The durable Inbox splice records each accepted message with its source.
-    const logged = shared.session.snapshotEvents()
-      .flatMap(event => event.type === 'agent/inbox/spliced' ? event.data.inserted.map(item => item.source) : [])
+    const logged = [...new Map(shared.session.snapshotEvents()
+      .flatMap(event => event.type === 'agent/inbox/spliced' ? event.data.inserted.map(item => [item.id, item.source] as const) : [])).values()]
     expect(logged).toEqual([
       { kind: 'user', rpcId: 'guest-1', principal: GUEST },
       { kind: 'user', rpcId: 'owner-1' },

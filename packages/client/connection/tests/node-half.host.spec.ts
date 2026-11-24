@@ -435,8 +435,9 @@ describe('connection node half', () => {
 
   it('registers the API and connect HTTP routes and removes them with the fiber', async () => {
     const { routes, upgrades, dispose } = await mounted()
-    expect(routes).toHaveLength(2)
+    expect(routes).toHaveLength(3)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
+    expect(routes.map(route => route.path)).toContain('/browser-sessions')
     expect(upgrades).toHaveLength(0)
     await dispose()
     expect(routes).toHaveLength(0)
@@ -531,7 +532,7 @@ describe('connection node half', () => {
     ctx.provide('webServer', fakeHttpServer(ctx, routes, []) as WebServer)
     const fiber = await mountConnection(ctx)
     await fiber.await()
-    expect(routes).toHaveLength(2)
+    expect(routes).toHaveLength(3)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
 
     const connection = ctx.get('connection') as HostConnectionHandle
@@ -568,7 +569,7 @@ describe('connection node half', () => {
     expect(() => connection.rpc.handle('/rpc', async () => ({ ok: true, value: null })))
       .toThrow(/duplicate route/)
     await remove()
-    expect(routes.map(candidate => candidate.path)).toEqual([API_PATH, '/connect'])
+    expect(routes.map(candidate => candidate.path)).toEqual([API_PATH, '/connect', '/browser-sessions'])
     await fiber.dispose()
     expect(routes).toHaveLength(0)
   })
