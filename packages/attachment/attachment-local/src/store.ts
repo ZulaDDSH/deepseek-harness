@@ -38,7 +38,7 @@ function displayName(value: string | undefined): string | undefined {
   return clean === '' ? undefined : clean
 }
 
-function ensureReference(ref: ImageAttachmentRef): string {
+export function ensureReference(ref: ImageAttachmentRef): string {
   const match = ID_PATTERN.exec(String(ref.attachmentId))
   if (match?.[1] === undefined) throw new AttachmentError('Attachment reference is invalid.', 'INVALID_ATTACHMENT_REF')
   return match[1]
@@ -330,7 +330,7 @@ export async function reclaimAbandonedStaging(staging: string): Promise<{ files:
     const info = await stat(path).catch(() => undefined)
     if (info?.isFile() !== true || activeStaging.has(path)) return
     const owner = match[1] === undefined ? undefined : Number(match[1])
-    const live = owner === undefined ? info.mtimeMs >= cutoff : owner !== process.pid && ownerIsAlive(owner)
+    const live = owner === undefined || owner === process.pid ? info.mtimeMs >= cutoff : ownerIsAlive(owner)
     if (live) return
     await unlink(path).then(() => {
       files++

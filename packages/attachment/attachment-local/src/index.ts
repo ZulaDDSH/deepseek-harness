@@ -19,11 +19,11 @@ import type {
 import { dshCachePath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type { NormalizationPolicy } from './normalization.ts'
 import { CompressionLimiter, compressionFailure } from './compression-limiter.ts'
-import { commitPreparedImageFile, normalizedImagePath, prepareImageFile, readImageFile, validateImageFile } from './store.ts'
+import { commitPreparedImageFile, prepareImageFile, readImageFile, validateImageFile } from './store.ts'
 import {
   readFileStreamVerbatim, saveFileStreamVerbatim, saveFileVerbatim,
 } from './file-store.ts'
-import { handoffStoredFile, readStoredHostFile, reclaimAbandonedHandoffs, releaseHandoffs } from './host-file.ts'
+import { handoffStoredFile, handoffStoredImage, readStoredHostFile, reclaimAbandonedHandoffs, releaseHandoffs } from './host-file.ts'
 import { FileStoreQuota } from './file-quota.ts'
 import { readRequestImageFile, requestImageVariantId } from './request-image.ts'
 
@@ -274,8 +274,9 @@ export class LocalAttachmentStore extends AttachmentStore {
     return readImageFile(this.root, ref, signal)
   }
 
-  override imageHostPath(ref: ImageAttachmentRef): string {
-    return normalizedImagePath(this.root, ref)
+  override imageHostPath(ref: ImageAttachmentRef): string | undefined {
+    this.reclaimHandoffsOnce()
+    return handoffStoredImage(this.root, ref, this.maxHostPathVerifyBytes, this.handoffDirectory)
   }
 
   override async saveFile(input: SaveFileAttachment): Promise<FileAttachmentRef> {
@@ -291,11 +292,14 @@ export class LocalAttachmentStore extends AttachmentStore {
   }
 
   override fileHostPath(ref: FileAttachmentRef): string | undefined {
-    if (!this.handoffsReclaimed) {
-      this.handoffsReclaimed = true
-      reclaimAbandonedHandoffs(this.handoffRoot)
-    }
+    this.reclaimHandoffsOnce()
     return handoffStoredFile(this.root, ref, this.maxHostPathVerifyBytes, this.handoffDirectory)
+  }
+
+  private reclaimHandoffsOnce(): void {
+    if (this.handoffsReclaimed) return
+    this.handoffsReclaimed = true
+    reclaimAbandonedHandoffs(this.handoffRoot)
   }
 
   override readHostFile(hostPath: string, maxBytes: number, signal?: AbortSignal): Promise<Uint8Array | undefined> {

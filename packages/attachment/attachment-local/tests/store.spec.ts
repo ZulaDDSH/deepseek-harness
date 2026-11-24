@@ -121,7 +121,7 @@ describe('local attachment store', () => {
     await expect(stat(stale)).rejects.toThrow()
   })
 
-  it('reclaims a crashed process staging file promptly and keeps a live other process file whatever its age', async () => {
+  it('reclaims a crashed process staging file promptly, keeps a live other process file whatever its age, and ages out an unregistered file of this pid', async () => {
     const storageRoot = await root()
     const staging = join(storageRoot, 'tmp')
     await mkdir(staging, { recursive: true })
@@ -138,14 +138,17 @@ describe('local attachment store', () => {
     const crashed = join(staging, `${exitedPid}-${uuid}`)
     const survivor = join(staging, `${process.ppid}-${uuid}`)
     const mine = join(staging, `${process.pid}-${uuid}`)
-    for (const path of [crashed, survivor, mine]) await writeFile(path, 'partial')
+    const minePrevious = join(staging, `${process.pid}-44444444-4444-4444-8444-444444444444`)
+    for (const path of [crashed, survivor, mine, minePrevious]) await writeFile(path, 'partial')
     const old = new Date(Date.now() - 48 * 60 * 60 * 1000)
     await utimes(survivor, old, old)
+    await utimes(minePrevious, old, old)
 
     await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS, POLICY)
 
     await expect(stat(crashed)).rejects.toThrow()
-    await expect(stat(mine)).rejects.toThrow()
+    await expect(stat(minePrevious)).rejects.toThrow()
+    await expect(readFile(mine, 'utf8')).resolves.toBe('partial')
     await expect(readFile(survivor, 'utf8')).resolves.toBe('partial')
   })
 

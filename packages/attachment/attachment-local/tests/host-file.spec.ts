@@ -44,7 +44,10 @@ describe('verified host file reads', () => {
 
     await expect(store.readHostFile(alias, 1024)).resolves.toEqual(Buffer.from(data))
     await expect(store.readHostFile(copy, 1024)).resolves.toEqual(Buffer.from(data))
-    await expect(store.readHostFile(store.imageHostPath(image), 1 << 20)).resolves.toEqual(Buffer.from((await store.readImage(image)).data))
+    await expect(store.readHostFile(join(store.root, 'objects', String(image.attachmentId).slice(7, 9), String(image.attachmentId).slice(7)), 1 << 20))
+      .resolves.toEqual(Buffer.from((await store.readImage(image)).data))
+    await expect(store.readHostFile(store.imageHostPath(image)!, 1 << 20))
+      .resolves.toEqual(Buffer.from((await store.readImage(image)).data))
   })
 
   it('rejects a stored file rewritten at the same length', async () => {

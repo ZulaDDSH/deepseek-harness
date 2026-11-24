@@ -22,6 +22,7 @@ import LocalAttachmentStore, {
 } from '../src/index.ts'
 import { storedFilePath } from '../src/file-store.ts'
 import { releaseHandoffs } from '../src/host-file.ts'
+import { normalizedImagePath } from '../src/store.ts'
 
 describe('local attachment file limits', () => {
   it('refuses a verbatim file or stream above the configured per-file limit', async () => {
@@ -85,6 +86,25 @@ describe('local attachment file handles', () => {
     expect(service.fileHostPath(ref)).toBe(path)
   }))
 
+  it('hands out a private verified copy of a stored image and withholds it once the object changes', () => withService({}, async (service) => {
+    const png = new Uint8Array(await sharp({
+      create: { width: 2, height: 2, channels: 3, background: { r: 1, g: 2, b: 3 } },
+    }).png().toBuffer())
+    const ref = await service.saveImage({ data: png, mediaType: 'image/png' })
+    const object = normalizedImagePath(service.root, ref)
+    const path = service.imageHostPath(ref)!
+
+    expect(path).not.toBe(object)
+    expect(path.startsWith(join(service.root, 'handoff') + sep)).toBe(true)
+    await expect(readFile(path)).resolves.toEqual(Buffer.from(png))
+    await chmod(object, 0o600)
+    await writeFile(object, Buffer.alloc(png.length, 7))
+    await expect(readFile(path)).resolves.toEqual(Buffer.from(png))
+    await chmod(path, 0o600)
+    await rm(path)
+    expect(service.imageHostPath(ref)).toBeUndefined()
+  }))
+
   it('rebuilds a handed-out copy that was changed in place', () => withService({}, async (service) => {
     const data = Uint8Array.of(1, 2, 3, 4)
     const ref = await service.saveFile({ data, name: 'a.bin' })
@@ -120,17 +140,20 @@ describe('local attachment file handles', () => {
     expect(large.fileHostPath(ref)).toBeDefined()
   }))
 
-  it('removes the copies of an owner that disposed and of one whose process exited', () => withService({}, async (service) => {
+  it('removes the copies of an owner that disposed, of one whose process exited, and of an unregistered directory of this pid', () => withService({}, async (service) => {
     const ref = await service.saveFile({ data: Uint8Array.of(1, 2, 3, 4), name: 'a.bin' })
     const path = service.fileHostPath(ref)!
     const handoffRoot = join(service.root, 'handoff')
     const exited = spawnSync(process.execPath, ['-e', '0']).pid
     const crashed = join(handoffRoot, `${exited}-33333333-3333-4333-8333-333333333333`)
+    const previous = join(handoffRoot, `${process.pid}-55555555-5555-4555-8555-555555555555`)
     await mkdir(crashed, { recursive: true })
+    await mkdir(previous, { recursive: true })
 
     const later = new LocalAttachmentStore(new Context(), { dshHome: join(service.root, '..', '..') })
     expect(later.fileHostPath(ref)).toBeDefined()
     expect(existsSync(crashed)).toBe(false)
+    expect(existsSync(previous)).toBe(false)
     expect(existsSync(path)).toBe(true)
 
     releaseHandoffs(join(handoffRoot, path.slice(handoffRoot.length + 1).split(sep)[0]!))
@@ -167,12 +190,7 @@ describe('local attachment service', () => {
       width: 1,
       height: 1,
     }
-    expect(service.imageHostPath(ref)).toBe(join(
-      service.root,
-      'objects',
-      'aa',
-      'a'.repeat(64),
-    ))
+    expect(service.imageHostPath(ref)).toBeUndefined()
     expect(() => service.imageHostPath({ ...ref, attachmentId: brandString<AttachmentId>('invalid') }))
       .toThrow(expect.objectContaining({ code: 'INVALID_ATTACHMENT_REF' }))
   })
@@ -196,15 +214,9 @@ describe('local attachment service', () => {
       const ref = await service.saveImage({ data, mediaType: 'image/png' })
       await expect(service.readImage(ref)).resolves.toEqual({ ref, data })
       const hostPath = service.imageHostPath(ref)
-      expect(hostPath).toBe(join(
-        dshHome,
-        'attachments',
-        'v1',
-        'objects',
-        String(ref.attachmentId).slice('sha256:'.length, 'sha256:'.length + 2),
-        String(ref.attachmentId).slice('sha256:'.length),
-      ))
-      await expect(readFile(hostPath)).resolves.toEqual(Buffer.from(data))
+      const digest = String(ref.attachmentId).slice('sha256:'.length)
+      expect(hostPath).toBe(join(dshHome, 'attachments', 'v1', 'handoff', hostPath!.split(sep).at(-3)!, digest, `${digest}.png`))
+      await expect(readFile(hostPath!)).resolves.toEqual(Buffer.from(data))
       const request = await service.readImageRequest(ref, { width: 1, height: 1, maxBytes: 1024 })
       expect(request).not.toHaveProperty('access')
 
