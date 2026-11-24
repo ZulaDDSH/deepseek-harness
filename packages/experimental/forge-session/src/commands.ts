@@ -177,8 +177,20 @@ function createsChangeRequest(command: string): boolean {
     if (words[start] === 'env') start = skipAssignments(words, start + 1)
     const [resource, operation, verb] = words.slice(start, start + 3)
     if (resource === 'gh') return operation === 'pr' && (verb === 'create' || verb === 'new')
-    return SHELL_INTERPRETERS.has(resource ?? '') && SCRIPT_FLAG.test(operation ?? '') && createsChangeRequest(verb ?? '')
+    if (!SHELL_INTERPRETERS.has(resource ?? '')) return false
+    const script = interpreterScript(words, start + 1)
+    return script !== undefined && createsChangeRequest(script)
   })
+}
+
+function interpreterScript(words: readonly string[], start: number): string | undefined {
+  for (let index = start; index < words.length; index++) {
+    const word = words[index] ?? ''
+    if (SCRIPT_FLAG.test(word)) return words[index + 1]
+    if (word === '-o' || word === '+o') index++
+    else if (!/^[-+]/.test(word)) return undefined
+  }
+  return undefined
 }
 
 function skipAssignments(words: readonly string[], start: number): number {

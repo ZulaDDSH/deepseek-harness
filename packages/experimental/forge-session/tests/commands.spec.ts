@@ -43,6 +43,8 @@ describe('commandEvidence', () => {
     ['FOO=1 env BAR=2 gh pr create --fill', created],
     ['git status; gh pr new', created],
     ["bash -c 'gh pr create --fill'", created],
+    ["bash -e -c 'gh pr create --fill'", created],
+    ["bash -o pipefail -c 'gh pr create --fill'", created],
     ['sh -lc "cd repo && gh pr create"', created],
     ['if git diff --quiet; then gh pr create --fill; fi', created],
     ['{ gh pr create --fill; }', created],
