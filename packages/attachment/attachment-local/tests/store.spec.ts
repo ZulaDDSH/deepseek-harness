@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import { chmod, link, mkdir, readFile, readdir, stat, utimes, writeFile } from 'node:fs/promises'
@@ -99,7 +100,7 @@ describe('local attachment store', () => {
     expect(changed).toContain(join(storageRoot, 'tmp'))
   })
 
-  it('removes stale staging files once per process without touching live or foreign names', async () => {
+  it('removes stale ownerless staging files on every save without touching live or foreign names', async () => {
     const storageRoot = await root()
     const staging = join(storageRoot, 'tmp')
     await mkdir(staging, { recursive: true })
@@ -117,7 +118,35 @@ describe('local attachment store', () => {
     await writeFile(stale, 'again')
     await utimes(stale, old, old)
     await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS, POLICY)
-    await expect(readFile(stale, 'utf8')).resolves.toBe('again')
+    await expect(stat(stale)).rejects.toThrow()
+  })
+
+  it('reclaims a crashed process staging file promptly and keeps a live other process file whatever its age', async () => {
+    const storageRoot = await root()
+    const staging = join(storageRoot, 'tmp')
+    await mkdir(staging, { recursive: true })
+    let exitedPid = 0
+    while (exitedPid === 0) {
+      const pid = spawnSync(process.execPath, ['-e', '0']).pid
+      try {
+        process.kill(pid, 0)
+      } catch {
+        exitedPid = pid
+      }
+    }
+    const uuid = '33333333-3333-4333-8333-333333333333'
+    const crashed = join(staging, `${exitedPid}-${uuid}`)
+    const survivor = join(staging, `${process.ppid}-${uuid}`)
+    const mine = join(staging, `${process.pid}-${uuid}`)
+    for (const path of [crashed, survivor, mine]) await writeFile(path, 'partial')
+    const old = new Date(Date.now() - 48 * 60 * 60 * 1000)
+    await utimes(survivor, old, old)
+
+    await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS, POLICY)
+
+    await expect(stat(crashed)).rejects.toThrow()
+    await expect(stat(mine)).rejects.toThrow()
+    await expect(readFile(survivor, 'utf8')).resolves.toBe('partial')
   })
 
   it('reclaims abandoned staging while leaving a live same-process writer and a linked publication intact', async () => {
