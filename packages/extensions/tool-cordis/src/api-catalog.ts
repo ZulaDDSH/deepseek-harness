@@ -10281,7 +10281,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionTitleProviderRequest',
-    declaration: 'export interface SessionTitleProviderRequest {\n    readonly session: Session;\n    readonly messages: readonly SessionTitleUserMessage[];\n    readonly route?: SessionTitleModelIdentity;\n    readonly currentTitle?: SessionTitleSnapshot;\n    readonly signal: AbortSignal;\n}',
+    declaration: 'export interface SessionTitleProviderRequest {\n    readonly session: Session;\n    readonly messages: readonly SessionTitleUserMessage[];\n    readonly omittedMessages?: number;\n    readonly route?: SessionTitleModelIdentity;\n    readonly currentTitle?: SessionTitleSnapshot;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'SessionTitleProviderResult',
