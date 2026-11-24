@@ -33,6 +33,7 @@ const GH_VALUE_LONG_OPTIONS = new Set([
 ])
 const GH_VALUE_SHORT_OPTIONS = new Set('aBbFHlmprTtR')
 const MAX_NESTING = 32
+const MAX_WORK = 262_144
 const FLOCK_VALUE_OPTIONS: ReadonlySet<string> = new Set(['-w', '-E', '--timeout', '--wait', '--conflict-exit-code'])
 const WRAPPERS = new Map([
   ['sudo', { values: new Set(['-u', '-g', '-h', '-p', '-C', '-D', '-R', '-T', '-U', '-r', '-t', '--user', '--group', '--host', '--prompt', '--chdir']), positional: 0 }],
@@ -54,7 +55,7 @@ const CONTAINER_GLOBAL_OPTIONS: ReadonlySet<string> = new Set([
 ])
 const CONTAINER_EXEC_OPTIONS: ReadonlySet<string> = new Set(['-e', '--env', '--env-file', '-u', '--user', '-w', '--workdir', '--detach-keys'])
 const CONTAINER_RUN_OPTIONS: ReadonlySet<string> = new Set([
-  ...CONTAINER_EXEC_OPTIONS, '-a', '--attach', '--add-host', '--cap-add', '--cap-drop', '--cpus', '--device', '--dns', '--entrypoint', '--expose',
+  ...CONTAINER_EXEC_OPTIONS, '-a', '--attach', '--add-host', '--cap-add', '--cap-drop', '--cpus', '--device', '--dns', '--expose',
   '-h', '--hostname', '-l', '--label', '--label-file', '--log-driver', '--log-opt', '-m', '--memory', '--mount', '--name', '--network', '--net',
   '--platform', '-p', '--publish', '--pull', '--restart', '--security-opt', '--shm-size', '--tmpfs', '--ulimit', '-v', '--volume',
   '--volumes-from', '--pid', '--ipc', '--gpus', '--group-add', '--user', '--userns',
@@ -211,8 +212,10 @@ interface CommandForms {
 
 function commandForms(command: string): CommandForms {
   const forms: CommandForms = { create: false, reference: false, push: false }
+  let budget = MAX_WORK
   const visit = (raw: string, depth: number): void => {
-    if (depth > MAX_NESTING) return
+    budget -= raw.length
+    if (depth > MAX_NESTING || budget < 0) return
     const text = stripComments(raw)
     const bodies = substitutionBodies(text)
     if (bodies === undefined) return
@@ -299,7 +302,9 @@ function containerCommand(program: string, args: readonly string[]): string[] | 
   if (program !== 'docker' && program !== 'podman') return undefined
   let verb = skipOptions(args, 0, CONTAINER_GLOBAL_OPTIONS)
   if (args[verb] === 'container') verb++
-  const values = args[verb] === 'exec' ? CONTAINER_EXEC_OPTIONS : args[verb] === 'run' ? CONTAINER_RUN_OPTIONS : undefined
+  const run = args[verb] === 'run'
+  if (run && args.some(word => word.startsWith('--entrypoint'))) return undefined
+  const values = args[verb] === 'exec' ? CONTAINER_EXEC_OPTIONS : run ? CONTAINER_RUN_OPTIONS : undefined
   return values === undefined ? undefined : args.slice(skipOptions(args, verb + 1, values) + 1)
 }
 
@@ -453,39 +458,61 @@ function substitutionBodies(source: string): string[] | undefined {
   return frames.some(frame => frame !== root && !frame.tick) ? undefined : bodies
 }
 
+interface CommentFrame {
+  quote: string | undefined
+  depth: number
+  tick: boolean
+}
+
 function stripComments(source: string): string {
   if (!source.includes('#')) return source
   let output = ''
   let copied = 0
-  let quote: string | undefined
-  let depth = 0
-  const outer: { quote: string | undefined; depth: number }[] = []
+  let boundary = true
+  const root: CommentFrame = { quote: undefined, depth: 0, tick: false }
+  const frames = [root]
   for (let index = 0; index < source.length; index++) {
-    const char = source[index]
-    if (quote === "'") {
-      if (char === "'") quote = undefined
+    const frame = frames.at(-1) ?? root
+    const char = source[index] ?? ''
+    const wordStart = boundary
+    boundary = false
+    if (frame.quote === "'") {
+      if (char === "'") frame.quote = undefined
     } else if (char === '\\') {
       index++
     } else if (char === '$' && source[index + 1] === '(') {
-      outer.push({ quote, depth })
-      quote = undefined
-      depth = 0
+      frames.push({ quote: undefined, depth: 0, tick: false })
+      boundary = true
       index++
-    } else if (quote === '"') {
-      if (char === '"') quote = undefined
+    } else if (char === '`') {
+      if (frame.tick) {
+        frames.pop()
+      } else {
+        frames.push({ quote: undefined, depth: 0, tick: true })
+        boundary = true
+      }
+    } else if (frame.quote === '"') {
+      if (char === '"') frame.quote = undefined
     } else if (char === "'" || char === '"') {
-      quote = char
+      frame.quote = char
     } else if (char === '(') {
-      depth++
+      frame.depth++
+      boundary = true
     } else if (char === ')') {
-      const saved = depth > 0 ? undefined : outer.pop()
-      if (saved === undefined) depth = Math.max(depth - 1, 0)
-      else ({ quote, depth } = saved)
-    } else if (char === '#' && (index === 0 || /[\s;&|(]/.test(source[index - 1] ?? ''))) {
-      const end = source.indexOf('\n', index)
+      if (frame.depth > 0) frame.depth--
+      else if (!frame.tick && frames.length > 1) frames.pop()
+    } else if (/[\s;&|]/.test(char)) {
+      boundary = true
+    } else if (char === '#' && wordStart) {
+      const newline = source.indexOf('\n', index)
+      const tick = frame.tick ? source.indexOf('`', index) : -1
+      const ends = [newline, tick].filter(at => at >= 0)
       output += source.slice(copied, index)
-      copied = end < 0 ? source.length : end
+      copied = ends.length > 0 ? Math.min(...ends) : source.length
       index = copied - 1
+    } else if (char === '#' && source[index - 1] !== '$' && source[index - 1] !== '{') {
+      output += `${source.slice(copied, index)}\\`
+      copied = index
     }
   }
   return output + source.slice(copied)

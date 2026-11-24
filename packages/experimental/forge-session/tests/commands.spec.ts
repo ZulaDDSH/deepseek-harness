@@ -130,6 +130,15 @@ describe('commandEvidence', () => {
     ['flock -w 5 /tmp/lock -c "git push"', pushed],
     ['echo x # note\ngit push', pushed],
     ['echo "a # b" && git push', pushed],
+    ['echo a#b; git push', pushed],
+    ['git checkout -b fix#12 && git push', pushed],
+    ['echo https://x/y#frag && git push', pushed],
+    ['curl https://x/a#b && gh pr create --fill', created],
+    ['echo $# && git push', pushed],
+    ['echo ${#a[@]} && git push', pushed],
+    ['echo `date #now`; git push', pushed],
+    ['echo a\\ #b; git push', pushed],
+    ['echo $(date #now\n) && git push', pushed],
     ['git push `\n origin feat', pushed],
     ['git push `\n origin feat `\n --force', pushed],
   ])('classifies %j', (command, evidence) => {
@@ -203,6 +212,10 @@ describe('commandEvidence', () => {
     'kubectl exec pod git push',
     'su -c "git status"',
     'flock /tmp/lock git status',
+    'docker run --entrypoint echo img git push',
+    'podman run --rm --entrypoint=echo img git push',
+    'echo a #b; git push',
+    'echo `date #now; git push`',
   ])('ignores %j', (command) => {
     expect(commandEvidence(command)).toBeUndefined()
   })
@@ -229,6 +242,16 @@ describe('commandEvidence', () => {
     expect(commandEvidence(`echo ${'$('.repeat(25)}gh pr create${')'.repeat(25)}`)).toEqual(created)
     expect(commandEvidence(`echo \`git push\` ${'$('.repeat(25)}echo${')'.repeat(25)}`)).toEqual(pushed)
     expect(performance.now() - started).toBeLessThan(500)
+  })
+
+  it('finishes a large adversarial input within the work budget', () => {
+    const nested = `echo ${'$('.repeat(32)}${'x '.repeat(50_000)}gh pr create${')'.repeat(32)}`
+    const started = performance.now()
+    commandEvidence(nested)
+    commandEvidence(`echo ${'`'.repeat(1)}${'$('.repeat(32)}${'a#b '.repeat(25_000)}${')'.repeat(32)}`)
+    expect(performance.now() - started).toBeLessThan(500)
+    expect(commandEvidence(`echo ${'a '.repeat(50_000)}; git push`)).toEqual(pushed)
+    expect(commandEvidence(`echo ${'a '.repeat(200_000)}; git push`)).toBeUndefined()
   })
 
   it('classifies a long run of option letters in linear time', () => {
