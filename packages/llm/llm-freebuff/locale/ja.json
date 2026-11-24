@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Freebuff モデル",
+    "description": "インストール済みの Freebuff CLI をモデルルートとして使用し、そのログイン状態でチャットします。"
+  }
+}

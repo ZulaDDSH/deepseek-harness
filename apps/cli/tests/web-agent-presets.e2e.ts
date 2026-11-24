@@ -48,6 +48,7 @@ const WEB_PATCHES = bundlePatchPaths(WEB_BUNDLE, (JSON.parse(readFileSync(join(W
 const webPatches = (label: string): PatchOptions[] => WEB_PATCHES.flatMap(file => loadOverlayPatches(label, file))
 const CODEX_PACKAGE_DIR = join(REPO_ROOT, 'packages/subagent/subagent-codex')
 const CLAUDE_CODE_PACKAGE_DIR = join(REPO_ROOT, 'packages/subagent/subagent-claude-code')
+const FREEBUFF_PACKAGE_DIR = join(REPO_ROOT, 'packages/subagent/subagent-freebuff')
 /** The installation anchor whose dependency surface the runtime resolution mirrors. */
 const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
 const MINIMAL_PROMPT = 'You are a helpful software engineer assistant.'
@@ -906,9 +907,10 @@ describe('preset-selected delegation through the Web Loader', () => {
 })
 
 describe.each(['web', 'desktop'] as const)('%s native subagent bundles', (surface) => {
-  const products = ['codex', 'claude-code'] as const
+  const products = ['codex', 'claude-code', 'freebuff'] as const
   type Product = typeof products[number]
-  const packageDir = (product: Product): string => (product === 'codex' ? CODEX_PACKAGE_DIR : CLAUDE_CODE_PACKAGE_DIR)
+  const packageDirs: Record<Product, string> = { codex: CODEX_PACKAGE_DIR, 'claude-code': CLAUDE_CODE_PACKAGE_DIR, freebuff: FREEBUFF_PACKAGE_DIR }
+  const packageDir = (product: Product): string => packageDirs[product]
   const toolName = (product: Product): string => `subagent_${product.replaceAll('-', '_')}`
 
   async function bootSelected(installed: readonly Product[], extra: PatchOptions[] = []): Promise<Context> {
@@ -925,11 +927,11 @@ describe.each(['web', 'desktop'] as const)('%s native subagent bundles', (surfac
       setup: owner => productCtx.agentPresets.mount(owner, preset).then(() => undefined),
     })
     try {
-      return toolNames(productCtx, handle.agent).filter(name => /(?:subagent|custom)_(?:codex|claude_code)$/.test(name))
+      return toolNames(productCtx, handle.agent).filter(name => /(?:subagent|custom)_(?:codex|claude_code|freebuff)$/.test(name))
     } finally { await handle.dispose() }
   }
 
-  it.each([[[]], [['codex']], [['claude-code']], [['codex', 'claude-code']]] as Array<[Product[]]>)(
+  it.each([[[]], [['codex']], [['claude-code']], [['freebuff']], [['codex', 'claude-code', 'freebuff']]] as Array<[Product[]]>)(
     'adds the selected %j delegation tools to every preset as global tools', async (installed) => {
       const productCtx = await bootSelected(installed)
       const spawn = vi.spyOn(productCtx.subprocess, 'spawn')
@@ -958,15 +960,16 @@ describe.each(['web', 'desktop'] as const)('%s native subagent bundles', (surfac
 
   it('keeps provider identities and applies later Host row overrides', async () => {
     const providerConfig = { model: 'adoption-model', env: { DSH_NATIVE_ADOPTION: 'preserved' } }
-    const productCtx = await bootSelected(products, [
-      ...products.map(product => ({ id: `subagent-${product}`, config: providerConfig })),
+    const adopted = ['codex', 'claude-code'] as const
+    const productCtx = await bootSelected(adopted, [
+      ...adopted.map(product => ({ id: `subagent-${product}`, config: providerConfig })),
       { id: 'tool-subagent-codex', disabled: true },
       { id: 'tool-subagent-claude-code', config: {
         provider: 'claude-code', toolName: 'custom_claude_code', maxDepth: 'provider-managed',
       } },
     ])
     try {
-      for (const product of products) {
+      for (const product of adopted) {
         expect([...productCtx.loader.entries()].find(entry => entry.options.id === `subagent-${product}`)?.options.config)
           .toMatchObject(providerConfig)
       }

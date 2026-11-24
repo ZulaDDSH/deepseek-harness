@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Freebuff 模型",
+    "description": "通过已安装的 Freebuff CLI 作为模型路由聊天，使用其自身登录状态。"
+  }
+}

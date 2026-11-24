@@ -887,6 +887,8 @@ describe('web e2e: plugin manager', () => {
       ['@deepseek-ai/dsh-deepseek-chat-import', 1],
       ['@deepseek-ai/dsh-subagent-codex', 0],
       ['@deepseek-ai/dsh-subagent-claude-code', 0],
+      ['@deepseek-ai/dsh-subagent-freebuff', 0],
+      ['@deepseek-ai/dsh-llm-freebuff', 0],
     ])
     expect(await panel.locator('[data-plugin-group="bundles"]').count()).toBe(0)
     await panel.getByRole('button', { name: '返回插件', exact: true }).click()

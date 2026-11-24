@@ -9185,7 +9185,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'QuotaWindowId',
-    declaration: 'export type QuotaWindowId = \'5h\' | \'weekly\' | \'weekly-opus\' | \'weekly-sonnet\' | \'monthly\' | \'overage\' | \'credits\';',
+    declaration: 'export type QuotaWindowId = \'5h\' | \'daily\' | \'weekly\' | \'weekly-opus\' | \'weekly-sonnet\' | \'monthly\' | \'overage\' | \'credits\';',
   },
   {
     name: 'ReadFileLine',

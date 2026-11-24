@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Freebuff サブエージェント",
+    "description": "インストール済みの Freebuff CLI とそのログイン状態を使用して、単独のタスクを委派します。"
+  }
+}

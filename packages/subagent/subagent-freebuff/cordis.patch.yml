@@ -1,0 +1,9 @@
+- insert:
+    - id: subagent-freebuff
+      name: '@deepseek-ai/dsh-subagent-freebuff'
+    - id: tool-subagent-freebuff
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: freebuff
+        toolName: subagent_freebuff
+        maxDepth: provider-managed

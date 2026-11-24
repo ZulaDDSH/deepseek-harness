@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Freebuff model",
+    "description": "Chat with the installed Freebuff CLI as a model route, using its own sign-in."
+  }
+}

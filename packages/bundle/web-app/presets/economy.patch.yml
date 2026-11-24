@@ -111,6 +111,14 @@
                   toolName: subagent_codex
                   backgroundMode: one-shot
                   maxDepth: provider-managed
+              - id: tool-subagent-freebuff
+                name: '@deepseek-ai/dsh-tool-subagent'
+                disabled: true
+                config:
+                  provider: freebuff
+                  toolName: subagent_freebuff
+                  backgroundMode: one-shot
+                  maxDepth: provider-managed
               - id: tool-subagent-claude-code
                 name: '@deepseek-ai/dsh-tool-subagent'
                 disabled: true

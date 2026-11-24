@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Modelo Freebuff",
+    "description": "Chatee con la CLI de Freebuff instalada como ruta de modelo, usando su propio inicio de sesión."
+  }
+}

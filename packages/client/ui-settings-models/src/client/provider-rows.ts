@@ -33,7 +33,7 @@ export interface EditorTarget extends ProviderIdentity {
  * @returns whether to render the setup card.
  */
 export function needsSetup(row: ProviderRow, anyUsable: boolean): boolean {
-  if (anyUsable || row.entry.provider === 'deepseek-account') return false
+  if (anyUsable || row.entry.provider === 'deepseek-account' || row.entry.settingsNs === 'llm-freebuff') return false
   if (row.entry.settingsPath.length > 0) return false
   return row.credential?.configured !== true
 }

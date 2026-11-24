@@ -124,6 +124,16 @@ describe('ProviderQuotaAction popover', () => {
     expect(view.getByText('$0.00')).toBeDefined()
   })
 
+  it('renders a daily allowance window as Today with its value label', () => {
+    const view = renderPopover([{
+      providerId: 'freebuff', providerName: 'Freebuff', configured: true, ok: true,
+      windows: { daily: { usedPercent: 24, resetAt: null, valueLabel: 'Today 61:00 left of 80 h' } },
+    }])
+
+    expect(view.getByText('Today')).toBeDefined()
+    expect(view.getByText('Today 61:00 left of 80 h')).toBeDefined()
+  })
+
   it('shows the durable current-session token total alongside account quotas', () => {
     const props = {
       useProviders: (select: (value: unknown) => unknown) => select([{ id: 'deepseek', name: 'DeepSeek' }]),

@@ -107,10 +107,12 @@ it('validates local tarball contents before reporting success', async () => {
   write(root, 'apps/cli/package.json', JSON.stringify({ name: '@deepseek-ai/dsh', version: '1.2.3', files: ['lib', 'src'] }))
   write(root, 'apps/cli/lib/index.js', 'export const cli = true\n')
   write(root, 'apps/cli/src/bin.ts', 'export const bin = true\n')
-  for (const name of ['subagent-claude-code', 'subagent-codex']) {
+  for (const name of ['subagent-claude-code', 'subagent-codex', 'subagent-freebuff']) {
     write(root, `packages/subagent/${name}/package.json`, JSON.stringify({ name: `@deepseek-ai/dsh-${name}`, version: '1.2.3', files: ['lib'] }))
     write(root, `packages/subagent/${name}/lib/index.js`, 'export const bundle = true\n')
   }
+  write(root, 'packages/llm/llm-freebuff/package.json', JSON.stringify({ name: '@deepseek-ai/dsh-llm-freebuff', version: '1.2.3', files: ['lib'] }))
+  write(root, 'packages/llm/llm-freebuff/lib/index.js', 'export const bundle = true\n')
   const result = await pack(root)
   expect(result.code).not.toBe(0)
   expect(result.output).toContain('@deepseek-ai/dsh packed no documentation')

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Freebuff 子智能体",
+    "description": "使用已安装的 Freebuff CLI 及其自身登录状态委派单个任务。"
+  }
+}
