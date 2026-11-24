@@ -16,6 +16,23 @@ const liveHandoffDirectories = new Set<string>()
 const HEX_DIGEST = /^[a-f0-9]{64}$/
 const HANDOFF_OWNER = /^(\d{1,10})-[0-9a-f-]{36}$/
 
+function removeTree(path: string): boolean {
+  try {
+    rmSync(path, { recursive: true, force: true })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function closeDescriptor(fd: number): void {
+  try {
+    closeSync(fd)
+  } catch {
+    return
+  }
+}
+
 function identityOf(stat: Stats): string {
   return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(':')
 }
@@ -31,7 +48,7 @@ function openIdentity(target: string, bytes: number): string | undefined {
     const stat = fstatSync(fd)
     return stat.isFile() && stat.size === bytes ? identityOf(stat) : undefined
   } finally {
-    closeSync(fd)
+    closeDescriptor(fd)
   }
 }
 
@@ -67,12 +84,12 @@ function copyVerified(source: string, target: string, sha256: string, bytes: num
     renameSync(temporary, target)
     return true
   } catch {
-    if (output !== undefined) closeSync(output)
+    if (output !== undefined) closeDescriptor(output)
     output = undefined
-    rmSync(temporary, { force: true })
+    removeTree(temporary)
     return false
   } finally {
-    if (input !== undefined) closeSync(input)
+    if (input !== undefined) closeDescriptor(input)
   }
 }
 
@@ -130,7 +147,7 @@ export function releaseHandoffs(directory: string): void {
     if (path.startsWith(directory + sep)) handoffIdentities.delete(path)
   }
   liveHandoffDirectories.delete(directory)
-  rmSync(directory, { recursive: true, force: true })
+  removeTree(directory)
 }
 
 export function reclaimAbandonedHandoffs(handoffRoot: string): void {
@@ -146,7 +163,7 @@ export function reclaimAbandonedHandoffs(handoffRoot: string): void {
     const pid = Number(owner)
     const path = join(handoffRoot, name)
     if (liveHandoffDirectories.has(path)) continue
-    if (pid === process.pid || !ownerIsAlive(pid)) rmSync(path, { recursive: true, force: true })
+    if (pid === process.pid || !ownerIsAlive(pid)) removeTree(path)
   }
 }
 
