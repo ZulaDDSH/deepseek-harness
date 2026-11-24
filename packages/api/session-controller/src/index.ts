@@ -77,6 +77,8 @@ import type {
   SessionSelectMcpValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
+  SessionDefaultSaveOutcomeRequest,
+  SessionDefaultSaveOutcomeValue,
   SessionProjectionsRequest,
   SessionProjectionsValue,
   SessionSetRunOptionsRequest,
@@ -405,11 +407,22 @@ export class SessionController extends TypertRemoteService {
   /**
    * Select one Session-local model after explicitly resuming the Session; save the default in the background.
    * @param request - Session identity and requested model selection.
-   * @returns the normalized selection installed for the Session, without waiting for default persistence.
+   * @returns the normalized selection installed for the Session and the default-save outcome;
+   * `pending` carries a `defaultSaveId` for `defaultSaveOutcome`.
    */
   @Remote('selectModel')
   selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
     return this.commands.selectModel(request)
+  }
+
+  /**
+   * Learn the outcome of a default-model save that had not settled when `selectModel` answered.
+   * @param request - Session identity and the `defaultSaveId` from `selectModel`.
+   * @returns the settled outcome, or `pending` when the save is still running after the bounded wait.
+   */
+  @Remote('defaultSaveOutcome')
+  defaultSaveOutcome(request: SessionDefaultSaveOutcomeRequest): Promise<SessionDefaultSaveOutcomeValue> {
+    return this.commands.defaultSaveOutcome(request)
   }
 
   /**

@@ -78,7 +78,8 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
   let catalogFailure = false
   let groups = GROUPS
   let selectionFailure: RemoteError<'session/writer-held'> | undefined
-  let defaultSave: 'saved' | 'failed' = 'saved'
+  let defaultSave: 'saved' | 'failed' | 'pending' = 'saved'
+  let lateOutcome: Promise<'saved' | 'failed'> = Promise.resolve('saved')
   const notices: Array<{ level: string; text: string }> = []
   const sessionRemote = {
     modelCatalog: () => {
@@ -105,8 +106,12 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
           : { reasoningEffort: ReasoningEffortId(payload.reasoningEffort) },
       }
       projections.get(payload.sessionId)?.set({ lastUsed: null, lastUsedSeq: null, next: selected })
-      return Promise.resolve({ ok: true as const, value: { selected, defaultSave } })
+      return Promise.resolve({
+        ok: true as const,
+        value: { selected, defaultSave, ...defaultSave === 'pending' ? { defaultSaveId: 'save-1' } : {} },
+      })
     },
+    defaultSaveOutcome: () => lateOutcome.then(outcome => ({ ok: true as const, value: { defaultSave: outcome } })),
   }
   const remote = Object.assign(new TestRemote(ctx), { session: sessionRemote })
   ctx.reflect.provide('remote.session', sessionRemote)
@@ -206,7 +211,8 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
     setCatalogFailure: (next: boolean) => { catalogFailure = next },
     setRoutable: (next: boolean) => { routable = next },
     blockOf: (key: string) => blocks.get(sid(key)),
-    setDefaultSave: (next: 'saved' | 'failed') => { defaultSave = next },
+    setDefaultSave: (next: 'saved' | 'failed' | 'pending') => { defaultSave = next },
+    setLateOutcome: (next: Promise<'saved' | 'failed'>) => { lateOutcome = next },
     notices,
   }
 }
@@ -331,6 +337,37 @@ describe('ui-model-selection dual entry', () => {
     const options = await b.popup().options(projection('s1'), new AbortController().signal)
     await b.popup().onSelect(options.find((o: SelectOption) => o.label === 'DeepSeek-V4-Pro')!, projection('s1'))
     expect(b.notices).toEqual(notified ? [{ level: 'info', text: zh['warning.defaultNotSaved'] }] : [])
+  })
+
+  it.each([['saved', 'defaultSaved'], ['failed', 'defaultNotSaved']] as const)('a popup selection with a stalled default save tells the composer it is saving, then that it %s', async (late, key) => {
+    const b = await bench()
+    b.mint('s1')
+    b.setDefaultSave('pending')
+    const settle = Promise.withResolvers<'saved' | 'failed'>()
+    b.setLateOutcome(settle.promise)
+    const options = await b.popup().options(projection('s1'), new AbortController().signal)
+    await b.popup().onSelect(options.find((o: SelectOption) => o.label === 'DeepSeek-V4-Pro')!, projection('s1'))
+    expect(b.notices).toEqual([{ level: 'info', text: zh['warning.defaultSaving'] }])
+    settle.resolve(late)
+    await vi.waitFor(() => { expect(b.notices).toEqual([
+      { level: 'info', text: zh['warning.defaultSaving'] },
+      { level: 'info', text: zh[`warning.${key}`] },
+    ]) })
+  })
+
+  it('stays silent about a stalled default save that a newer selection replaced', async () => {
+    const b = await bench()
+    b.mint('s1')
+    b.setDefaultSave('pending')
+    const settle = Promise.withResolvers<'saved' | 'failed'>()
+    b.setLateOutcome(settle.promise)
+    const options = await b.popup().options(projection('s1'), new AbortController().signal)
+    await b.popup().onSelect(options.find((o: SelectOption) => o.label === 'DeepSeek-V4-Pro')!, projection('s1'))
+    b.setDefaultSave('saved')
+    await b.popup().onSelect(options.find((o: SelectOption) => o.label === 'DeepSeek-V4-Flash')!, projection('s1'))
+    settle.resolve('failed')
+    await Promise.resolve()
+    expect(b.notices).toEqual([{ level: 'info', text: zh['warning.defaultSaving'] }])
   })
 
   it.each(['en', 'zh'] as const)('localizes account provider headings in the %s model popup', async (locale) => {

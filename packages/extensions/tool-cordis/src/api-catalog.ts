@@ -3262,7 +3262,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: '@Remote(\'selectModel\') selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue>',
         description: 'Select one Session-local model after explicitly resuming the Session; save the default in the background.',
         parameters: [{ name: 'request', description: 'Session identity and requested model selection.' }],
-        returns: 'the normalized selection installed for the Session, without waiting for default persistence.',
+        returns: 'the normalized selection installed for the Session and the default-save outcome; `pending` carries a `defaultSaveId` for `defaultSaveOutcome`.',
+      },
+      {
+        signature: '@Remote(\'defaultSaveOutcome\') defaultSaveOutcome(request: SessionDefaultSaveOutcomeRequest): Promise<SessionDefaultSaveOutcomeValue>',
+        description: 'Learn the outcome of a default-model save that had not settled when `selectModel` answered.',
+        parameters: [{ name: 'request', description: 'Session identity and the `defaultSaveId` from `selectModel`.' }],
+        returns: 'the settled outcome, or `pending` when the save is still running after the bounded wait.',
       },
       {
         signature: '@Remote(\'listMcpConnectors\') listMcpConnectors(): McpConnectorCatalog',
@@ -7140,6 +7146,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type DeepSeekLlmApiJson = null | boolean | number | string | DeepSeekLlmApiJson[] | {\n    [key: string]: DeepSeekLlmApiJson;\n};',
   },
   {
+    name: 'DefaultSaveId',
+    declaration: 'export type DefaultSaveId = Branded<\'default-save-id\'>;',
+  },
+  {
+    name: 'DefaultSaveOutcome',
+    declaration: 'export type DefaultSaveOutcome = \'saved\' | \'unavailable\' | \'failed\' | \'pending\';',
+  },
+  {
     name: 'DeliveryRetentionBounds',
     declaration: 'export interface DeliveryRetentionBounds {\n    readonly days: number;\n    readonly records: number;\n}',
   },
@@ -9712,6 +9726,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionCreateValue {\n    readonly sessionId: SessionId;\n    readonly agentPreset?: string;\n}',
   },
   {
+    name: 'SessionDefaultSaveOutcomeRequest',
+    declaration: 'export interface SessionDefaultSaveOutcomeRequest {\n    readonly sessionId: SessionId;\n    readonly saveId: DefaultSaveId;\n}',
+  },
+  {
+    name: 'SessionDefaultSaveOutcomeValue',
+    declaration: 'export interface SessionDefaultSaveOutcomeValue {\n    readonly defaultSave: DefaultSaveOutcome;\n}',
+  },
+  {
     name: 'SessionEndInput',
     declaration: 'export interface SessionEndInput {\n    reason: \'clear\' | \'logout\' | \'prompt_input_exit\' | \'resume\' | \'other\';\n    sessionId: string;\n}',
   },
@@ -10185,7 +10207,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionSelectModelValue',
-    declaration: 'export interface SessionSelectModelValue {\n    readonly selected: ModelSelection;\n    readonly defaultSave?: \'saved\' | \'unavailable\' | \'failed\';\n}',
+    declaration: 'export interface SessionSelectModelValue {\n    readonly selected: ModelSelection;\n    readonly defaultSave?: DefaultSaveOutcome;\n    readonly defaultSaveId?: DefaultSaveId;\n}',
   },
   {
     name: 'SessionSeq',

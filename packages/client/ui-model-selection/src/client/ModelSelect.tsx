@@ -38,8 +38,8 @@ import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-
 import type { SessionRunOptions, SessionRunOptionsProjection } from '@deepseek-ai/dsh-api-session-controller/types'
 import { TextSearchIndex } from '@deepseek-ai/dsh-util-text-search'
 import {
-  IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconCloseFillRegular,
-  IconDataOutlineRegular, IconWarningOutlineRegular, Input, isMobileDevice, Pill, StateDot, Switch, Tag, Toast,
+  IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconCloseFillRegular,
+  IconCheckOutlineRegular, IconDataOutlineRegular, IconWarningOutlineRegular, Input, isMobileDevice, Pill, StateDot, Switch, Tag, Toast,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelDirectoryState } from './directory.ts'
@@ -147,7 +147,7 @@ export function ModelSelect(
   // instead, so the strip renders only while the latest failure-capable
   // action was a load.
   const lastActionRef = useRef<'load' | 'select'>('load')
-  const [toast, setToast] = useState<{ seq: number; text: string; retry?: () => void } | null>(null)
+  const [toast, setToast] = useState<{ seq: number; text: string; retry?: () => void; saved?: true } | null>(null)
   const toastSeq = useRef(0)
   const ownSelection = useRef(false)
   const retryDefault = useRef<() => void>(() => {})
@@ -262,6 +262,7 @@ export function ModelSelect(
   }, [open])
 
   const defaultNotSaved = state.pending === null && state.defaultNotSaved === true
+  const defaultLate = state.pending === null ? state.defaultLate : undefined
   useEffect(() => {
     if (state.pending !== null) return
     if (ownSelection.current && defaultNotSaved) {
@@ -270,9 +271,15 @@ export function ModelSelect(
         text: t('warning.defaultNotSaved'),
         retry: () => { retryDefault.current() },
       })
+    } else if (ownSelection.current && defaultLate !== undefined) {
+      setToast({
+        seq: ++toastSeq.current,
+        text: t(defaultLate === 'saving' ? 'warning.defaultSaving' : 'warning.defaultSaved'),
+        ...defaultLate === 'saved' ? { saved: true } : {},
+      })
     }
-    ownSelection.current = false
-  }, [state.pending, defaultNotSaved, t])
+    if (defaultLate !== 'saving') ownSelection.current = false
+  }, [state.pending, defaultNotSaved, defaultLate, t])
 
   useLayoutEffect(() => {
     if (!showSearch) {
@@ -1037,7 +1044,7 @@ export function ModelSelect(
         <Toast
           key={toast.seq}
           text={toast.text}
-          icon={<IconWarningOutlineRegular />}
+          icon={toast.saved === true ? <IconCheckOutlineRegular /> : <IconWarningOutlineRegular />}
           {...toast.retry === undefined ? {} : {
             holdMs: DEFAULT_NOT_SAVED_HOLD_MS,
             actions: [{ label: t('warning.defaultRetry'), onClick: toast.retry }],

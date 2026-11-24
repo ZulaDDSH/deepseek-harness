@@ -92,3 +92,96 @@ describe('ModelDirectory default persistence outcome', () => {
     expect(directory.store.getSnapshot().defaultNotSaved).toBeUndefined()
   })
 })
+
+describe('ModelDirectory late default save', () => {
+  function lateFixture(outcomes: Array<'pending' | 'saved' | 'failed' | 'unavailable' | 'error'>) {
+    const gates = outcomes.map(() => Promise.withResolvers<undefined>())
+    let polls = 0
+    const defaultSaveOutcome = vi.fn(async () => {
+      const index = polls++
+      await (gates[index]?.promise ?? new Promise<undefined>(() => {}))
+      const outcome = outcomes[index] ?? 'pending'
+      return outcome === 'error'
+        ? { ok: false as const, error: { code: 'session/default-save-unknown', message: 'gone' } }
+        : { ok: true as const, value: { defaultSave: outcome } }
+    })
+    const sessions = {
+      selectModel: vi.fn(async (request: { model: string }) => ({
+        ok: true, value: { selected: request, defaultSave: 'pending', defaultSaveId: `save-${request.model}` },
+      })),
+      defaultSaveOutcome,
+    }
+    const catalog = {
+      store: createSnapshotStore({ status: 'loading', value: null, error: null }),
+      reasoningFor: () => undefined, nameFor: () => undefined,
+    }
+    const directory = new ModelDirectory(
+      sessions as never, 'session' as SessionId, () => true, catalog as never,
+      { subscribe: () => () => {}, getSnapshot: () => undefined } as never, () => false,
+    )
+    const release = async (index: number) => {
+      gates[index]?.resolve(undefined)
+      await vi.waitFor(() => { expect(defaultSaveOutcome.mock.calls.length).toBeGreaterThanOrEqual(Math.min(index + 1, outcomes.length)) })
+    }
+    return { directory, catalog, sessions, defaultSaveOutcome, release, gates }
+  }
+
+  it('shows a saving state, keeps asking while the Host reports pending, and ends on a late success without a warning', async () => {
+    const { directory, catalog, sessions, release, gates } = lateFixture(['pending', 'saved'])
+    await directory.select({ provider: 'p', model: 'a' })
+    expect(directory.store.getSnapshot()).toMatchObject({ defaultLate: 'saving' })
+    expect(directory.store.getSnapshot().defaultNotSaved).toBeUndefined()
+    expect(sessions.defaultSaveOutcome).toHaveBeenCalledWith({ sessionId: 'session', saveId: 'save-a' })
+    catalog.store.update(() => {})
+    expect(directory.store.getSnapshot().defaultLate).toBe('saving')
+    gates[0]?.resolve(undefined)
+    await vi.waitFor(() => { expect(sessions.defaultSaveOutcome).toHaveBeenCalledTimes(2) })
+    expect(directory.store.getSnapshot().defaultLate).toBe('saving')
+    await release(1)
+    await vi.waitFor(() => { expect(directory.store.getSnapshot().defaultLate).toBe('saved') })
+    expect(directory.store.getSnapshot().defaultNotSaved).toBeUndefined()
+    await directory.select({ provider: 'p', model: 'b' })
+    expect(directory.store.getSnapshot().defaultLate).toBe('saving')
+  })
+
+  it.each(['failed', 'unavailable', 'error'] as const)('turns a late %s outcome into the not-saved state', async (outcome) => {
+    const { directory, release } = lateFixture([outcome])
+    await directory.select({ provider: 'p', model: 'a' })
+    await release(0)
+    await vi.waitFor(() => { expect(directory.store.getSnapshot().defaultNotSaved).toBe(true) })
+    expect(directory.store.getSnapshot().defaultLate).toBeUndefined()
+  })
+
+  it('stops following after a bounded number of pending rounds and reports the default as not saved', async () => {
+    const { directory, defaultSaveOutcome, gates } = lateFixture(Array.from({ length: 20 }, () => 'pending' as const))
+    await directory.select({ provider: 'p', model: 'a' })
+    for (const gate of gates) gate.resolve(undefined)
+    await vi.waitFor(() => { expect(directory.store.getSnapshot().defaultNotSaved).toBe(true) })
+    expect(defaultSaveOutcome).toHaveBeenCalledTimes(20)
+    expect(directory.store.getSnapshot().defaultLate).toBeUndefined()
+  })
+
+  it('drops a follow-up that a newer selection, a connection reset, or teardown superseded', async () => {
+    const newer = lateFixture(['failed'])
+    await newer.directory.select({ provider: 'p', model: 'a' })
+    void newer.directory.select({ provider: 'p', model: 'b' })
+    await newer.release(0)
+    await Promise.resolve()
+    expect(newer.directory.store.getSnapshot().defaultNotSaved).toBeUndefined()
+
+    const reset = lateFixture(['failed'])
+    await reset.directory.select({ provider: 'p', model: 'a' })
+    reset.directory.resetConnected()
+    await reset.release(0)
+    await Promise.resolve()
+    expect(reset.directory.store.getSnapshot()).not.toHaveProperty('defaultNotSaved')
+    expect(reset.directory.store.getSnapshot()).not.toHaveProperty('defaultLate')
+
+    const disposed = lateFixture(['failed'])
+    await disposed.directory.select({ provider: 'p', model: 'a' })
+    disposed.directory.dispose()
+    await disposed.release(0)
+    await Promise.resolve()
+    expect(disposed.directory.store.getSnapshot().defaultNotSaved).toBeUndefined()
+  })
+})
