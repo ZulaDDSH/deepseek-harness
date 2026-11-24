@@ -831,6 +831,37 @@ describe('Web session model selection', () => {
       .toEqual({ defaultSave: 'pending' })
   })
 
+  it('keeps the retention bound per Session so another Session cannot evict a stalled save', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { ctx, agent, sessionId } = await harness()
+    const release = Promise.withResolvers<undefined>()
+    onTestFinished(async () => {
+      release.resolve(undefined)
+      await ctx.fiber.dispose()
+      vi.useRealTimers()
+    })
+    const projection = await ctx.sessionProjections.register(modelSelectionProjectionDefinition)
+    const other = ctx.sessions.create()
+    await ctx.agents.register({
+      ...agent, id: other.id, session: other, model: new AgentModel(() => projection.stateOf(other), other, agent.options),
+    })
+    const remote = await createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      saveDefaultModelSelection: () => release.promise,
+      cwd: '/tmp',
+    })
+    const first = expectValue(await advanceUntil(remote.selectModel({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner',
+    })))
+    for (let index = 0; index < 40; index++) {
+      expectValue(await advanceUntil(remote.selectModel({
+        sessionId: other.id, provider: 'deepseek-official', model: index % 2 === 0 ? 'deepseek-chat' : 'deepseek-reasoner',
+      })))
+    }
+    expect(expectValue(await advanceUntil(remote.defaultSaveOutcome({ sessionId, saveId: first.defaultSaveId! }))))
+      .toEqual({ defaultSave: 'pending' })
+  })
+
   it('reports an unsaved default when the deployment has no configuration editor', async () => {
     const { default: DefaultModel } = await import('@deepseek-ai/dsh-agent-default-model')
     const standalone = new Context()

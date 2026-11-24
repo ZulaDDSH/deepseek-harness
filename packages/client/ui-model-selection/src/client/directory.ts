@@ -15,6 +15,8 @@ import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ModelCatalogDirectory } from './catalog.ts'
 
+const DEFAULT_SAVE_FOLLOW_ROUNDS = 20
+
 /** Directory snapshot both entries render from. */
 export interface ModelDirectoryState {
   /** Saved selection, retained even when its provider or model leaves the catalog. */
@@ -150,7 +152,7 @@ export class ModelDirectory {
 
   private async followDefaultSave(generation: number, saveId: DefaultSaveId): Promise<void> {
     let outcome: DefaultSaveOutcome = 'pending'
-    while (outcome === 'pending') {
+    for (let round = 0; round < DEFAULT_SAVE_FOLLOW_ROUNDS && outcome === 'pending'; round++) {
       const result = await this.sessions.defaultSaveOutcome({ sessionId: this.sessionId, saveId })
       if (this.disposed || generation !== this.generation) return
       outcome = result.ok ? result.value.defaultSave : 'failed'

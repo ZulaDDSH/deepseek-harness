@@ -285,12 +285,9 @@ export class SessionCommandController {
     this.ctx.logger.warn('session-controller: the default model save has not settled; reporting it as pending')
     const saveId = brandString<DefaultSaveId>(`default-save-${randomUUID()}`)
     this.stalledDefaultSaves.set(saveId, { sessionId: request.sessionId, saving })
-    if (this.stalledDefaultSaves.size > RETAINED_DEFAULT_SAVES) {
-      for (const oldest of this.stalledDefaultSaves.keys()) {
-        this.stalledDefaultSaves.delete(oldest)
-        break
-      }
-    }
+    const ofSession = [...this.stalledDefaultSaves].filter(([, stalled]) => stalled.sessionId === request.sessionId)
+    const [oldest] = ofSession
+    if (oldest !== undefined && ofSession.length > RETAINED_DEFAULT_SAVES) this.stalledDefaultSaves.delete(oldest[0])
     return { ...value, defaultSave, defaultSaveId: saveId }
   }
 

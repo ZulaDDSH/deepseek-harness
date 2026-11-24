@@ -152,6 +152,15 @@ describe('ModelDirectory late default save', () => {
     expect(directory.store.getSnapshot().defaultLate).toBeUndefined()
   })
 
+  it('stops following after a bounded number of pending rounds and reports the default as not saved', async () => {
+    const { directory, defaultSaveOutcome, gates } = lateFixture(Array.from({ length: 20 }, () => 'pending' as const))
+    await directory.select({ provider: 'p', model: 'a' })
+    for (const gate of gates) gate.resolve(undefined)
+    await vi.waitFor(() => { expect(directory.store.getSnapshot().defaultNotSaved).toBe(true) })
+    expect(defaultSaveOutcome).toHaveBeenCalledTimes(20)
+    expect(directory.store.getSnapshot().defaultLate).toBeUndefined()
+  })
+
   it('drops a follow-up that a newer selection, a connection reset, or teardown superseded', async () => {
     const newer = lateFixture(['failed'])
     await newer.directory.select({ provider: 'p', model: 'a' })
