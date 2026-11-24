@@ -17,7 +17,7 @@ import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-a
 import SubagentRuntime from '../src/index.ts'
 import { loadStoredSession } from './persistence-helpers.ts'
 import { TestSessionQuery } from './test-session-query.ts'
-import { bindSubagentActivation, managerState, subagentManager } from './manager-internals.ts'
+import { bindSubagentActivation, forbidCatalogScans, managerState, subagentManager } from './manager-internals.ts'
 import { requireLocalActivation } from '../src/activation.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 
@@ -302,7 +302,7 @@ describe('tree-wide messages', () => {
     expect(ctx.agents.get(branchId)).toBeUndefined()
     const inspect = ctx.sessionQuery.inspectSession.bind(ctx.sessionQuery)
     const query = vi.spyOn(ctx.sessionQuery, 'inspectSession').mockImplementation(async (...args) => {
-      const result = await inspect(...args) as { present: boolean, link: { header: { parentSession?: SessionId } } }
+      const result = await inspect(...args) as { present: boolean; link: { header: { parentSession?: SessionId } } }
       return args[0] !== branchId ? result as never : {
         ...result,
         ...evidence === 'cyclic'
@@ -402,9 +402,9 @@ describe('agent names', () => {
     }
   })
 
-  it('reads the parent catalog for committed names once, however many children it creates', async () => {
+  it('reserves names from the keyed indexes without scanning the parent catalog list', async () => {
     const { ctx, parent } = await setup({ a: ['hang'], b: ['hang'], c: ['hang'], d: ['hang'] })
-    const reads = vi.spyOn(subagentManager(ctx)['host'], 'catalogChildrenOf')
+    forbidCatalogScans(ctx)
     const started = [
       await startNamed(ctx, parent, 'a'),
       await startNamed(ctx, parent, 'b', 'worker'),
@@ -413,7 +413,6 @@ describe('agent names', () => {
     ]
     expect(started.map(entry => entry.name)).toEqual(['agent-1', 'worker', 'agent-2', 'agent-3'])
     await expect(startNamed(ctx, parent, 'c', 'worker')).rejects.toMatchObject({ code: 'DUPLICATE_AGENT_NAME' })
-    expect(reads).toHaveBeenCalledTimes(1)
     for (const child of started) {
       ctx.subagents.interrupt(child.childId, { kind: 'ancestor', agent: parent })
       await settled(ctx, child.childId)

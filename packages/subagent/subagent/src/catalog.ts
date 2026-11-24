@@ -21,6 +21,8 @@ import type {
   SessionLogOffset,
 } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
+import { trieGet, trieSchema, trieSet } from './keyed-trie.ts'
+import type { TrieNode } from './keyed-trie.ts'
 import { isAgentName } from './names.ts'
 import type { SubagentCatalogEntry } from './projection-types.ts'
 
@@ -63,6 +65,9 @@ declare module '@deepseek-ai/dsh-session/types' {
 export interface SubagentCatalogState {
   readonly inheritedEventCount: SessionLogOffset
   readonly head?: ChunkedList<SubagentCatalogEvent> | undefined
+  readonly children: TrieNode
+  readonly names: TrieNode
+  readonly agentOrdinal: number
 }
 
 const sessionIdSchema = z.string() as unknown as z.ZodType<SessionId>
@@ -116,6 +121,9 @@ const viewSchema = z.array(z.union([
 const stateSchema: z.ZodType<SubagentCatalogState> = z.object({
   inheritedEventCount: z.number().int().nonnegative() as unknown as z.ZodType<SessionLogOffset>,
   head: chunkedListSchema(eventDataSchema).optional(),
+  children: trieSchema,
+  names: trieSchema,
+  agentOrdinal: z.number().int().nonnegative(),
 }).strict()
 
 /**
@@ -134,16 +142,25 @@ function catalogEntry(data: SubagentCatalogEvent): SubagentCatalogEntry {
   return { id: childId, createdAt: childCreatedAt, ...descriptor }
 }
 
-/** Parent-owned catalog; version-7 checkpoints must retain unnamed facts, and invalid own facts reject restoration. */
+/** Parent-owned catalog; version-8 checkpoints must carry the child and name indexes, and invalid own facts reject restoration. */
 export const subagentCatalogProjectionDefinition = {
   key: 'subagentCatalog',
   stateSchema,
-  init: (_header: SessionHeader, inheritedEventCount: SessionLogOffset) => ({ inheritedEventCount }),
+  init: (_header: SessionHeader, inheritedEventCount: SessionLogOffset) => (
+    { inheritedEventCount, children: {}, names: {}, agentOrdinal: 0 }
+  ),
   apply: (state, event: SessionEvent) => {
     if (event.type !== 'subagent/catalog' || event.seq < state.inheritedEventCount) return state
-    return { ...state, head: appendChunkedList(state.head, eventDataSchema.parse(event.data)) }
+    const data = eventDataSchema.parse(event.data)
+    const head = appendChunkedList(state.head, data)
+    const children = trieSet(state.children, data.childId, 'name' in data ? data.name : '')
+    if (!('name' in data)) return { ...state, head, children }
+    const names = trieSet(state.names, data.name, data.childId)
+    let agentOrdinal = state.agentOrdinal
+    while (trieGet(names, `agent-${agentOrdinal + 1}`) !== undefined) agentOrdinal++
+    return { ...state, head, children, names, agentOrdinal }
   },
-  stateVersion: 7,
+  stateVersion: 8,
   wire: {
     viewSchema,
     view: subagentCatalogEntries,
@@ -197,15 +214,11 @@ export function establishExternalCatalogChild(parent: Session, childId: SessionI
   })
 }
 
-/**
- * Collect the names recorded in one parent's catalog.
- * @param entries - the parent's current catalog rows.
- * @returns names of every named child; historical entries contribute none.
- */
-export function catalogNames(entries: readonly SubagentCatalogEntry[]): Set<string> {
-  const names = new Set<string>()
-  for (const entry of entries) {
-    if ('name' in entry) names.add(entry.name)
-  }
-  return names
+export function catalogChild(state: SubagentCatalogState, childId: SessionId): { readonly name: string | undefined } | undefined {
+  const name = trieGet(state.children, childId)
+  return name === undefined ? undefined : { name: name === '' ? undefined : name }
+}
+
+export function catalogHasName(state: SubagentCatalogState, name: string): boolean {
+  return trieGet(state.names, name) !== undefined
 }

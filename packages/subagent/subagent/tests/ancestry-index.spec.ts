@@ -17,7 +17,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import SubagentRuntime from '../src/index.ts'
 import { TestSessionQuery } from './test-session-query.ts'
-import { subagentManager } from './manager-internals.ts'
+import { forbidCatalogScans, subagentManager } from './manager-internals.ts'
 
 const roots: string[] = []
 const contexts: Context[] = []
@@ -54,7 +54,7 @@ async function waitNoActivation(ctx: Context, childId: SessionId): Promise<void>
 }
 
 describe('subagent creator walk under a live root', () => {
-  it('delivers into a dormant child without observing the live root or re-reading its catalog', { timeout: 20_000 }, async () => {
+  it('delivers into a dormant child without observing the live root or scanning its catalog', { timeout: 20_000 }, async () => {
     const { ctx, parent } = await setup([textResponse('child done'), textResponse('resumed child done')])
     const started = await ctx.subagents.startActivation({
       provider: 'spawn',
@@ -68,7 +68,7 @@ describe('subagent creator walk under a live root', () => {
 
     const manager = subagentManager(ctx)
     const observe = vi.spyOn(ctx.sessionQuery, 'observeSession')
-    const catalogOf = vi.spyOn(manager['host'], 'catalogChildrenOf')
+    forbidCatalogScans(ctx)
     await manager.deliverPrompt(started.childId, [{ type: 'text', text: 'continue please' }], {
       delivery: 'queue', source: { kind: 'user' }, signal: new AbortController().signal,
     })
@@ -77,7 +77,6 @@ describe('subagent creator walk under a live root', () => {
     const observed = observe.mock.calls.map(call => call[0])
     expect(observed).toContain(started.childId)
     expect(observed).not.toContain(parent.session.id)
-    expect(catalogOf).not.toHaveBeenCalled()
   })
 
   it('resolves a dormant intermediate creator through its keyed cut, not an observation', { timeout: 30_000 }, async () => {
@@ -112,6 +111,7 @@ describe('subagent creator walk under a live root', () => {
     })
     await waitNoActivation(ctx, mid.childId)
 
+    forbidCatalogScans(ctx)
     const observe = vi.spyOn(ctx.sessionQuery, 'observeSession')
     const inspect = vi.spyOn(ctx.sessionQuery, 'inspectSession')
     await manager.deliverPrompt(leaf.childId, [{ type: 'text', text: 'continue please' }], {

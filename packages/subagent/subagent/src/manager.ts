@@ -30,7 +30,8 @@ import {
 import { installSubagentArchiveAdmission } from './archive-admission.ts'
 import { foldSubagentDescriptor, snapshotSubagentDescriptor } from './descriptor.ts'
 import type { SubagentDescriptorData } from './descriptor.ts'
-import { establishCatalogChild, establishExternalCatalogChild } from './catalog.ts'
+import { catalogChild, catalogHasName, establishCatalogChild, establishExternalCatalogChild } from './catalog.ts'
+import type { SubagentCatalogState } from './catalog.ts'
 import { SubagentError } from './error.ts'
 import type { LifecycleEmitter } from './lifecycle.ts'
 import { ROOT_AGENT_NAME, SiblingNameReservations, agentAddress, joinAgentPath, parentAgentPath } from './names.ts'
@@ -74,7 +75,7 @@ interface SubagentHost {
   /** Read the current descriptor identity through the service-owned projection. */
   identityOf(session: Session): SubagentIdentityProjection | undefined
   /** Read a live Session's direct-child catalog through the service-owned projection. */
-  catalogChildrenOf(session: Session): Map<SessionId, string | undefined>
+  catalogOf(session: Session): SubagentCatalogState
   /** Publish lifecycle events through the owning service's scoped dispatcher. */
   readonly emitLifecycle: LifecycleEmitter
 }
@@ -161,8 +162,6 @@ export class SubagentManager {
   private readonly closingRoots = new Set<Agent>()
   /** Sibling names held by creations that have not committed their catalog entry. */
   private readonly names = new SiblingNameReservations()
-  private readonly committedNames = new WeakMap<Session, Set<string>>()
-  private readonly committedChildren = new WeakMap<Session, Map<SessionId, string | undefined>>()
   private draining = false
 
   /**
@@ -425,7 +424,6 @@ export class SubagentManager {
           () => {
             this.assertAdmitting(parent)
             establishCatalogChild(parent.session, childHeader, descriptor, reservation.name)
-            this.recordCommitted(parent.session, childHeader.id, reservation.name)
           },
         )
       })
@@ -489,7 +487,6 @@ export class SubagentManager {
         signal.throwIfAborted()
         if (reservation !== undefined) {
           establishExternalCatalogChild(parent.session, activation.childId, spec.label, reservation.name)
-          this.recordCommitted(parent.session, activation.childId, reservation.name)
         }
         this.accept(activation)
         return this.receipt(activation)
@@ -545,27 +542,8 @@ export class SubagentManager {
 
   /** Claim a sibling name against the creator's committed catalog and in-flight siblings. */
   private reserveName(parent: Agent, requested: string | undefined): SiblingNameReservation {
-    return this.names.reserve(parent, this.committedCatalog(parent.session).names, requested)
-  }
-
-  private committedCatalog(session: Session): {
-    readonly names: Set<string>
-    readonly children: Map<SessionId, string | undefined>
-  } {
-    let names = this.committedNames.get(session)
-    let children = this.committedChildren.get(session)
-    if (names === undefined || children === undefined) {
-      children = this.host.catalogChildrenOf(session)
-      names = new Set([...children.values()].filter((name): name is string => name !== undefined))
-      this.committedNames.set(session, names)
-      this.committedChildren.set(session, children)
-    }
-    return { names, children }
-  }
-
-  private recordCommitted(session: Session, childId: SessionId, name: string): void {
-    this.committedNames.get(session)?.add(name)
-    this.committedChildren.get(session)?.set(childId, name)
+    const catalog = this.host.catalogOf(parent.session)
+    return this.names.reserve(parent, { has: name => catalogHasName(catalog, name), ordinal: catalog.agentOrdinal }, requested)
   }
 
   private liveCreationParent(parentId: SessionId, childId: SessionId): {
@@ -574,10 +552,10 @@ export class SubagentManager {
   } | undefined {
     const parent = this.ctx.agents.get(parentId)
     if (parent === undefined) return undefined
-    const children = this.committedCatalog(parent.session).children
-    if (!children.has(childId)) return undefined
+    const child = catalogChild(this.host.catalogOf(parent.session), childId)
+    if (child === undefined) return undefined
     return {
-      name: children.get(childId),
+      name: child.name,
       link: {
         header: parent.session.header,
         identity: this.host.identityOf(parent.session),
@@ -1341,11 +1319,11 @@ export class SubagentManager {
   }> {
     const query = this.requireSessionQuery()
     try {
-      return await query.inspectSession(parentId, session => {
-        const children = this.committedCatalog(session).children
+      return await query.inspectSession(parentId, (session) => {
+        const child = catalogChild(this.host.catalogOf(session), childId)
         return {
-          present: children.has(childId),
-          name: children.get(childId),
+          present: child !== undefined,
+          name: child?.name,
           link: {
             header: session.header,
             identity: this.host.identityOf(session),

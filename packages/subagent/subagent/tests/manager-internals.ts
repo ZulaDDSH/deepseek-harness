@@ -1,5 +1,6 @@
 /** Package-private manager state used to place deterministic lifecycle races. */
 
+import { vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -62,4 +63,12 @@ export function bindSubagentActivation(
   child.ctx.effect(() => () => {
     if (resident.get(child.id) === activation) resident.delete(child.id)
   }, 'fixture: managed Activation')
+}
+
+/** Make every manager read of a parent catalog throw if it touches the ordered list instead of the keyed indexes. */
+export function forbidCatalogScans(ctx: Context): void {
+  const host = subagentManager(ctx)['host']
+  const read = host.catalogOf.bind(host)
+  const head = new Proxy({}, { get() { throw new Error('catalog list scanned') } })
+  vi.spyOn(host, 'catalogOf').mockImplementation(session => ({ ...read(session), head: head as never }))
 }

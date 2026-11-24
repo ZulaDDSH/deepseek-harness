@@ -63,31 +63,30 @@ export interface SiblingNameReservation {
   release(): void
 }
 
+export interface CommittedNames {
+  has(name: string): boolean
+  readonly ordinal: number
+}
+
 /** Names claimed by in-flight creations, keyed by the exact live creator. */
 export class SiblingNameReservations {
   private readonly pending = new Map<Agent, Set<string>>()
-  private readonly hints = new WeakMap<ReadonlySet<string>, number>()
 
   /**
    * Claim a name synchronously before startup awaits, so concurrent siblings cannot share it.
    * @param parent - exact live creator whose catalog receives the name.
-   * @param committed - names already recorded in the creator's catalog.
+   * @param committed - the creator's catalog names and the count of its contiguous `agent-N` prefix.
    * @param requested - requested name; omission selects the first free `agent-N`.
    * @returns the claimed name and its release.
    * @throws {@link SubagentError} `INVALID_AGENT_NAME` or `DUPLICATE_AGENT_NAME`.
    */
-  reserve(parent: Agent, committed: ReadonlySet<string>, requested?: string): SiblingNameReservation {
+  reserve(parent: Agent, committed: CommittedNames, requested?: string): SiblingNameReservation {
     const pending = this.pending.get(parent) ?? new Set<string>()
     const taken = (name: string): boolean => committed.has(name) || pending.has(name)
     let name: string
     if (requested === undefined) {
-      let ordinal = this.hints.get(committed) ?? 1
-      let settled = true
-      while (taken(`agent-${ordinal}`)) {
-        settled &&= committed.has(`agent-${ordinal}`)
-        ordinal++
-        if (settled) this.hints.set(committed, ordinal)
-      }
+      let ordinal = committed.ordinal + 1
+      while (taken(`agent-${ordinal}`)) ordinal++
       name = `agent-${ordinal}`
     } else {
       if (!isAgentName(requested)) {
