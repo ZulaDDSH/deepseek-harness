@@ -63,3 +63,10 @@
         maxDepth: provider-managed
     - id: await-external-subagents
       name: '../../../packages/test-support/session-snapshot/tests/fixtures/subagent-settlement-barrier.ts'
+
+# Constraint: the recorded corpus replays native tool calls.
+- id: tool-executor-ptc
+  disabled: true
+
+- id: tool-executor-native
+  disabled: false

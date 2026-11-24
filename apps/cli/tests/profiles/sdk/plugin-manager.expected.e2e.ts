@@ -69,7 +69,7 @@ it.for(['standard', 'ptc'] as const)('keeps %s plugin changes pending until the 
   const env = profileEnvironment(root, `http://127.0.0.1:${address.port}`)
   const options = {
     cwd: root, processCwd: root, dshHome: join(root, 'home'), env, model: 'deepseek-v4-pro',
-    patches: mode === 'ptc' ? [fileURLToPath(new URL('../../../config/examples/ptc.yml', import.meta.url))] : [],
+    patches: [fileURLToPath(new URL(`../../../config/examples/${mode === 'ptc' ? 'ptc' : 'native'}.yml`, import.meta.url))],
   }
   async function run(restarted: boolean): Promise<void> {
     const harness = new DeepSeekHarness(options)

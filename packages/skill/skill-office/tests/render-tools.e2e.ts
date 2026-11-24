@@ -43,7 +43,7 @@ it.skipIf(!process.env.DEEPSEEK_API_KEY || !runtime).each([{ format: 'docx', mod
     label: 'Office rendering', tempDirPrefix: 'dsh-office-render-',
     ...launch,
     binArgs: ['--profile', 'headless', '--patch', 'office.patch.json',
-      ...mode === 'ptc' ? ['--patch', join(repo, 'apps/cli/config/examples/ptc.yml')] : [],
+      '--patch', join(repo, `apps/cli/config/examples/${mode === 'ptc' ? 'ptc' : 'native'}.yml`),
       // Source-content verification can require an authoring skill; this case covers image-only inspection.
       `Render page 1 of input.${format} and check only that the page image is readable; `
       + 'do not inspect the source document content or metadata, and keep the source file unchanged. Report briefly in English.'],

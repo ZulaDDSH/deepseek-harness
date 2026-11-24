@@ -86,3 +86,10 @@
 - id: tool-fs
   config:
     applyPatch: true
+
+# Constraint: the recorded corpus replays native tool calls; PTC scenarios override both rows.
+- id: tool-executor-ptc
+  disabled: true
+
+- id: tool-executor-native
+  disabled: false

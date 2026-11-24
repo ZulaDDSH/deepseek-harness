@@ -34,3 +34,10 @@
 - id: time-context
   config:
     timeZone: UTC
+
+# Constraint: the recorded corpus replays native tool calls.
+- id: tool-executor-ptc
+  disabled: true
+
+- id: tool-executor-native
+  disabled: false

@@ -31,3 +31,10 @@
 - insert:
     - id: account-signout-fixture
       name: './account-signout.mjs'
+
+# Constraint: the recorded corpus replays native tool calls.
+- id: tool-executor-ptc
+  disabled: true
+
+- id: tool-executor-native
+  disabled: false

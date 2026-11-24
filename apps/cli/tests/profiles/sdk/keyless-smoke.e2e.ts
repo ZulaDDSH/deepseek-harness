@@ -108,7 +108,7 @@ describe('Python SDK dsh profile keyless smoke', () => {
       'sdk',
       ...(editorEnabled ? ['--patch', editorPatch] : []),
       ...(patchEnabled ? ['--patch', fsPatch] : []),
-      ...(ptc ? ['--patch', join(repoRoot, 'apps/cli/config/examples/ptc.yml')] : []),
+      '--patch', join(repoRoot, `apps/cli/config/examples/${ptc ? 'ptc' : 'native'}.yml`),
     ], {
       cwd: repoRoot,
       env: {

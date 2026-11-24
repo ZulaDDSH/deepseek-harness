@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-Use this executor when models should call tools through `run_code` programs. Mount a compatible PTC runtime and tool registry first. Scoped restrictions determine the generated SDK; only `run_code` is directly callable. Configure the total tool-call limit per program and concurrency for parallel-safe subcalls.
+Use this executor when models should call tools through `run_code` programs; the shipped `dsh-base` bundle enables it by default. Mount a compatible PTC runtime and tool registry first. Scoped restrictions determine the generated SDK; only `run_code` is directly callable. Configure the total tool-call limit per program and concurrency for parallel-safe subcalls.
 
 ## Table of Contents
 

@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-Use this executor when models should call each visible tool directly. Mount it beside the tool registry in the deployment, a preset, or an Agent scope. Parallel-safe calls can overlap; exclusive calls form barriers, and results remain in model order.
+Use this executor when models should call each visible tool directly; the shipped `dsh-base` bundle mounts it disabled, and `apps/cli/config/examples/native.yml` enables it in place of the PTC executor. Mount it beside the tool registry in the deployment, a preset, or an Agent scope. Parallel-safe calls can overlap; exclusive calls form barriers, and results remain in model order.
 
 ## Table of Contents
 

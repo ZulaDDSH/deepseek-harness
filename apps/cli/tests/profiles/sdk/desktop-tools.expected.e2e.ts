@@ -55,6 +55,7 @@ async function fixture(test: TestContext) {
     const cwd = await mkdtemp(join(root, `${side}-${mode}-`))
     const output = join(cwd, 'tools.json')
     const patch = join(cwd, 'observer.patch.yml')
+    const executorPatch = join(repo, `apps/cli/config/examples/${mode === 'ptc' ? 'ptc' : 'native'}.yml`)
     await writeFile(patch, JSON.stringify([
       { id: 'session-title-llm', disabled: true },
       { insert: [{ id: 'tool-parity-observer', name: observer,
@@ -66,7 +67,7 @@ async function fixture(test: TestContext) {
     if (side === 'sdk') {
       const harness = new DeepSeekHarness({
         cwd, processCwd: cwd, dshHome: join(cwd, 'home'), env, model: 'deepseek-v4-pro',
-        patches: [...mode === 'ptc' ? [join(repo, 'apps/cli/config/examples/ptc.yml')] : [], patch],
+        patches: [executorPatch, patch],
       })
       const abort = (): void => { void harness.close() }
       test.signal.addEventListener('abort', abort, { once: true })
@@ -81,7 +82,7 @@ async function fixture(test: TestContext) {
       expect(inventory.hmr).toBe(false)
     } else {
       const child = execa(process.execPath, [join(repo, 'apps/cli/lib/bin.js'), '--profile', 'web',
-        '--patch', patch, '--host', '127.0.0.1', '--port', '0', '--no-open'], {
+        ...mode === 'ptc' ? [] : ['--patch', executorPatch], '--patch', patch, '--host', '127.0.0.1', '--port', '0', '--no-open'], {
         cwd, env: { ...env, DSH_HOME: join(cwd, 'home') }, extendEnv: false,
         ipc: true, stdin: 'ignore', reject: false, cancelSignal: test.signal, forceKillAfterDelay: 10_000,
       })
