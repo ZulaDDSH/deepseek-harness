@@ -134,6 +134,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     maxOverflowRetries: maxOverflowRetriesSchema,
     modelPolicies: z.array(modelPolicy),
     auto: z.boolean(),
+    proactiveToolResultPruning: z.boolean(),
   })
 
   /** Resolved and validated compaction configuration. */
@@ -181,6 +182,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     ): Promise<PreStepDecision> => {
       if (!signal.aborted && !this.skipPressureStep(agent)) {
         try {
+          if (this.config.proactiveToolResultPruning) this.pruneConsumedResults(agent)
           const result = await this.compactIfNeeded(agent, 'pressure', signal)
           this.pressureBackoff.delete(agent)
           if (result !== null) logResult(result, 'step pressure')
@@ -307,6 +309,14 @@ export class BasicCompactionEngine extends CompactionEngine {
     this.pressureBackoff.set(agent, { generation, failures, skipSteps: Math.min(2 ** failures, 32) })
   }
 
+  /** Requires the session compaction lock; the pass rewrites the durable surface. */
+  private pruneConsumedResults(agent: Agent): void {
+    const pruner = this.ctx.get('toolResultPruner')
+    if (pruner === undefined) return
+    assertNoActiveCompaction(agent.session, 'proactive tool-result pruning')
+    pruner.pruneSession(agent.session, { previouslyConsumed: true })
+  }
+
   /**
    * Summarize the replayed conversation region through a direct one-shot
    * `ctx.llm.stream()` call whose prefix reuses the conversation's own system
@@ -388,7 +398,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     try {
       const info = await this.ctx.llm.resolveModelInfo(policy.summarizationProvider, policy.summarizationModel, signal)
       return info.context?.contextWindow
-    } catch (error: unknown) {
+    } catch (_error: unknown) {
       signal.throwIfAborted()
       return undefined
     }
