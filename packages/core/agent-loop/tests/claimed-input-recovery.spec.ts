@@ -26,7 +26,7 @@ async function harness(adapter: MockAdapter) {
 }
 
 function prompt(text: string, source: 'user' | 'test' = 'user'): UserMessage {
-  return createUserMessage({ content: [{ type: 'text', text }], source: { kind: source } })
+  return createUserMessage({ content: [{ type: 'text', text }], source: source === 'user' ? { kind: 'user' } : { kind: 'test' } })
 }
 
 function events(agent: Agent): readonly SessionEvent[] {
