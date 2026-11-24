@@ -1,0 +1,7 @@
+# Master Control
+
+This optional plugin adds a dedicated Master Control chat and a workspace session roster to the sidebar. The roster shows the model and effort for each session and lets the owner change the next selection. The plugin also applies the bundled light and dark appearance styles to the desktop interface.
+
+Master Control uses the profile’s Standard and Creator tools with Full access. It can list sessions, send messages, read recent replies, and start a fresh session from a UTF-8 state file up to 16 KiB. The new session retains the lead’s working directory, workspace, mode, named permission preset, and model selection. It summarizes the handoff in its first turn and waits for a new assignment. The original session and its jobs remain available.
+
+Run `npm pack` in this directory and add the resulting tarball to a desktop profile with `dsh plugin --profile desktop add <tarball>`. This contribution targets the Harness `0.2.2-rc.5` desktop runtime.
