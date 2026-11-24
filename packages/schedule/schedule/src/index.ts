@@ -401,7 +401,7 @@ export class ScheduleService extends TypertRemoteService {
       })
       await domain.table('tasks').put(id, task)
       this.emitChanged()
-      this.runtime?.requestDrive()
+      this.runtime?.requestDrive([id])
       this.queueNotification(task, actorSessionId, 'created')
       return this.entry(task)
     })
@@ -575,7 +575,7 @@ export class ScheduleService extends TypertRemoteService {
       if (request.action === 'delete') {
         await tasks.delete(request.id)
         this.emitChanged()
-        this.runtime?.requestDrive()
+        this.runtime?.requestDrive([])
         this.queueNotification(current, actorSessionId, 'deleted')
         return { id: request.id, deleted: true }
       }
@@ -587,7 +587,7 @@ export class ScheduleService extends TypertRemoteService {
       const task = revisedTask(current, request.patch, target, actorSessionId, Date.now())
       await tasks.put(request.id, task)
       this.emitChanged()
-      this.runtime?.requestDrive()
+      this.runtime?.requestDrive([request.id])
       this.queueNotification(task, actorSessionId, 'updated')
       return this.entry(task)
     })
@@ -789,7 +789,7 @@ export class ScheduleService extends TypertRemoteService {
     }
     // Rows enumerated in this slot are present, so a non-empty batch always removed rows.
     this.emitChanged()
-    if (rearm) this.runtime?.requestDrive()
+    if (rearm) this.runtime?.requestDrive([])
     return removed
   }
 

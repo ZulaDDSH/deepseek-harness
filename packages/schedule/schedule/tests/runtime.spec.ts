@@ -249,6 +249,23 @@ describe('Host Schedule timer', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('ends the retry backoff only for the tasks whose cause changed', async () => {
+    const id = brandString<ScheduleId>('backoff')
+    const tasks = [task(createAfterScheduleRecord(id, 'Back off', 1, Date.now() - 2000, 'Back off'))]
+    const test = await setup(tasks)
+    test.followup.mockImplementationOnce(() => { throw new Error('unavailable') })
+    test.runtime.requestDrive()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(test.followup).toHaveBeenCalledTimes(1)
+    test.runtime.requestDrive([brandString<ScheduleId>('unrelated')])
+    test.runtime.requestDrive([])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(test.followup).toHaveBeenCalledTimes(1)
+    test.runtime.requestDrive([id])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(test.followup).toHaveBeenCalledTimes(2)
+  })
+
   it('doubles the retry delay while delivery keeps failing and caps it', async () => {
     const tasks = [task(createAfterScheduleRecord(brandString<ScheduleId>('down'), 'Still down', 1, Date.now() - 2000, 'Still down'))]
     const test = await setup(tasks)

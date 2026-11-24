@@ -42,7 +42,7 @@ it('reopens Host tasks of every target kind byte-identical without activating a 
   const file = join(root, 'schedule.json')
   const bytes = await readFile(file, 'utf8')
   const document = storedUnit(bytes)
-  expect(document.unit).toEqual({ name: 'schedule', version: 2 })
+  expect(document.unit).toEqual({ name: 'schedule', version: 3 })
   expect(document.global).toBeNull()
   expect(Object.keys(document.tables.tasks).sort()).toEqual(created.map(entry => entry.id).sort())
   for (const entry of created) {

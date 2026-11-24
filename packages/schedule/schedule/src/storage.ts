@@ -163,6 +163,6 @@ export type ScheduleTask = z.infer<typeof scheduleTaskSchema>
 
 /** Authoritative Host tasks retain their domain, backend routing, and envelope; v2 also reads v1 without startup writes. */
 export const scheduleDomain = defineDomain({
-  name: 'schedule', version: 2, compatibleVersions: [1],
+  name: 'schedule', version: 3, compatibleVersions: [1, 2],
   tables: { tasks: domainTable<ScheduleId, ScheduleTask>(scheduleTaskSchema) },
 })

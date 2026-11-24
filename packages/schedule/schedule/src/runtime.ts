@@ -121,15 +121,18 @@ export class ScheduleRuntime {
   /**
    * Recompute the nearest obligation after startup or a durable change.
    * Dispatch failures are logged; refused admission does not retry automatically.
+   * @param relax - Tasks whose retry backoff ends now because their cause changed; 'all' (default) for an external or shared-dependency request.
    */
-  requestDrive(): void {
+  requestDrive(relax: 'all' | readonly ScheduleId[] = 'all'): void {
     if (this.stopping) return
-    this.relaxRetries()
+    this.relaxRetries(relax)
     this.kick()
   }
 
-  private relaxRetries(): void {
-    for (const [id, entry] of this.retries) this.retries.set(id, { ...entry, retryAt: Number.NEGATIVE_INFINITY })
+  private relaxRetries(relax: 'all' | readonly ScheduleId[]): void {
+    for (const [id, entry] of this.retries) {
+      if (relax === 'all' || relax.includes(id)) this.retries.set(id, { ...entry, retryAt: Number.NEGATIVE_INFINITY })
+    }
   }
 
   private kick(): void {
@@ -551,16 +554,16 @@ export class ScheduleRuntime {
       if (!committed.has(id)) this.executing.delete(id)
     }
     const watched = held.filter(id => committed.has(id))
-    if (watched.length > 0 && execution !== undefined) this.watchExecution(watched, execution)
+    if (watched.length > 0 && execution !== undefined) this.watchExecution(watched, execution, held)
   }
 
   /** Release admitted executions at the target Agent's whole-agent idle boundary, then recompute the timer. */
-  private watchExecution(ids: readonly ScheduleId[], execution: Promise<void>): void {
+  private watchExecution(ids: readonly ScheduleId[], execution: Promise<void>, batch: readonly ScheduleId[] = ids): void {
     const finish = (): void => {
       for (const id of ids) this.executing.delete(id)
       if (this.stopping) return
       this.changed()
-      this.requestDrive()
+      this.requestDrive(batch)
     }
     void execution.then(finish, finish)
   }

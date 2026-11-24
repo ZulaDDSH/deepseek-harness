@@ -68,7 +68,7 @@ const repairedTask = {
 
 it.each([
   ['{broken json', 'malformed-medium'],
-  [encoded({ 'a-good': oldTask, 'z-broken': repairedTask }, 3), 'version-mismatch'],
+  [encoded({ 'a-good': oldTask, 'z-broken': repairedTask }, 4), 'version-mismatch'],
   [encoded({ 'a-good': oldTask, 'z-broken': { invalid: true } }), 'invalid-record'],
 ])('rejects startup on an invalid store without writes and reads it after repair %#', async (broken, code) => {
   const { root, path } = await rootWith({}, broken)
@@ -114,7 +114,7 @@ it.each([
 
 it.each([
   ['{broken json', 'malformed-medium'],
-  [3, 'version-mismatch'],
+  [4, 'version-mismatch'],
   [{ status: 'inactive' }, 'invalid-record'],
 ] as const)('rejects startup on an invalid task file without rewriting it and starts after repair %#', async (
   broken,

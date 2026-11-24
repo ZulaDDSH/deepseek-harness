@@ -2,7 +2,7 @@
 
 These rules supplement the repository and package instructions for `packages/schedule/*`.
 
-- Keep the `schedule` domain, backend routing, envelope, and whole-unit layout. Version 2 accepts version 1 through `compatibleVersions`; reads never write, and an edit stores the selected row in the current format. Current-version envelopes may contain untouched older rows. No importer or separate migration store.
+- Keep the `schedule` domain, backend routing, envelope, and whole-unit layout. Version 3 accepts versions 1 and 2 through `compatibleVersions`; reads never write, and an edit stores the selected row in the current format. Current-version envelopes may contain untouched older rows. No importer or separate migration store.
 - Every timing record has one normal kind: `after`, `at`, `every`, `daily`, `weekly`, `cron`, or `rrule`. Cron expression and time zone stay authoritative. Shared `dsh-util-time` owns pure Cron/RRULE parsing and bounded occurrence arithmetic; Schedule owns task policy and domain errors.
 - Use one management API for Browser and Agent callers. Reads and deletion never activate a Session. Change notices run separately after commit as non-waking next-step messages to loaded involved Agents.
 - Store explicit delivery targets. Ignore old top-level `sessionId` when a target exists; without one, use that binding or default to a stable reserved `new_once` target. Never write the old top-level binding. Keep new metadata optional when its historical value is unknown.
