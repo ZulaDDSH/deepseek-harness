@@ -27,6 +27,9 @@ import { requireSharp } from './sharp.ts'
 /** Transform version included in every cache and upload-index identity. */
 export const REQUEST_IMAGE_TRANSFORM_VERSION = 'request-image-v6'
 
+const TRUSTED_VARIANT_LIMIT = 4096
+const trustedVariants = new Map<string, string>()
+
 interface EncodedRequestImage {
   data: Uint8Array
   mediaType: ImageMediaType
@@ -131,7 +134,7 @@ async function readCached(
 ): Promise<VerifiedRequestImage | undefined> {
   try {
     const data = new Uint8Array(await readFile(path, { signal }))
-    if (digest(data) !== (await readFile(`${path}.sha256`, { encoding: 'utf8', signal })).trim()) return undefined
+    if (trustedVariants.get(path) !== digest(data)) return undefined
     const detected = await probeImage(data)
     if (detected.depth !== 'uchar' || detected.space !== 'srgb'
       || detected.width > target.width || detected.height > target.height
@@ -166,8 +169,10 @@ async function writeCached(path: string, data: Uint8Array): Promise<void> {
   try {
     await writeFile(temporary, data, { mode: 0o600, flag: 'wx' })
     await rename(temporary, path)
-    await writeFile(temporary, digest(data), { mode: 0o600, flag: 'wx' })
-    await rename(temporary, `${path}.sha256`)
+    trustedVariants.delete(path)
+    const [oldest] = trustedVariants.keys()
+    if (trustedVariants.size >= TRUSTED_VARIANT_LIMIT && oldest !== undefined) trustedVariants.delete(oldest)
+    trustedVariants.set(path, digest(data))
   } finally {
     await rm(temporary, { force: true })
   }
