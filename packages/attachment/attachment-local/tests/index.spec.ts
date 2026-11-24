@@ -1,10 +1,12 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { AttachmentId } from '@deepseek-ai/dsh-attachment/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { chmod, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
+import { join, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import sharp from 'sharp'
 import LocalAttachmentStore, {
@@ -18,6 +20,8 @@ import LocalAttachmentStore, {
   DEFAULT_MAX_IMAGES_PER_MESSAGE,
   DEFAULT_MAX_MESSAGE_IMAGE_BYTES,
 } from '../src/index.ts'
+import { storedFilePath } from '../src/file-store.ts'
+import { releaseHandoffs } from '../src/host-file.ts'
 
 describe('local attachment file limits', () => {
   it('refuses a verbatim file or stream above the configured per-file limit', async () => {
@@ -35,73 +39,103 @@ describe('local attachment file limits', () => {
 })
 
 describe('local attachment file handles', () => {
-  it('offers a host path only while the stored file exists with its recorded length', async () => {
+  async function withService<T>(
+    config: { maxHostPathVerifyBytes?: number },
+    run: (service: LocalAttachmentStore, home: string) => Promise<T>,
+  ): Promise<T> {
     const home = await mkdtemp(join(tmpdir(), 'dsh-local-file-handle-'))
     try {
-      const service = new LocalAttachmentStore(new Context(), { dshHome: home })
-      const ref = await service.saveFile({ data: Uint8Array.of(1, 2, 3, 4), name: 'a.bin' })
-      const path = service.fileHostPath(ref)
-      expect(path).toBeDefined()
-      await chmod(path as string, 0o600)
-      await writeFile(path as string, Uint8Array.of(9, 9))
-      expect(service.fileHostPath(ref)).toBeUndefined()
-      await rm(path as string)
-      expect(service.fileHostPath(ref)).toBeUndefined()
-      expect(() => service.fileHostPath({ ...ref, attachmentId: brandString<AttachmentId>('invalid') })).toThrow()
+      return await run(new LocalAttachmentStore(new Context(), { dshHome: home, ...config }), home)
     } finally {
       await rm(home, { recursive: true, force: true })
     }
-  })
+  }
 
-  it('hands out a host path for a freshly saved file above the synchronous verification limit', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'dsh-local-file-handle-'))
-    try {
-      const service = new LocalAttachmentStore(new Context(), { dshHome: home, maxHostPathVerifyBytes: 8 })
-      const ref = await service.saveFile({ data: new Uint8Array(32).fill(7), name: 'big.bin' })
-      const streamed = await service.saveFileStream({
-        data: (async function* (): AsyncIterable<Uint8Array> { yield new Uint8Array(32).fill(9) })(),
-        name: 'streamed.bin',
-      })
-      expect(service.fileHostPath(ref)).toBeDefined()
-      expect(service.fileHostPath(streamed)).toBeDefined()
-    } finally {
-      await rm(home, { recursive: true, force: true })
-    }
-  })
+  it('offers a host path only while the stored file exists with its recorded length', () => withService({}, async (service) => {
+    const ref = await service.saveFile({ data: Uint8Array.of(1, 2, 3, 4), name: 'a.bin' })
+    const alias = storedFilePath(service.root, ref)
+    await chmod(alias, 0o600)
+    await writeFile(alias, Uint8Array.of(9, 9))
+    expect(service.fileHostPath(ref)).toBeUndefined()
+    await rm(alias)
+    expect(service.fileHostPath(ref)).toBeUndefined()
+    expect(() => service.fileHostPath({ ...ref, attachmentId: brandString<AttachmentId>('invalid') })).toThrow()
+  }))
 
-  it('withholds a host path above the synchronous verification limit once the stored file changed identity', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'dsh-local-file-handle-'))
-    try {
-      const small = new LocalAttachmentStore(new Context(), { dshHome: home, maxHostPathVerifyBytes: 8 })
-      const ref = await small.saveFile({ data: new Uint8Array(32).fill(7), name: 'big.bin' })
-      const path = small.fileHostPath(ref)!
-      await chmod(path, 0o600)
-      await utimes(path, new Date(0), new Date(1000))
-      expect(small.fileHostPath(ref)).toBeUndefined()
-      const large = new LocalAttachmentStore(new Context(), { dshHome: home })
-      expect(large.fileHostPath(ref)).toBe(path)
-    } finally {
-      await rm(home, { recursive: true, force: true })
-    }
-  })
+  it('hands out a private read-only copy below the owner handoff directory', () => withService({}, async (service) => {
+    const data = Uint8Array.of(1, 2, 3, 4)
+    const ref = await service.saveFile({ data, name: 'a.bin' })
+    const path = service.fileHostPath(ref)!
+    expect(path).not.toBe(storedFilePath(service.root, ref))
+    expect(path.startsWith(join(service.root, 'handoff', `${process.pid}-`))).toBe(true)
+    await expect(readFile(path)).resolves.toEqual(Buffer.from(data))
+    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o400)
+    expect(service.fileHostPath(ref)).toBe(path)
+  }))
 
-  it('withholds a host path whose stored bytes changed without changing length, and restores it when the bytes return', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'dsh-local-file-handle-'))
-    try {
-      const service = new LocalAttachmentStore(new Context(), { dshHome: home })
-      const original = Uint8Array.of(1, 2, 3, 4)
-      const ref = await service.saveFile({ data: original, name: 'a.bin' })
-      const path = service.fileHostPath(ref) as string
-      expect(path).toBeDefined()
-      await chmod(path, 0o600)
-      await writeFile(path, Uint8Array.of(9, 9, 9, 9))
-      expect(service.fileHostPath(ref)).toBeUndefined()
-      await writeFile(path, original)
-      expect(service.fileHostPath(ref)).toBe(path)
-    } finally {
-      await rm(home, { recursive: true, force: true })
-    }
-  })
+  it('keeps the handed-out bytes when the stored file is rewritten afterwards', () => withService({}, async (service) => {
+    const data = Uint8Array.of(1, 2, 3, 4)
+    const ref = await service.saveFile({ data, name: 'a.bin' })
+    const path = service.fileHostPath(ref)!
+    const alias = storedFilePath(service.root, ref)
+    await chmod(alias, 0o600)
+    await writeFile(alias, Uint8Array.of(9, 9, 9, 9))
+
+    await expect(readFile(path)).resolves.toEqual(Buffer.from(data))
+    expect(service.fileHostPath(ref)).toBe(path)
+  }))
+
+  it('rebuilds a handed-out copy that was changed in place', () => withService({}, async (service) => {
+    const data = Uint8Array.of(1, 2, 3, 4)
+    const ref = await service.saveFile({ data, name: 'a.bin' })
+    const path = service.fileHostPath(ref)!
+    await sleep(50)
+    await chmod(path, 0o600)
+    await writeFile(path, Uint8Array.of(9, 9, 9, 9))
+
+    expect(service.fileHostPath(ref)).toBe(path)
+    await expect(readFile(path)).resolves.toEqual(Buffer.from(data))
+  }))
+
+  it('withholds a host path whose stored bytes changed without changing length, and restores it when the bytes return', () => withService({}, async (service) => {
+    const original = Uint8Array.of(1, 2, 3, 4)
+    const ref = await service.saveFile({ data: original, name: 'a.bin' })
+    const alias = storedFilePath(service.root, ref)
+    await chmod(alias, 0o600)
+    await writeFile(alias, Uint8Array.of(9, 9, 9, 9))
+    expect(service.fileHostPath(ref)).toBeUndefined()
+    await writeFile(alias, original)
+    expect(service.fileHostPath(ref)).toBeDefined()
+  }))
+
+  it('withholds a host path above the synchronous verification limit, including for a file this process saved', () => withService({ maxHostPathVerifyBytes: 8 }, async (service, home) => {
+    const ref = await service.saveFile({ data: new Uint8Array(32).fill(7), name: 'big.bin' })
+    const streamed = await service.saveFileStream({
+      data: (async function* (): AsyncIterable<Uint8Array> { yield new Uint8Array(32).fill(9) })(),
+      name: 'streamed.bin',
+    })
+    expect(service.fileHostPath(ref)).toBeUndefined()
+    expect(service.fileHostPath(streamed)).toBeUndefined()
+    const large = new LocalAttachmentStore(new Context(), { dshHome: home })
+    expect(large.fileHostPath(ref)).toBeDefined()
+  }))
+
+  it('removes the copies of an owner that disposed and of one whose process exited', () => withService({}, async (service) => {
+    const ref = await service.saveFile({ data: Uint8Array.of(1, 2, 3, 4), name: 'a.bin' })
+    const path = service.fileHostPath(ref)!
+    const handoffRoot = join(service.root, 'handoff')
+    const exited = spawnSync(process.execPath, ['-e', '0']).pid
+    const crashed = join(handoffRoot, `${exited}-33333333-3333-4333-8333-333333333333`)
+    await mkdir(crashed, { recursive: true })
+
+    const later = new LocalAttachmentStore(new Context(), { dshHome: join(service.root, '..', '..') })
+    expect(later.fileHostPath(ref)).toBeDefined()
+    expect(existsSync(crashed)).toBe(false)
+    expect(existsSync(path)).toBe(true)
+
+    releaseHandoffs(join(handoffRoot, path.slice(handoffRoot.length + 1).split(sep)[0]!))
+    expect(existsSync(path)).toBe(false)
+  }))
 })
 
 describe('local attachment service', () => {
@@ -177,7 +211,7 @@ describe('local attachment service', () => {
       const fileData = Uint8Array.of(0, 1, 2, 255)
       const fileRef = await service.saveFile({ data: fileData, name: 'notes.bin' })
       const filePath = service.fileHostPath(fileRef)
-      expect(filePath).toContain(join('files', String(fileRef.attachmentId).slice(7, 9)))
+      expect(filePath).toContain(join('handoff'))
       await expect(readFile(filePath!)).resolves.toEqual(Buffer.from(fileData))
 
       const streamRef = await service.saveFileStream({

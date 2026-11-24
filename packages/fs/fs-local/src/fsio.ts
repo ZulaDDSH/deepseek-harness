@@ -397,6 +397,10 @@ export async function readWholeText(target: LocalTarget, signal?: AbortSignal): 
   await statRegularFile(target, 'read', signal)
   const raw = await readFileAbortable(target.targetKey, target.displayPath, 'read', signal)
   throwIfAborted(signal, 'read')
+  return decodeWholeText(raw, target)
+}
+
+export function decodeWholeText(raw: Uint8Array, target: LocalTarget): string {
   if (raw.subarray(0, BINARY_SAMPLE_BYTES).includes(0)) {
     throw new FsError(`cannot read "${target.displayPath}": binary file`, 'FS_NOT_TEXT')
   }
@@ -751,7 +755,10 @@ function restoreEditedText(original: { raw: string; content: string; lineEndings
   let prefix = 0
   while (prefix < limit && content.charCodeAt(prefix) === after.charCodeAt(prefix)) prefix++
   let suffix = 0
-  while (suffix < limit - prefix && content.charCodeAt(content.length - 1 - suffix) === after.charCodeAt(after.length - 1 - suffix)) suffix++
+  while (
+    suffix < limit - prefix
+    && content.charCodeAt(content.length - 1 - suffix) === after.charCodeAt(after.length - 1 - suffix)
+  ) suffix++
   return raw.slice(0, rawOffset(raw, prefix))
     + restoreLineEndings(after.slice(prefix, after.length - suffix), lineEndings)
     + raw.slice(rawOffset(raw, content.length - suffix))

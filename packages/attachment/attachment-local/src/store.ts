@@ -309,7 +309,7 @@ interface StagedImmutableObject extends StreamedImmutableObject {
   readonly boundary: string
 }
 
-function ownerIsAlive(pid: number): boolean {
+export function ownerIsAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
     return true

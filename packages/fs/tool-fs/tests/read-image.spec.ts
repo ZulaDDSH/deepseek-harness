@@ -12,8 +12,9 @@ import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import * as PtcToolExecutor from '@deepseek-ai/dsh-tool-executor-ptc'
 import { provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished } from 'vitest'
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { crc32, deflateSync } from 'node:zlib'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { PtcImage, PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
@@ -410,6 +411,26 @@ function objectPathOf(attachments: AttachmentStore, ref: ImageAttachmentRef): st
   return hostPath
 }
 
+function solidPng(red: number, green: number, blue: number): Buffer {
+  const chunk = (type: string, body: Buffer): Buffer => {
+    const head = Buffer.alloc(4)
+    head.writeUInt32BE(body.length)
+    const tail = Buffer.alloc(4)
+    tail.writeUInt32BE(crc32(Buffer.concat([Buffer.from(type), body])))
+    return Buffer.concat([head, Buffer.from(type), body, tail])
+  }
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(1, 0)
+  header.writeUInt32BE(1, 4)
+  header.set([8, 2, 0, 0, 0], 8)
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', header),
+    chunk('IDAT', deflateSync(Buffer.from([0, red, green, blue]))),
+    chunk('IEND', Buffer.alloc(0)),
+  ])
+}
+
 describe('extension-less paths', () => {
   it('reads a normalized attachment object path directly and dedups to the stored reference', async () => {
     await writeFile(join(dir, 'red.png'), PNG_1X1)
@@ -426,6 +447,23 @@ describe('extension-less paths', () => {
     expect(reread.attachmentId).toBe(ref.attachmentId)
     expect(reread.mediaType).toBe('image/png')
     expect(text(second)).toContain(`<path>${await realpath(objectPath)}</path>`)
+  })
+
+  it('refuses a stored object path rewritten with another valid image instead of reading the planted bytes', async () => {
+    await writeFile(join(dir, 'red.png'), PNG_1X1)
+    const ctx = await setup()
+    const attachments = mountedStore(ctx)
+    const first = await readImage(ctx, { file_path: 'red.png' }, agentOn('vision-model'))
+    const ref = (first.content[1] as { attachment: ImageAttachmentRef }).attachment
+    const objectPath = objectPathOf(attachments, ref)
+    const planted = await attachments.saveImage({ data: new Uint8Array(solidPng(0, 0, 255)), mediaType: 'image/png' })
+    const plantedBytes = await readFile(objectPathOf(attachments, planted))
+    expect(plantedBytes.length).toBe((await readFile(objectPath)).length)
+    await chmod(objectPath, 0o600)
+    await writeFile(objectPath, plantedBytes)
+
+    const second = await readImage(ctx, { file_path: objectPath }, agentOn('vision-model'))
+    expect(second.isError).toBe(true)
   })
 
   it('reads an ordinary extension-less image file by sniffing its content', async () => {

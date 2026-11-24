@@ -178,6 +178,11 @@ describe('AttachmentStore.readImageRequest', () => {
       bytes: 1,
     }
     expect(store.fileHostPath(fileRef)).toBeUndefined()
+    await expect(store.readHostFile('/store/files/aa/x', 1024)).resolves.toBeUndefined()
+    const aborted = new AbortController()
+    const stopped = new Error('cancel host read')
+    aborted.abort(stopped)
+    expect(() => store.readHostFile('/store/files/aa/x', 1024, aborted.signal)).toThrow(stopped)
     const read = async (signal?: AbortSignal): Promise<void> => {
       for await (const chunk of store.readFileStream(fileRef, signal)) {
         void chunk

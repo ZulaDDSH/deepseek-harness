@@ -1,10 +1,7 @@
 /** Verbatim content-addressed local file storage. @module @deepseek-ai/dsh-attachment-local/file-store */
 
 import { createHash } from 'node:crypto'
-import type { Stats } from 'node:fs'
-import {
-  closeSync, createReadStream, existsSync, fstatSync, openSync, readSync, statSync,
-} from 'node:fs'
+import { createReadStream, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentId } from '@deepseek-ai/dsh-attachment/types'
@@ -62,7 +59,7 @@ export function fileLeafName(value: string | undefined): string {
   return clean === '' || clean === '.' || clean === '..' ? 'file' : clean
 }
 
-function ensureFileReference(ref: FileAttachmentRef): string {
+export function ensureFileReference(ref: FileAttachmentRef): string {
   const match = FILE_ID_PATTERN.exec(String(ref.attachmentId))
   if (match?.[1] === undefined || ref.name !== fileLeafName(ref.name)) {
     throw new AttachmentError('File attachment reference is invalid.', 'INVALID_ATTACHMENT_REF')
@@ -114,7 +111,6 @@ export async function saveFileVerbatim(
     await publishImmutableObject(root, objectPath, input.data, sha256)
     if (isNew) stored = ref.bytes
     await publishImmutableAlias(root, objectPath, storedFilePath(root, ref), sha256)
-    rememberSavedFile(root, ref)
   } finally {
     if (isNew) quota?.settle(ref.bytes, stored)
   }
@@ -161,7 +157,6 @@ export async function saveFileStreamVerbatim(
     storedFilePath(root, ref),
     stored.sha256,
   )
-  rememberSavedFile(root, ref)
   input.signal?.throwIfAborted()
   return ref
 }
@@ -206,75 +201,5 @@ export async function* readFileStreamVerbatim(
   signal?.throwIfAborted()
   if (bytes !== ref.bytes || hash.digest('hex') !== sha256) {
     throw new AttachmentError('Stored file attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
-  }
-}
-
-const VERIFIED_HOST_PATH_LIMIT = 512
-const verifiedHostPathIdentities = new Map<string, string>()
-
-function storedFileIdentity(stat: Stats): string {
-  return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(':')
-}
-
-function digestDescriptor(fd: number): { sha256: string; bytes: number } {
-  const hash = createHash('sha256')
-  const buffer = Buffer.allocUnsafe(1 << 16)
-  let bytes = 0
-  for (;;) {
-    const read = readSync(fd, buffer, 0, buffer.length, null)
-    if (read === 0) break
-    hash.update(buffer.subarray(0, read))
-    bytes += read
-  }
-  return { sha256: hash.digest('hex'), bytes }
-}
-
-export function verifiedStoredFilePath(root: string, ref: FileAttachmentRef, maxVerifyBytes: number): string | undefined {
-  const path = storedFilePath(root, ref)
-  const sha256 = ensureFileReference(ref)
-  let fd: number
-  try {
-    fd = openSync(path, 'r')
-  } catch {
-    verifiedHostPathIdentities.delete(path)
-    return undefined
-  }
-  try {
-    const stat = fstatSync(fd)
-    if (!stat.isFile() || stat.size !== ref.bytes) {
-      verifiedHostPathIdentities.delete(path)
-      return undefined
-    }
-    const identity = storedFileIdentity(stat)
-    if (verifiedHostPathIdentities.get(path) === identity) return path
-    if (stat.size > maxVerifyBytes) return undefined
-    const digest = digestDescriptor(fd)
-    if (digest.bytes !== ref.bytes || digest.sha256 !== sha256 || storedFileIdentity(fstatSync(fd)) !== identity) {
-      verifiedHostPathIdentities.delete(path)
-      return undefined
-    }
-    rememberVerifiedIdentity(path, identity)
-    return path
-  } catch {
-    verifiedHostPathIdentities.delete(path)
-    return undefined
-  } finally {
-    closeSync(fd)
-  }
-}
-
-function rememberVerifiedIdentity(path: string, identity: string): void {
-  if (verifiedHostPathIdentities.size >= VERIFIED_HOST_PATH_LIMIT) verifiedHostPathIdentities.clear()
-  verifiedHostPathIdentities.set(path, identity)
-}
-
-// constraint: call only after the alias was published and its bytes verified.
-function rememberSavedFile(root: string, ref: FileAttachmentRef): void {
-  const path = storedFilePath(root, ref)
-  try {
-    const stat = statSync(path)
-    if (stat.isFile() && stat.size === ref.bytes) rememberVerifiedIdentity(path, storedFileIdentity(stat))
-  } catch {
-    verifiedHostPathIdentities.delete(path)
   }
 }

@@ -267,6 +267,13 @@ export abstract class AttachmentStore extends Service {
     return undefined
   }
 
+  readHostFile(hostPath: string, maxBytes: number, signal?: AbortSignal): Promise<Uint8Array | undefined> {
+    void hostPath
+    void maxBytes
+    signal?.throwIfAborted()
+    return Promise.resolve(undefined)
+  }
+
   /**
    * Generate or read one deterministic model-request version from the stored normalized image.
    * @param ref - durable provider-independent normalized attachment reference.

@@ -9,11 +9,13 @@ import type { PatchHunk } from '@deepseek-ai/dsh-fs-patch'
 import { Context } from '@deepseek-ai/cordis'
 import { constants as bufferConstants } from 'node:buffer'
 import { once } from 'node:events'
+import { Readable } from 'node:stream'
 import { watch } from 'chokidar'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import z from '@deepseek-ai/schemastery'
 import { FileSystem, FsError, type FsVersion } from '@deepseek-ai/dsh-fs'
+import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type {
   FsDeleteOutcome,
@@ -30,6 +32,7 @@ import type {
 import {
   applyLiteralEdit,
   assertVersion,
+  decodeWholeText,
   expandHomePrefix,
   listDirectory,
   localDisplayPath,
@@ -188,19 +191,44 @@ export class LocalFileSystem extends FileSystem {
     return { version: info.version, type: info.type, size: info.size }
   }
 
+  private async verifiedHostBytes(target: FsTarget, maxBytes: number, signal?: AbortSignal): Promise<Uint8Array | undefined> {
+    const attachments: AttachmentStore | undefined = this.ctx.get('attachments')
+    if (attachments === undefined) return undefined
+    try {
+      return await attachments.readHostFile(target.targetKey, maxBytes, signal)
+    } catch (error) {
+      if (signal?.aborted === true) throw new FsError('read aborted', 'FS_ABORTED')
+      const code = error instanceof Error && 'code' in error ? error.code : undefined
+      const message = `cannot read "${target.displayPath}": ${error instanceof Error ? error.message : String(error)}`
+      throw new FsError(
+        message,
+        code === 'ATTACHMENT_NOT_FOUND' ? 'FS_NOT_FOUND' : code === 'FILE_TOO_LARGE' ? 'FS_TOO_LARGE' : 'FS_IO_ERROR',
+        { cause: error },
+      )
+    }
+  }
+
   override async readText(target: FsTarget, signal?: AbortSignal): Promise<string> {
+    const verified = await this.verifiedHostBytes(target, Number.MAX_SAFE_INTEGER, signal)
+    if (verified !== undefined) return decodeWholeText(verified, target)
     return readWholeText({ displayPath: target.displayPath, targetKey: target.targetKey }, signal)
   }
 
-  override streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
+  override async streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
+    const verified = await this.verifiedHostBytes(target, Number.MAX_SAFE_INTEGER, signal)
+    if (verified !== undefined) return Readable.from([decodeWholeText(verified, target)])
     return Promise.resolve(streamWholeText({ displayPath: target.displayPath, targetKey: target.targetKey }, signal))
   }
 
   override async readBytes(target: FsTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array> {
+    const verified = await this.verifiedHostBytes(target, maxBytes, signal)
+    if (verified !== undefined) return verified
     return readWholeBytes({ displayPath: target.displayPath, targetKey: target.targetKey }, signal, maxBytes, this.internals)
   }
 
   override async readByteRange(target: FsTarget, range: { offset: number; length: number }, signal?: AbortSignal): Promise<Uint8Array> {
+    const verified = await this.verifiedHostBytes(target, Number.MAX_SAFE_INTEGER, signal)
+    if (verified !== undefined) return verified.subarray(range.offset, range.offset + range.length)
     return readByteWindow({ displayPath: target.displayPath, targetKey: target.targetKey }, range, signal)
   }
 
@@ -274,7 +302,9 @@ export class LocalFileSystem extends FileSystem {
       }
 
       const original = await readForEdit(target.targetKey, target.displayPath, signal)
-      const edited = applyLiteralEdit(original.content, edit.oldString, edit.newString, edit.replaceAll, target.displayPath, edit.append === true)
+      const edited = applyLiteralEdit(
+        original.content, edit.oldString, edit.newString, edit.replaceAll, target.displayPath, edit.append === true,
+      )
       const content = restoreEditedText(original, edited.content)
       await writeFileAtomic(target.targetKey, content, existing.mode, signal, this.internals,
         { displayPath: target.displayPath, expectedVersion: existing.version })

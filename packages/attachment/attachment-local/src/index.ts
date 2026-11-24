@@ -1,5 +1,6 @@
 /** Local durable attachment backend rooted below `DSH_HOME`. @module @deepseek-ai/dsh-attachment-local */
 
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -20,8 +21,9 @@ import type { NormalizationPolicy } from './normalization.ts'
 import { CompressionLimiter, compressionFailure } from './compression-limiter.ts'
 import { commitPreparedImageFile, normalizedImagePath, prepareImageFile, readImageFile, validateImageFile } from './store.ts'
 import {
-  readFileStreamVerbatim, saveFileStreamVerbatim, saveFileVerbatim, verifiedStoredFilePath,
+  readFileStreamVerbatim, saveFileStreamVerbatim, saveFileVerbatim,
 } from './file-store.ts'
+import { handoffStoredFile, readStoredHostFile, reclaimAbandonedHandoffs, releaseHandoffs } from './host-file.ts'
 import { FileStoreQuota } from './file-quota.ts'
 import { readRequestImageFile, requestImageVariantId } from './request-image.ts'
 
@@ -187,6 +189,9 @@ export class LocalAttachmentStore extends AttachmentStore {
   private readonly cacheRoot: string
   private readonly fileQuota: FileStoreQuota
   private readonly maxHostPathVerifyBytes: number
+  private readonly handoffRoot: string
+  private readonly handoffDirectory: string
+  private handoffsReclaimed = false
   private readonly compression: CompressionLimiter
   private readonly requestInflight = new Map<string, SharedRequest<RequestImageAttachment>>()
 
@@ -201,6 +206,9 @@ export class LocalAttachmentStore extends AttachmentStore {
       config.maxStoredFileBytes ?? DEFAULT_MAX_STORED_FILE_BYTES,
     )
     this.maxHostPathVerifyBytes = config.maxHostPathVerifyBytes ?? DEFAULT_MAX_HOST_PATH_VERIFY_BYTES
+    this.handoffRoot = join(this.root, 'handoff')
+    this.handoffDirectory = join(this.handoffRoot, `${process.pid}-${randomUUID()}`)
+    ctx.effect(() => () => { releaseHandoffs(this.handoffDirectory) }, 'attachment-local: handoff copies')
     this.imageLimits = Object.freeze({
       maxImageBytes: config.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES,
       maxImagesPerMessage: config.maxImagesPerMessage ?? DEFAULT_MAX_IMAGES_PER_MESSAGE,
@@ -283,7 +291,15 @@ export class LocalAttachmentStore extends AttachmentStore {
   }
 
   override fileHostPath(ref: FileAttachmentRef): string | undefined {
-    return verifiedStoredFilePath(this.root, ref, this.maxHostPathVerifyBytes)
+    if (!this.handoffsReclaimed) {
+      this.handoffsReclaimed = true
+      reclaimAbandonedHandoffs(this.handoffRoot)
+    }
+    return handoffStoredFile(this.root, ref, this.maxHostPathVerifyBytes, this.handoffDirectory)
+  }
+
+  override readHostFile(hostPath: string, maxBytes: number, signal?: AbortSignal): Promise<Uint8Array | undefined> {
+    return readStoredHostFile(this.root, hostPath, Math.min(maxBytes, this.maxHostPathVerifyBytes), signal)
   }
 
   override async readImageRequest(
