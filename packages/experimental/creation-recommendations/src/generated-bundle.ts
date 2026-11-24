@@ -1,5 +1,5 @@
 /** Admit only a newly named bundle whose patch adds its own rows. */
-import { lstat, readdir, readFile, readlink, realpath } from 'node:fs/promises'
+import { lstat, opendir, readFile, readlink, realpath } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { z } from 'zod'
 import { parseDocument } from 'yaml'
@@ -7,21 +7,31 @@ import { resolve as resolvePackageEntry } from 'resolve.exports'
 
 const RUNTIME_EXTENSIONS = ['.js', '.mjs', '.cjs']
 
+export interface BundleLimits {
+  readonly entries: number
+  readonly depth: number
+  readonly bytes: number
+  readonly fileBytes: number
+  readonly metadataBytes: number
+}
+
+export const BUNDLE_LIMITS: BundleLimits = { entries: 20_000, depth: 32, bytes: 256 * 2 ** 20, fileBytes: 64 * 2 ** 20, metadataBytes: 2 ** 20 }
+
 /** Validate model-written files before profile installation.
  * @param directory - Host-reserved output directory.
  * @param name - Host-reserved package name.
  * @returns after package identity, insert-only rows, built entries, the built `./client` entry of a package declaring
  * `dsh.client`, and portable links have been checked; does not execute code.
  */
-export async function validateGeneratedBundle(directory: string, name: string): Promise<void> {
+export async function validateGeneratedBundle(directory: string, name: string, limits: BundleLimits = BUNDLE_LIMITS): Promise<void> {
   const manifestPath = await containedFile(directory, 'package.json')
   const manifest = z.looseObject({
     name: z.literal(name), version: z.string().min(1),
     main: z.string().optional(), exports: z.unknown().optional(),
     dsh: z.object({ bundle: z.object({ patch: z.literal('./cordis.patch.yml') }), client: z.looseObject({}).optional() }),
-  }).parse(JSON.parse(await readFile(manifestPath, 'utf8')))
+  }).parse(JSON.parse(await readBounded(manifestPath, limits.metadataBytes)))
   const patchPath = await containedFile(directory, manifest.dsh.bundle.patch)
-  const document = parseDocument(await readFile(patchPath, 'utf8'), { schema: 'core', customTags: [] })
+  const document = parseDocument(await readBounded(patchPath, limits.metadataBytes), { schema: 'core', customTags: [] })
   if (document.errors.length || document.warnings.length) throw new Error('Generated patches must use plain YAML without custom tags or includes.')
   const patch = z.array(z.object({
     insert: z.array(z.looseObject({ id: z.string().min(1), name: z.string().min(1), group: z.literal(false).optional() })).min(1),
@@ -46,7 +56,7 @@ export async function validateGeneratedBundle(directory: string, name: string): 
   if (manifest.dsh.client !== undefined && !(await isBuiltFile(directory, exportedEntry(manifest, name + '/client')))) {
     throw new Error('Build and export the "./client" entry before installation.')
   }
-  await validateLinks(await realpath(directory), directory)
+  await validateTree(await realpath(directory), directory, limits, { entries: 0, bytes: 0 }, 0)
 }
 
 /** Whether a relative entry path names an existing JavaScript file inside the bundle. */
@@ -72,15 +82,29 @@ function exportedEntry(manifest: { readonly name: string; readonly exports?: unk
   }
 }
 
+async function readBounded(path: string, limit: number): Promise<string> {
+  if ((await lstat(path)).size > limit) throw new Error('Generated bundle metadata is too large.')
+  return readFile(path, 'utf8')
+}
+
 /** Relative links must continue to work when the bundle is copied out of the workspace. */
-async function validateLinks(root: string, directory: string): Promise<void> {
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
+async function validateTree(
+  root: string, directory: string, limits: BundleLimits, tally: { entries: number; bytes: number }, depth: number,
+): Promise<void> {
+  if (depth > limits.depth) throw new Error('Generated bundle is nested too deeply.')
+  for await (const entry of await opendir(directory)) {
+    if (++tally.entries > limits.entries) throw new Error('Generated bundle contains too many files.')
     const path = join(directory, entry.name)
     if (entry.isSymbolicLink()) {
       const link = await readlink(path)
       if (isAbsolute(link)) throw new Error('Generated bundle links must be relative and stay inside the bundle.')
       await containedFile(root, resolve(dirname(path), link))
-    } else if (entry.isDirectory()) await validateLinks(root, path)
+    } else if (entry.isDirectory()) await validateTree(root, path, limits, tally, depth + 1)
+    else {
+      const { size } = await lstat(path)
+      tally.bytes += size
+      if (size > limits.fileBytes || tally.bytes > limits.bytes) throw new Error('Generated bundle is too large.')
+    }
   }
 }
 

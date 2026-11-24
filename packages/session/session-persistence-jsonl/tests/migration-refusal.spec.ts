@@ -428,7 +428,7 @@ describe.each(modes)('EOF migration refusal ($compression, $access)', ({ compres
     const original = await observe(path)
     const ctx = await mount(compression)
     await expectRefusal(ctx, access, path,
-      'format v3 tool/result at seq 7 contains a nested tool-result unsupported by this converter'
+      'format v3 tool/result at seq 7 contains a nested tool-result (call "nested-call") unsupported by this converter'
       + '; source v3 artifact remains unchanged (raw log: ' + path + ')')
     expect(await observe(path)).toEqual(original)
     await expectOnlyGenerations([path])

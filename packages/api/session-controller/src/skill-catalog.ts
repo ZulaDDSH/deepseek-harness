@@ -75,7 +75,8 @@ export class SessionSkillCatalog extends TypertRemoteService {
     await using lease = live === undefined ? await this.scopeFor(agentPreset) : undefined
     const scope = live ?? lease?.key
     try {
-      const skills = (await skillRegistry.list({ cwd, scope })).filter(isUserInvocable)
+      const snapshot = await skillRegistry.snapshot({ cwd, scope, signal })
+      const skills = snapshot.skills.filter(isUserInvocable)
       return {
         skills: skills.map(skill => ({
           name: skill.name,
@@ -84,6 +85,7 @@ export class SessionSkillCatalog extends TypertRemoteService {
           ...skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse },
           modelInvocable: skill.invocation.modelInvocable,
         })),
+        ...snapshot.complete ? {} : { incomplete: true },
       }
     } catch (error: unknown) {
       throw new RemoteError('gateway/internal', `skill listing failed: ${String(error)}`, {})

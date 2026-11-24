@@ -39,7 +39,7 @@ describe('lazy image encoding', () => {
 
 describe('CompressionLimiter', () => {
   it('starts at most the configured number of tasks and preserves queued progress', async () => {
-    const limiter = new CompressionLimiter(2)
+    const limiter = new CompressionLimiter(2, { tasks: 8, bytes: 1024 })
     const gates = Array.from({ length: 4 }, () => Promise.withResolvers<undefined>())
     let active = 0
     let maximum = 0
@@ -71,7 +71,7 @@ describe('CompressionLimiter', () => {
   })
 
   it('releases a slot when a task throws before returning a promise', async () => {
-    const limiter = new CompressionLimiter(1)
+    const limiter = new CompressionLimiter(1, { tasks: 8, bytes: 1024 })
     const failed = limiter.run(() => {
       throw new Error('synchronous setup failure')
     })
@@ -82,7 +82,7 @@ describe('CompressionLimiter', () => {
   })
 
   it('normalizes a non-Error rejection and releases its slot', async () => {
-    const limiter = new CompressionLimiter(1)
+    const limiter = new CompressionLimiter(1, { tasks: 8, bytes: 1024 })
     // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Native bindings can reject non-Error values.
     const failed = limiter.run(() => Promise.reject('native failure'))
     const next = limiter.run(() => Promise.resolve('next'))

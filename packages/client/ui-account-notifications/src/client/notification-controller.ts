@@ -84,6 +84,9 @@ interface NotificationPoll {
   timer?: ReturnType<typeof setTimeout>
 }
 
+const CONTENT_CONCURRENCY = 4
+const MAX_TIMER_DELAY_MS = 2_147_483_647
+
 /**
  * @param displayUntil - server expiration timestamp.
  * @param at - milliseconds since epoch.
@@ -110,6 +113,24 @@ export function createNotificationController(options: NotificationControllerOpti
   let poll: NotificationPoll | undefined
   /** Notifications the card on screen already reported, so one mount cannot report display twice. */
   const reported = new Set<AccountNotificationId>()
+  let expiryTimer: ReturnType<typeof setTimeout> | undefined
+  const sweep = (): void => {
+    expiryTimer = undefined
+    setCurrent(current.filter(notice => !expired(notice.displayUntil, Date.now())))
+    scheduleExpiry()
+  }
+  const scheduleExpiry = (): void => {
+    if (expiryTimer !== undefined) clearTimeout(expiryTimer)
+    expiryTimer = undefined
+    let next = Number.POSITIVE_INFINITY
+    for (const notice of current) {
+      if (notice.displayUntil === null) continue
+      const expires = Date.parse(notice.displayUntil)
+      if (!Number.isNaN(expires)) next = Math.min(next, expires)
+    }
+    if (next === Number.POSITIVE_INFINITY) return
+    expiryTimer = setTimeout(sweep, Math.min(Math.max(next - Date.now(), 0), MAX_TIMER_DELAY_MS))
+  }
   const setCurrent = (notices: readonly AccountNotice[]): void => {
     if (notices.length === current.length && notices.every((notice, index) => {
       return JSON.stringify(notice) === JSON.stringify(current[index])
@@ -118,6 +139,7 @@ export function createNotificationController(options: NotificationControllerOpti
     for (const id of reported) if (!retained.has(id)) reported.delete(id)
     current = notices
     options.publish(notices)
+    scheduleExpiry()
   }
   /**
    * Keep a presented foreground card until dismissal or expiration, refreshing
@@ -145,14 +167,23 @@ export function createNotificationController(options: NotificationControllerOpti
     if (scopeAtCall === undefined || current.length === 0) return
     const generation = ++contentGeneration
     const requestedLocale = locale
-    const responses = await Promise.allSettled(current.map(async notice => options.readContent(notice.id, requestedLocale)))
-    if (scope !== scopeAtCall || generation !== contentGeneration) return
-    if (responses.some(response => response.status === 'rejected')) console.error('[deepseek-account] notification content read failed')
-    const updates = responses.flatMap(response => response.status === 'fulfilled' && response.value !== null ? [response.value] : [])
-    setCurrent(current.map((notice) => {
-      const update = updates.find(value => value.id === notice.id)
-      return update == null ? notice : { ...notice, title: update.title, body: update.body, actions: update.actions }
-    }))
+    const isCurrent = (): boolean => scope === scopeAtCall && generation === contentGeneration
+    const pending = [...current]
+    let failed = false
+    const worker = async (): Promise<void> => {
+      for (let notice = pending.shift(); notice !== undefined && isCurrent(); notice = pending.shift()) {
+        let update: AccountNotice | null
+        try { update = await options.readContent(notice.id, requestedLocale) }
+        catch (_error) { failed = true; continue }
+        if (update === null || !isCurrent()) continue
+        const fresh: AccountNotice = update
+        setCurrent(current.map(value => value.id === fresh.id
+          ? { ...value, title: fresh.title, body: fresh.body, actions: fresh.actions }
+          : value))
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONTENT_CONCURRENCY, pending.length) }, worker))
+    if (failed && isCurrent()) console.error('[deepseek-account] notification content read failed')
   }
 
   /**

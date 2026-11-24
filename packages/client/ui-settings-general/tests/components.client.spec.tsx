@@ -292,6 +292,15 @@ it('toggles chat memory and keeps the setting when a write is refused', async ()
   expect(setEnabled).toHaveBeenLastCalledWith(false)
 })
 
+it('describes chat memory as Host-side, possibly remote, partial and pattern-redacted', () => {
+  for (const text of [en['chatMemory.description'], zh['chatMemory.description']]) expect(text).not.toMatch(/this device|本机/)
+  expect(en['chatMemory.description']).toMatch(/Host/)
+  expect(en['chatMemory.description']).toMatch(/remote Memorix provider/)
+  expect(en['chatMemory.description']).toMatch(/saves can fail/)
+  expect(en['chatMemory.description']).toMatch(/recognizable credential patterns only/)
+  expect(zh['chatMemory.description']).toMatch(/主机/)
+})
+
 describe('current version', () => {
   it.each([
     ['Current version: 1.2.3-rc.4', en],

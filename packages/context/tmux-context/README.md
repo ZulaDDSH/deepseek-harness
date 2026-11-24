@@ -42,12 +42,13 @@ The minimal mount needs no configuration. A positive `refreshIntervalMs` additio
 | Field | Default | Meaning |
 |---|---|---|
 | `refreshIntervalMs` | `0` (every changed turn) | Minimum milliseconds between durable injections in one session |
+| `queryTimeoutMs` | `5000` | Milliseconds the whole tmux location query may take; a stalled `ps` or tmux server is abandoned (the subprocess is aborted) and the turn continues. Must be a positive integer |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tmux-context) is the exhaustive source for every accepted field and its JSDoc.
 
 ### When the location is known
 
-The process counts as in tmux only when its controlling terminal matches the pane's `#{pane_tty}`; a terminal launched from a tmux shell (a VS Code integrated terminal, a desktop launcher) inherits the variables but not the pane, so it reads as not in tmux. A missing `ctx.shell`, an absent environment, or a malformed reading is a no-op, and an executor rejection is contained and logged as a warning rather than failing the turn.
+The process counts as in tmux only when its controlling terminal matches the pane's `#{pane_tty}`; a terminal launched from a tmux shell (a VS Code integrated terminal, a desktop launcher) inherits the variables but not the pane, so it reads as not in tmux. While the session has no earlier tmux reading, a missing `ctx.shell`, an absent environment, a malformed reading, a timed-out query, or an executor rejection adds nothing (an executor rejection or timeout is logged as a warning rather than failing the turn). Once the session holds an earlier reading, the plugin also records the change: a confirmed mismatch (no `$TMUX_PANE`, or a pane whose tty is not this process's) adds one message saying the process is not in a tmux pane and earlier locations no longer apply, and a query that could not answer (failure, timeout, missing shell) adds one message saying the location could not be read and earlier locations may be out of date. Each of these is added once, not on every turn, and a later successful reading is published again even when it matches the one from before the gap. A turn that is cancelled while the query runs adds nothing.
 
 -----
 
@@ -127,6 +128,7 @@ These limits define when tmux location context is a poor fit. They are current p
 - **Own location only** — the plugin never captures the visible text of sibling panes.
 - **Layout, not size** — pane/window pixel dimensions are omitted; only the layout tree and active flags are reported.
 - **Tab-delimited fields** — a tmux window name containing the literal two-character sequence `\t` would mis-split the reading and be skipped as malformed; ordinary names are unaffected.
+- **Query failure reads as unknown** — only the script's explicit not-in-pane exit counts as a confirmed absence; an unreachable tmux server, a failing `ps`, a timeout, or malformed output is recorded as unknown. A shell executor that wraps or rewrites exit codes can turn a confirmed absence into unknown.
 - **tty-based pane detection** — the process is considered "in tmux" only when its controlling terminal matches `$TMUX_PANE`'s `#{pane_tty}`. This deliberately excludes terminals that inherited `$TMUX`/`$TMUX_PANE` from a tmux ancestor (e.g. a VS Code integrated terminal). `ps -o tty=` is POSIX; the check is a no-op wherever it or `#{pane_tty}` is unavailable.
 
 <a id="dev-note"></a>

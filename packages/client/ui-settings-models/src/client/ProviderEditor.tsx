@@ -270,7 +270,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     void authorization.list().then((flows) => {
       if (stale) return
       setFlow(flows.find(entry => entry.key.endsWith(`/${props.provider}`)))
-    })
+    }, () => {})
     return () => { stale = true }
   }, [authorization, layout, props.credentialOnly, props.provider, props.credentialsRevision])
 

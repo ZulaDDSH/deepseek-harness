@@ -283,6 +283,7 @@ export interface GrepMatch {
   path: string
   lineNumber: number
   line: string
+  undecodable?: true
 }
 
 /**
@@ -383,3 +384,9 @@ export async function trySaveFormattedResult(
     return undefined
   }
 }
+
+export function undecodableNote(count: number, what: string): string {
+  return `(${count} ${what} not valid UTF-8; the bad bytes appear as U+FFFD or a placeholder, so a shown path may not open)`
+}
+
+export const REPLACEMENT = String.fromCharCode(0xfffd)

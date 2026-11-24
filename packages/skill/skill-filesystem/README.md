@@ -148,7 +148,7 @@ Read these pages when the package-level contract is not enough. They move from t
 - [skill package](../skill/README.md) — the registry this provider registers on.
 - [tool-skill package](../tool-skill/README.md) — how discovered skills reach the session catalog and the model.
 - [home-paths package](../../util/home-paths/README.md) — how `dshHome` and `agentsHome` resolve.
-- [Code notes](../../../docs/code-notes/deepseek-harness.md) — the source documentation for each other-agent root and the pinned-home test convention.
+- [Code notes](https://github.com/ZulaDDSH/CodeNotes/blob/main/Deepseek%20Harness/deepseek-harness.md) — the source documentation for each other-agent root and the pinned-home test convention.
 
 -----
 
@@ -170,6 +170,7 @@ These limits define when the provider is a poor fit or needs special operational
 
 - **Discovery is one level deep** — only `<root>/<name>/SKILL.md` and `<root>/<name>.md` are recognized; nested skill trees and package manifests are ignored.
 - **Project scope is the nearest `.git` ancestor** — workspaces without that marker fall back to the supplied cwd, with no alternate project-root marker or monorepo subproject selection.
+- **Skill files over 1 MiB are ignored with a warning** — every skill file and sidecar read is bounded, with no configuration and no aggregate catalog budget. The host path bounds the read itself; the `ctx.fs` path checks the reported size before reading, so a provider that reports no size, or a file that grows after that check, is bounded only by the provider's own limits. The model-facing size of a loaded body is not capped here.
 - **Malformed entries disappear with a warning** — the model catalog receives no per-skill diagnostic and cannot distinguish an absent skill from an invalid one.
 - **I/O failures omit the whole root** — one unreadable skill also hides its readable siblings for that observation. Other roots remain available, so a lower-priority same-name skill can supply the description and loaded body. Discovery retries on each lookup and restores normal priority when the root recovers.
 - **Missing-root observation polls one path segment** — roots absent at startup use `fs.watchFile` at `watchPollIntervalMs` until Chokidar can attach, trading bounded detection latency for reliable creation detection across IDE, Git, and shell workflows.

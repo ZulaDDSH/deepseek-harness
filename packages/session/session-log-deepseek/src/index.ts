@@ -122,6 +122,13 @@ function wireEvent(event: SessionEvent): DeepSeekSessionLogWireEvent {
   }
 }
 
+function elideData(wire: DeepSeekSessionLogWireEvent, fieldBytes: number): DeepSeekSessionLogWireEvent {
+  const marker = Number.isFinite(fieldBytes)
+    ? { elided: true, reason: 'exceeds-max-bytes', bytes: fieldBytes }
+    : { elided: true, reason: 'unserializable' }
+  return { ...wire, data: marker }
+}
+
 function wireSurfaceOp(op: SurfaceOp): DeepSeekSessionLogWireSurfaceOp {
   return op === 'append'
     ? op
@@ -226,7 +233,23 @@ export class SessionLogDeepSeekService extends Service {
           const wire = wireEvent(event)
           const next = bytes + (events.length === 0 ? 0 : 1) + jsonBytes(wire)
           candidateBytes = next + String(event.seq).length
-          if (candidateBytes > maxBytes) break
+          if (candidateBytes > maxBytes) {
+            if (events.length > 0) break
+            const elided = elideData(wire, candidateBytes)
+            const elidedNext = bytes + jsonBytes(elided)
+            if (elidedNext + String(event.seq).length > maxBytes) break
+            if (blockedWarnings.get(session) !== event.seq) {
+              blockedWarnings.set(session, event.seq)
+              ctx.logger.warn(`session-log-deepseek: event ${String(event.seq)} of session "${session.id}"`
+                + (Number.isFinite(candidateBytes)
+                  ? ` needs a ${String(candidateBytes)}-byte dsh_session_log field, above maxBytes ${String(maxBytes)}`
+                  : ' is too large to serialize into a dsh_session_log field')
+                + '; uploading it with its data elided')
+            }
+            bytes = elidedNext
+            events.push(elided)
+            continue
+          }
           bytes = next
           events.push(wire)
         }

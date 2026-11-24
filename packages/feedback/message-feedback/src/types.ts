@@ -40,6 +40,7 @@ export interface MessageFeedbackPut {
   readonly sessionId: SessionId
   /** Value after this mutation, including the original creation time. */
   readonly item: MessageFeedbackItem
+  readonly localOnly?: true
 }
 
 /** A material deletion of one current feedback item. */
@@ -48,6 +49,7 @@ export interface MessageFeedbackDelete {
   readonly sessionId: SessionId
   /** Message whose feedback was removed. */
   readonly messageId: MessageId
+  readonly localOnly?: true
 }
 
 declare module '@deepseek-ai/dsh-session/types' {
@@ -85,6 +87,7 @@ export interface MessageFeedbackPutRequest {
   readonly category?: FeedbackCategory
   /** Observed item version, or `null` to require that no item exists. */
   readonly ifVersion: MessageFeedbackVersion | null
+  readonly localOnly?: boolean
 }
 
 /** Delete feedback for one message after observing its current version. */
@@ -95,6 +98,7 @@ export interface MessageFeedbackDeleteRequest {
   readonly messageId: MessageId
   /** Observed item version; ignored when the item is already absent. */
   readonly ifVersion: MessageFeedbackVersion
+  readonly localOnly?: boolean
 }
 
 /** Idempotent deletion acknowledgement. */

@@ -1375,6 +1375,23 @@ describe('completion notice output', () => {
     expect(text(await call(ctx, 'job_output', { job_id: id }, owner))).toBe('(no new output)\n[status: completed]')
   })
 
+  it('leaves the output of a pointer notice unread in the registry so a plugin reload keeps it', async () => {
+    const { ctx, toolsFiber } = await setup()
+    const inject = vi.fn()
+    const owner = await fakeAgent(ctx, 'sess-1', { inject })
+    const p = producer({ owner: owner.id, kind: 'test-task', label: 'answer' })
+    const id = ctx.jobs.start(p.spec)
+    p.append('tail')
+    p.settle({ status: 'completed', result: 'r'.repeat(5_000) })
+    await tick()
+    expect(notice(inject).content[0].text).toContain('Read its output with job_output.')
+
+    await toolsFiber.dispose()
+
+    expect(ctx.jobs.peek(id, owner.id)).toMatchObject({ chunks: [{ text: 'tail' }], result: 'r'.repeat(5_000) })
+    expect(ctx.jobs.read(id, owner.id).result).toBe('r'.repeat(5_000))
+  })
+
   it('never inlines when inlineOutputBytes is 0', async () => {
     const { ctx } = await setup({ inlineOutputBytes: 0 })
     const inject = vi.fn()

@@ -56,6 +56,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export interface ApprovalDetailOwnerProps {
   /** Tool call correlated with the request. */
   callId: ToolCallId
+  onAvailability?: (available: boolean) => void
 }
 
 /** Client-visible fields of an approval request projected through Remote Events. */
@@ -227,4 +228,5 @@ export interface ApprovalCardInput {
   onReject: () => Promise<void>
   /** Explicit persistent choice; absent when the caller cannot save permission. */
   onAlways?: () => Promise<void>
+  detailRequired?: boolean
 }

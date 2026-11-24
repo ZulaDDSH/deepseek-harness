@@ -7,6 +7,7 @@
  */
 
 import { WebError } from '@deepseek-ai/dsh-web'
+import { readBoundedJson, redactEndpoint } from '@deepseek-ai/dsh-web/safety'
 import type {
   WebSearchProvider,
   WebSearchRequest,
@@ -171,9 +172,17 @@ export function mapAnthropicResponse(response: AnthropicResponse): WebSearchResu
   const snippets = citationSnippets(blocks)
   const seen = new Set<string>()
   const sources: WebSearchSource[] = []
+  const failures: string[] = []
   for (const block of resultBlocks) {
-    for (const item of block.content ?? []) {
-      if (item.type !== 'web_search_result' || item.url.length === 0 || seen.has(item.url)) continue
+    if (!Array.isArray(block.content)) {
+      failures.push(block.content?.error_code ?? 'missing_content')
+      continue
+    }
+    for (const item of block.content) {
+      if (typeof item?.type === 'string' && item.type !== 'web_search_result' && item.type.endsWith('_error')) {
+        failures.push(item.error_code ?? item.type)
+      }
+      if (item?.type !== 'web_search_result' || item.url.length === 0 || seen.has(item.url)) continue
       seen.add(item.url)
       const snippet = snippets.get(item.url)
       sources.push({
@@ -184,7 +193,15 @@ export function mapAnthropicResponse(response: AnthropicResponse): WebSearchResu
       })
     }
   }
-  return { sources, truncated: false }
+  const codes = [...new Set(failures)].join(', ')
+  if (sources.length === 0 && failures.length > 0) {
+    throw new WebError(`DeepSeek web search failed: ${codes}`, 'WEB_PROVIDER_ERROR')
+  }
+  return {
+    ...failures.length > 0 ? { content: `Note: ${failures.length} web search result set(s) failed (${codes}); the sources below may be incomplete.` } : {},
+    sources,
+    truncated: false,
+  }
 }
 
 /** Authentication headers for one search, tagged by the credential that produced them. */
@@ -251,7 +268,7 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
       thinking: { type: 'disabled' },
     }
     options.recordRequest?.({
-      endpoint,
+      endpoint: redactEndpoint(endpoint),
       apiVersion: options.apiVersion,
       body,
     })
@@ -285,7 +302,7 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
       let message = `DeepSeek API error (HTTP ${status})`
       let aborted: WebError | undefined
       try {
-        const parsed = await response.json() as AnthropicError
+        const parsed = await readBoundedJson(response, signal) as AnthropicError
         const detail = typeof parsed.error === 'string' ? parsed.error : parsed.error?.message ?? parsed.message
         if (detail !== undefined && detail.length > 0) message += `: ${detail}`
       } catch (error: unknown) {
@@ -311,7 +328,7 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
     }
 
     try {
-      const payload = await response.json() as AnthropicResponse
+      const payload = await readBoundedJson(response, signal) as AnthropicResponse
       return mapAnthropicResponse(payload)
     } catch (error: unknown) {
       if (signal?.aborted === true || isAbortError(error)) throw searchAborted(signal, error)
@@ -405,7 +422,7 @@ function accountRejectedError(message: string): WebError {
 /** Add endpoint recovery instructions to failures that occur after request dispatch begins. */
 function searchEndpointError(endpoint: string, message: string, cause?: unknown): WebError {
   return new WebError(
-    `${message}\n\nThe web request used endpoint ${JSON.stringify(endpoint)}. `
+    `${message}\n\nThe web request used endpoint ${JSON.stringify(redactEndpoint(endpoint))}. `
     + 'Search endpoint configuration is separate from chat. If that endpoint is not intended, '
     + 'guide the user to Plugins > Built-in plugin settings > Web search and fetch, select DeepSeek (legacy) under Search, '
     + 'and change and save its Base URL. If that settings page is unavailable, the user can set '

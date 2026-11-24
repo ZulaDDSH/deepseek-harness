@@ -57,6 +57,7 @@ The `servers` record maps each stable provider id to one server command. The pro
 | `maxDocumentBytes` | `4000000` | Largest source file this host opens |
 | `shutdownTimeoutMs` | `5000` | Graceful `shutdown`/`exit` budget before escalation |
 | `killGraceMs` | `2000` | Request-cancel and SIGTERM→SIGKILL escalation grace |
+| `reportHostProcessId` | `false` | Send the host PID as `initialize.processId` so the server can exit when a hard-killed host disappears; enable only when the subprocess provider runs in the host's PID namespace |
 
 `servers` must contain at least one entry with non-empty ids; timer budgets must be positive integers within Node's timer range, and byte caps must be positive. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-lsp-stdio) is the exhaustive source for every accepted field.
 
@@ -144,7 +145,7 @@ These limits define when the provider is a poor fit or needs special operational
 - **No confinement policy** — this package trusts the configured server and does not sandbox its process; a restricted deployment must supply appropriate process and filesystem providers or a same-world sandbox wrapper.
 - **Transient-open compatibility floor** — servers whose synchronization omits open/close (or advertises `None`) are unsupported even if closed-document queries would work; the pinned TypeScript e2e establishes one compatibility floor, not a cross-language claim.
 - **Per-server and per-workspace serialization latency** — parallel agents sharing one server and workspace queue behind one process; long-lived workspace processes consume memory until disposal.
-- **A hard-killed harness orphans language servers** — `initialize.processId: null` removes server-side client-PID monitoring, so servers are cleaned only by graceful service disposal; a SIGKILL'd harness leaves them running until they exit on their own.
+- **A hard-killed harness can orphan language servers** — by default `initialize.processId` is `null` because the subprocess seam cannot tell whether the provider shares the host's PID namespace, so servers are cleaned only by graceful service disposal and a SIGKILL'd harness leaves them running until they exit on their own. Set `reportHostProcessId: true` for a same-host provider so servers that monitor the client PID exit by themselves; servers that do not monitor it, and remote or separate-namespace providers, still need an external owner.
 
 <a id="dev-note"></a>
 ### Dev Note

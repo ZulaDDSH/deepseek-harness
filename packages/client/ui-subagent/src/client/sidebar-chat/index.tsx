@@ -155,7 +155,9 @@ export function SidebarChatTab({ useResource, useTabInfo, SessionProvider, rende
   return (
     <div className={css.root} data-sidebar-chat="">
       {resource.value === undefined
-        ? null
+        ? resource.status === 'failed' && resource.failure !== undefined
+          ? <div className={css.failure} role="alert">{resource.failure.message}</div>
+          : null
         : (
           <SessionProvider session={resource.value.reference}>
             {renderSlot('sidebar.chat.conversation', {})}

@@ -12,7 +12,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { LINK_MAP } from './gen-cordis-catalog.ts'
 import { parseJsDoc, pointer, rawJsDoc } from './jsdoc.ts'
-import { loadAnchoredFieldNotes } from './code-notes.ts'
+import { exitIfCodeNotesMissing, loadAnchoredFieldNotes } from './code-notes.ts'
 import { renderGeneratedRegion } from './generated-regions.ts'
 import { githubSlug } from './verify-md-links.ts'
 
@@ -1054,6 +1054,7 @@ export function computeConfigCatalogOutputs(): ReadonlyMap<string, string> {
  * committed copy is stale. Guarded behind an entry-point check so importing this
  * module for tests neither regenerates the committed files nor calls process.exit. */
 function main(): void {
+  exitIfCodeNotesMissing('gen-config-catalog')
   const outputs = computeConfigCatalogOutputs()
   const stale = [...outputs].filter(([path, content]) => (
     !existsSync(resolve(root, path)) || readFileSync(resolve(root, path), 'utf8') !== content

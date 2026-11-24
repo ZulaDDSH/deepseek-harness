@@ -27,21 +27,33 @@ declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
 
 afterEach(cleanup)
 
-it('expands all JSON containers and array items without object links or collection-property disclosures', () => {
+it('expands shallow JSON containers and pages wide arrays without object links or collection-property disclosures', () => {
   const text = JSON.stringify({ data: { items: Array.from({ length: 75 }, (_, index) => ({ value: index })) } })
   const ui = render(<InspectorJsonTree text={text} t={makeTranslate(en)} />)
-  expect(ui.getByText('74')).toBeTruthy()
+  expect(ui.getByText('49')).toBeTruthy()
+  expect(ui.queryByText('74')).toBeNull()
   expect(ui.container.querySelectorAll('details:not([open])')).toHaveLength(0)
-  expect(ui.queryByRole('button')).toBeNull()
   expect(ui.queryByText(`${en['object.properties']}:`)).toBeNull()
+  fireEvent.click(ui.getByRole('button', { name: en['object.more'] }))
+  expect(ui.getByText('74')).toBeTruthy()
+  expect(ui.queryByRole('button')).toBeNull()
   const branch = ui.getByText('data:').closest('details')!
   branch.open = false
   fireEvent(branch, new Event('toggle'))
   expect(ui.queryByText('74')).toBeNull()
   branch.open = true
   fireEvent(branch, new Event('toggle'))
-  expect(ui.getByText('74')).toBeTruthy()
-  expect(ui.container.querySelectorAll('details:not([open])')).toHaveLength(0)
+  expect(ui.getByText('49')).toBeTruthy()
+  expect(ui.queryByText('74')).toBeNull()
+})
+
+it('leaves deeply nested JSON collapsed and unrendered until opened', () => {
+  let nested: unknown = { leaf: 'deepest' }
+  for (let level = 0; level < 20; level++) nested = { child: nested }
+  const ui = render(<InspectorJsonTree text={JSON.stringify(nested)} t={makeTranslate(en)} />)
+  expect(ui.queryByText('"deepest"')).toBeNull()
+  expect(ui.container.querySelectorAll('details')).toHaveLength(5)
+  expect(ui.container.querySelectorAll('details:not([open])')).toHaveLength(1)
 })
 
 it('updates JSON values while retaining collapsed fields and renders an undefined serialization', () => {

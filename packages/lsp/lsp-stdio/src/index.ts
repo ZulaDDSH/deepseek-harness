@@ -65,6 +65,8 @@ export interface LspLocalServerConfig {
   shutdownTimeoutMs?: number
   /** Request-cancel and SIGTERM→SIGKILL grace (ms). Default 2000. */
   killGraceMs?: number
+  /** Send this host's PID as `initialize.processId`; requires a subprocess provider in the host PID namespace. Default false. */
+  reportHostProcessId?: boolean
 }
 
 /** Plugin configuration: provider id → local language-server configuration. */
@@ -89,6 +91,7 @@ const LspLocalServerConfig: z<LspLocalServerConfig> = z.object({
   maxDocumentBytes: z.number().default(DEFAULT_MAX_DOCUMENT_BYTES),
   shutdownTimeoutMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_SHUTDOWN_TIMEOUT_MS),
   killGraceMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_KILL_GRACE_MS),
+  reportHostProcessId: z.boolean().default(false),
 })
 
 export const Config: z<Config> = z.object({
@@ -370,6 +373,7 @@ class LocalLspProvider implements LspProvider {
       maxStderrBytes: this.config.maxStderrBytes,
       shutdownTimeoutMs: this.config.shutdownTimeoutMs,
       killGraceMs: this.config.killGraceMs,
+      ...this.config.reportHostProcessId ? { clientProcessId: process.pid } : {},
     }
     return new LspInstance(spec, this.spawner)
   }

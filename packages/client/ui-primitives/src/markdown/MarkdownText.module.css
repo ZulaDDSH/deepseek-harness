@@ -302,6 +302,17 @@
   font-style: italic;
 }
 
+.remoteImage {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-style: italic;
+  text-decoration: underline dotted;
+  cursor: pointer;
+}
+
 .image {
   display: block;
   width: auto;

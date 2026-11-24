@@ -3,6 +3,8 @@ import { z } from 'zod'
 import type { AccountNotification, AccountNotificationBatch, AccountNotificationEvent, AccountNotificationId } from './types.ts'
 import { PlatformAuthError, requestNotificationContent, requestNotificationEvent, requestNotifications } from './protocol.ts'
 
+const MIN_NEXT_POLL_SECONDS = 10
+
 const action = z.object({
   label: z.string(),
   style: z.enum(['primary', 'secondary']),
@@ -53,6 +55,7 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
 export async function readNotifications(origin: string, token: string,
   signal: AbortSignal, headers: Record<string, string>): Promise<AccountNotificationBatch> {
   const value = parse(list, await requestNotifications(origin, token, signal, headers))
+  const seen = new Set<string>()
   const notifications = value.notifications.flatMap((entry, index) => {
     const parsed = notification.safeParse(entry)
     if (!parsed.success) {
@@ -61,9 +64,14 @@ export async function readNotifications(origin: string, token: string,
       })
       return []
     }
+    if (seen.has(parsed.data.id)) {
+      console.error('[deepseek-account] skipping duplicate notification', { index })
+      return []
+    }
+    seen.add(parsed.data.id)
     return [project(parsed.data)]
   })
-  return { nextPollAfterSeconds: value.next_poll_after, notifications }
+  return { nextPollAfterSeconds: Math.max(value.next_poll_after, MIN_NEXT_POLL_SECONDS), notifications }
 }
 
 /**

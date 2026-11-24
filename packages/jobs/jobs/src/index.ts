@@ -139,6 +139,8 @@ export abstract class JobRegistry extends Service {
    */
   abstract read(id: JobId, caller?: SessionId): JobRead
 
+  abstract peek(id: JobId, caller?: SessionId): JobRead
+
   /**
    * Read retained ring output without moving the model cursor. Resume with
    * a previous read's `next`; an offset inside a retained chunk returns the

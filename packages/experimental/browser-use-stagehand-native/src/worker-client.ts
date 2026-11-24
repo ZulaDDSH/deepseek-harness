@@ -1,9 +1,11 @@
 /** Isolated Stagehand Workers own CDP connections; the host owns browser processes. */
 
 import { Worker } from 'node:worker_threads'
-import { StagehandDrainError, StagehandError } from './error.ts'
+import { StagehandDrainError, StagehandError, StagehandTimeoutError } from './error.ts'
 import type { NativeBrowserConfig, NativeBrowserRuntime } from './native.ts'
 import { request } from './worker-rpc.ts'
+
+const REQUEST_DEADLINE_SLACK_MS = 15_000
 
 /**
  * Connect Stagehand through an isolated Worker that receives no ambient environment.
@@ -16,6 +18,7 @@ export async function openBrowserWorker(
   config: NativeBrowserConfig, signal: AbortSignal, warn: (message: string) => void,
 ): Promise<NativeBrowserRuntime> {
   signal.throwIfAborted()
+  const deadlineMs = Math.min(config.operationTimeoutMs + REQUEST_DEADLINE_SLACK_MS, 2 ** 31 - 1)
   const entry = new URL('./worker.js', import.meta.url)
   // Only explicit model credentials cross in workerData; ambient credentials and proxy settings stay outside.
   const env: NodeJS.ProcessEnv = {}
@@ -56,7 +59,7 @@ export async function openBrowserWorker(
   const abortOpening = () => { void terminate() }
   signal.addEventListener('abort', abortOpening, { once: true })
   try {
-    await request(worker, 'ready', undefined, lifetime.signal)
+    await request(worker, 'ready', undefined, lifetime.signal, deadlineMs)
     signal.throwIfAborted()
     lifetime.signal.throwIfAborted()
   } catch (error) {
@@ -75,11 +78,17 @@ export async function openBrowserWorker(
       const canceled = () => { void close().catch((error: unknown) => { lifetime.abort(error) }) }
       signal?.addEventListener('abort', canceled, { once: true })
       try {
-        const result = await request(worker, method, args, lifetime.signal)
+        const result = await request(worker, method, args, lifetime.signal, deadlineMs)
         signal?.throwIfAborted()
         return result
       } catch (error) {
         signal?.throwIfAborted()
+        if (!(error instanceof StagehandTimeoutError)) throw error
+        try {
+          await close()
+        } catch (cleanup) {
+          throw new StagehandDrainError(`${error.message}; ${String(cleanup)}`, { cause: cleanup })
+        }
         throw error
       } finally {
         signal?.removeEventListener('abort', canceled)

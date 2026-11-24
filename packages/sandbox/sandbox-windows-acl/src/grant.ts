@@ -107,6 +107,15 @@ export class AclWriteGrant {
     grantWrite(this.api, path, this.sidPtr, this.lowLabelSidPtr, this.worldSidPtr)
   }
 
+  static restore(writeSid: string, path: string, api?: Win32Bindings): boolean {
+    const grant = AclWriteGrant.create(writeSid, api)
+    try {
+      return revokeWrite(grant.api, path, grant.sidPtr)
+    } finally {
+      grant.dispose()
+    }
+  }
+
   /** Every directory currently carrying the grant, in grant order. */
   get paths(): readonly string[] {
     return [...this.standingPaths, ...this.revocablePaths]

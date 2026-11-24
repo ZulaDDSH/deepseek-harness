@@ -166,7 +166,13 @@ export class PopupSelectController<TCtx = unknown> {
 
   /** Run the one options fetch of a binding; settlement rights die with the binding. */
   private load(binding: OpenBinding<TCtx>): void {
-    binding.spec.options(binding.context, binding.abort.signal).then(
+    let fetched: ReturnType<PopupSpec<TCtx>['options']>
+    try {
+      fetched = binding.spec.options(binding.context, binding.abort.signal)
+    } catch (error) {
+      fetched = Promise.reject(error)
+    }
+    fetched.then(
       (options) => {
         if (this.binding !== binding) return
         const current = this.state.getSnapshot()

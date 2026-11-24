@@ -5,7 +5,13 @@
  */
 
 import { z } from 'zod'
-import { appendChunkedList, chunkedListSchema, iterateChunkedList } from '@deepseek-ai/dsh-chunked-list'
+import {
+  appendChunkedList,
+  chunkedListLength,
+  chunkedListSchema,
+  chunkedListSuffix,
+  iterateChunkedList,
+} from '@deepseek-ai/dsh-chunked-list'
 import type { ChunkedList } from '@deepseek-ai/dsh-chunked-list'
 import type {
   Session,
@@ -119,14 +125,16 @@ const stateSchema: z.ZodType<SubagentCatalogState> = z.object({
  */
 function subagentCatalogEntries(state: SubagentCatalogState): SubagentCatalogEntry[] {
   const entries: SubagentCatalogEntry[] = []
-  for (const data of iterateChunkedList(state.head)) {
-    const { version: _version, childId, childCreatedAt, ...descriptor } = data
-    entries.push({ id: childId, createdAt: childCreatedAt, ...descriptor })
-  }
+  for (const data of iterateChunkedList(state.head)) entries.push(catalogEntry(data))
   return entries
 }
 
-/** Parent-owned catalog; version-6 checkpoints retain unnamed facts, and invalid own facts reject restoration. */
+function catalogEntry(data: SubagentCatalogEvent): SubagentCatalogEntry {
+  const { version: _version, childId, childCreatedAt, ...descriptor } = data
+  return { id: childId, createdAt: childCreatedAt, ...descriptor }
+}
+
+/** Parent-owned catalog; version-7 checkpoints must retain unnamed facts, and invalid own facts reject restoration. */
 export const subagentCatalogProjectionDefinition = {
   key: 'subagentCatalog',
   stateSchema,
@@ -135,8 +143,17 @@ export const subagentCatalogProjectionDefinition = {
     if (event.type !== 'subagent/catalog' || event.seq < state.inheritedEventCount) return state
     return { ...state, head: appendChunkedList(state.head, eventDataSchema.parse(event.data)) }
   },
-  stateVersion: 6,
-  wire: { viewSchema, view: subagentCatalogEntries },
+  stateVersion: 7,
+  wire: {
+    viewSchema,
+    view: subagentCatalogEntries,
+    appended: (prev, next) => {
+      const from = chunkedListLength(prev.head)
+      const count = chunkedListLength(next.head) - from
+      if (count <= 0) return undefined
+      return { from, items: chunkedListSuffix(next.head, count).map(catalogEntry) }
+    },
+  },
 } satisfies ProjectionDefinition<'subagentCatalog', SubagentCatalogState>
 
 /**

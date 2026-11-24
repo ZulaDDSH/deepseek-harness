@@ -594,4 +594,70 @@ describe('SessionTitleService Provider lifecycle', () => {
     await expect(ctx.sessionTitle.refresh(session)).rejects.toThrow('title backend failed')
     warn.mockRestore()
   })
+  it('collects only the newest messages within a provider budget and counts the older ones', async () => {
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SessionTitleService, CONFIG)
+    const seen: SessionTitleProviderRequest[] = []
+    ctx.sessionTitle.register({
+      id: brandString<SessionTitleProviderId>('budgeted'),
+      automatic: 'all-prompts',
+      messageBudgetBytes: 100,
+      async generate(request) {
+        seen.push(request)
+        return { title: 'Budgeted', messageSeqs: [request.messages.at(-1)!.seq] }
+      },
+    })
+    const session = ctx.sessions.create(brandString<SessionId>('budget-window'))
+    const seqs = Array.from({ length: 30 }, (_, index) => appendHumanPrompt(session, `p${index} ${'x'.repeat(20)}`).seq)
+    await ctx.sessionTitle.refresh(session)
+    const request = seen.at(-1)!
+    expect(request.messages.map(message => message.seq)).toEqual(seqs.slice(-4))
+    expect(request.omittedMessages).toBe(26)
+  })
+
+  it('always keeps the newest message even when it alone exceeds the provider budget', async () => {
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SessionTitleService, CONFIG)
+    const seen: SessionTitleProviderRequest[] = []
+    ctx.sessionTitle.register({
+      id: brandString<SessionTitleProviderId>('oversized'),
+      automatic: 'all-prompts',
+      messageBudgetBytes: 50,
+      async generate(request) {
+        seen.push(request)
+        return { title: 'Oversized', messageSeqs: [request.messages.at(-1)!.seq] }
+      },
+    })
+    const session = ctx.sessions.create(brandString<SessionId>('budget-oversized'))
+    appendHumanPrompt(session, 'small earlier prompt')
+    const newest = appendHumanPrompt(session, 'y'.repeat(500))
+    await ctx.sessionTitle.refresh(session)
+    expect(seen.at(-1)!.messages.map(message => message.seq)).toEqual([newest.seq])
+    expect(seen.at(-1)!.omittedMessages).toBe(1)
+  })
+
+  it('rejects a provider message budget that is not a positive integer', async () => {
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SessionTitleService, CONFIG)
+    for (const messageBudgetBytes of [0, -1, 1.5, Number.NaN]) {
+      expect(() => ctx.sessionTitle.register({
+        id: brandString<SessionTitleProviderId>(`bad-${String(messageBudgetBytes)}`),
+        automatic: 'all-prompts',
+        messageBudgetBytes,
+        generate: async () => ({ title: 'Never', messageSeqs: [] }),
+      })).toThrow('messageBudgetBytes must be a positive integer')
+    }
+  })
 })

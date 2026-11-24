@@ -36,6 +36,7 @@ export const zh = {
   'error.busy': '已有一个导入正在进行，请稍后再试。',
   'error.upload-failed': '上传失败：{message}',
   'error.unknown': '导入失败：{message}',
+  'error.partial': '已有 {count} 个会话在失败前写入工作区，再次导入会重复创建。',
 } satisfies Record<string, string>
 
 /** The namespace key union. */
@@ -74,6 +75,7 @@ export const en = {
   'error.busy': 'Another import is running. Try again later.',
   'error.upload-failed': 'Upload failed: {message}',
   'error.unknown': 'Import failed: {message}',
+  'error.partial': '{count} Sessions were already written to the Workspace before the failure; importing again creates them a second time.',
 } satisfies Record<DeepseekChatImportKey, string>
 
 /** Japanese dictionary, checked complete against the zh key set. */
@@ -109,6 +111,7 @@ export const ja = {
   'error.busy': '別のインポートが実行中です。しばらくしてからやり直してください。',
   'error.upload-failed': 'アップロードに失敗しました: {message}',
   'error.unknown': 'インポートに失敗しました: {message}',
+  'error.partial': '失敗する前に {count} 件のセッションがワークスペースに書き込まれています。再度インポートすると重複して作成されます。',
 } satisfies Record<DeepseekChatImportKey, string>
 
 /** Spanish dictionary, checked complete against the zh key set. */
@@ -144,6 +147,7 @@ export const es = {
   'error.busy': 'Ya hay una importación en curso. Inténtalo más tarde.',
   'error.upload-failed': 'Error al subir: {message}',
   'error.unknown': 'Error al importar: {message}',
+  'error.partial': 'Antes del fallo se escribieron {count} sesiones en el espacio de trabajo; importar de nuevo las creará otra vez.',
 } satisfies Record<DeepseekChatImportKey, string>
 
 /** French dictionary, checked complete against the zh key set. */
@@ -179,6 +183,7 @@ export const fr = {
   'error.busy': 'Une autre importation est en cours. Réessayez plus tard.',
   'error.upload-failed': 'Échec de l’envoi : {message}',
   'error.unknown': 'Échec de l’importation : {message}',
+  'error.partial': '{count} sessions ont déjà été écrites dans l\'espace de travail avant l\'échec ; une nouvelle importation les recréera.',
 } satisfies Record<DeepseekChatImportKey, string>
 
 /** German dictionary, checked complete against the zh key set. */
@@ -214,6 +219,7 @@ export const de = {
   'error.busy': 'Ein anderer Import läuft bereits. Versuche es später erneut.',
   'error.upload-failed': 'Hochladen fehlgeschlagen: {message}',
   'error.unknown': 'Import fehlgeschlagen: {message}',
+  'error.partial': 'Vor dem Fehler wurden {count} Sitzungen in den Arbeitsbereich geschrieben; ein erneuter Import legt sie ein zweites Mal an.',
 } satisfies Record<DeepseekChatImportKey, string>
 
 /** Russian dictionary, checked complete against the zh key set. */
@@ -249,6 +255,7 @@ export const ru = {
   'error.busy': 'Уже выполняется другой импорт. Повторите попытку позже.',
   'error.upload-failed': 'Ошибка загрузки: {message}',
   'error.unknown': 'Ошибка импорта: {message}',
+  'error.partial': 'До сбоя в рабочее пространство уже записано сеансов: {count}; повторный импорт создаст их снова.',
 } satisfies Record<DeepseekChatImportKey, string>
 
 /** Portuguese dictionary, checked complete against the zh key set. */
@@ -284,4 +291,5 @@ export const pt = {
   'error.busy': 'Outra importação está em andamento. Tente novamente mais tarde.',
   'error.upload-failed': 'Falha no envio: {message}',
   'error.unknown': 'Falha na importação: {message}',
+  'error.partial': '{count} sessões já foram gravadas no espaço de trabalho antes da falha; importar de novo as cria outra vez.',
 } satisfies Record<DeepseekChatImportKey, string>

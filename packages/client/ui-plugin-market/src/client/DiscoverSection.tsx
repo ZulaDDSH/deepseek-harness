@@ -1,5 +1,5 @@
 /** Discover: search one plugin market index, read an entry's page, and install or update a version. */
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Button, IconChevronDownOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular,
   IconSlidersTwoOutlineRegular, IconTrashOutlineRegular, IconWarningOutlineRegular, Input, Menu, Modal, Pill,
@@ -41,9 +41,12 @@ const FACT_KEYS = {
   directory: 'factDirectory',
 } as const satisfies Record<SourceFact['kind'], string>
 
+const RemoteIconsContext = createContext({ allowed: false, setAllowed: (_allowed: boolean): void => {} })
+
 function MarketIcon({ src, size }: { readonly src: string | undefined; readonly size: number }): ReactNode {
   const [failed, setFailed] = useState<string>()
-  return src === undefined || src === failed
+  const { allowed } = useContext(RemoteIconsContext)
+  return src === undefined || src === failed || !allowed
     ? <PluginArtworkDefault size={size} />
     : (
       <img className={css.image} src={src} width={size} height={size} alt="" loading="lazy" referrerPolicy="no-referrer"
@@ -56,6 +59,7 @@ function sourceFailureText(failure: SourceFailure, t: Translate): string {
     case 'invalid': return t('sourceInvalid')
     case 'duplicate': return t('sourceDuplicate')
     case 'unavailable': return t('sourceUnavailable')
+    case 'changed': return t('sourceChanged')
     case 'other': return t('sourceFailed')
   }
 }
@@ -439,6 +443,7 @@ function Browser({ state, listing, t, face, hooks, language, onInstall, onUpdate
   const [text, setText] = useState(query.text)
   const [menu, setMenu] = useState<OpenMenu>(null)
   const [opened, setOpened] = useState<MarketListingEntry | null>(null)
+  const icons = useContext(RemoteIconsContext)
   useEffect(() => {
     if (text === query.text) return undefined
     const timer = setTimeout(() => { face.search(withText(query, text)) }, TEXT_DELAY_MS)
@@ -537,6 +542,11 @@ function Browser({ state, listing, t, face, hooks, language, onInstall, onUpdate
               <IconChevronDownOutlineRegular size={12} aria-hidden="true" />
             </Button>
           )} />
+        {value?.entries.some(entry => entry.icon !== undefined) !== true ? null : (
+          <Button variant="ghost" size="sm" aria-pressed={icons.allowed} onClick={() => { icons.setAllowed(!icons.allowed) }}>
+            {t('remoteIcons')}
+          </Button>
+        )}
         <Tooltip label={t('refresh')} side="bottom" portal delayMs={500} focusDelayMs={500}>
           <Button variant="ghost" size="sm" aria-label={t('refresh')} disabled={listing.status === 'loading'} onClick={face.refresh}
             icon={busy ? <StateDot state="ongoing" /> : <IconRefreshOutlineRegular size={14} />} />
@@ -598,6 +608,8 @@ export function DiscoverSection(props: DiscoverSectionProps): ReactNode {
   const state = props.useDiscover(snapshot => snapshot)
   const language = props.useLocale(snapshot => snapshot.active)
   const [confirming, setConfirming] = useState<InstallChoice | null>(null)
+  const [allowed, setAllowed] = useState(false)
+  const remoteIcons = useMemo(() => ({ allowed, setAllowed }), [allowed])
   useEffect(() => { props.ensure() }, [props.ensure])
   let body: ReactNode
   if (state.status === 'idle' || state.status === 'loading') {
@@ -631,14 +643,16 @@ export function DiscoverSection(props: DiscoverSectionProps): ReactNode {
     )
   }
   return (
-    <div className={css.section} data-plugin-tab="discover">
-      {body}
-      <SourcesDialog state={state} t={t} face={face} />
-      <ConfirmDialog choice={confirming} t={t} face={face} onCancel={() => { setConfirming(null) }}
-        onConfirm={({ entry, version }) => {
-          setConfirming(null)
-          install({ ...version.install, title: entryTitle(entry, face), version: version.version })
-        }} />
-    </div>
+    <RemoteIconsContext.Provider value={remoteIcons}>
+      <div className={css.section} data-plugin-tab="discover">
+        {body}
+        <SourcesDialog state={state} t={t} face={face} />
+        <ConfirmDialog choice={confirming} t={t} face={face} onCancel={() => { setConfirming(null) }}
+          onConfirm={({ entry, version }) => {
+            setConfirming(null)
+            install({ ...version.install, title: entryTitle(entry, face), version: version.version })
+          }} />
+      </div>
+    </RemoteIconsContext.Provider>
   )
 }

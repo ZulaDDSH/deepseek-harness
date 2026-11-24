@@ -16,7 +16,8 @@ import { PartialArguments } from '@deepseek-ai/dsh-util-values'
 import type { AttachmentId, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ToolTreeProps } from '../src/client/contract/slots.ts'
-import { officeRowModel } from '../src/client/tool/models/office-card-model.ts'
+import { officeImageCard, officeRowModel } from '../src/client/tool/models/office-card-model.ts'
+import { readImageToolview } from '../src/client/tool/toolviews/read-image-row.tsx'
 import { OfficeRow, officeToolview, type OfficeRowProps } from '../src/client/tool/toolviews/office-row.tsx'
 
 afterEach(cleanup)
@@ -73,6 +74,32 @@ describe('officeRowModel', () => {
   })
 })
 
+const loadImage = vi.fn(() => Promise.reject(new Error('not used')))
+const renderFactorySlot = vi.fn((name: string, galleryProps: { images: readonly unknown[] }) => (
+  <div data-images data-factory={name} data-count={galleryProps.images.length} />
+))
+
+describe('officeImageCard', () => {
+  it('derives every page image and the labels from a settled render', () => {
+    expect(officeImageCard('office_render', settled(), '/w/app')).toEqual({
+      path: '/w/app/docs/deck.pptx',
+      images: [{ attachment: image }],
+      extraText: `${SUMMARY}\nPage 2: 800x600 px`,
+    })
+    const second = { ...image, attachmentId: brandString<AttachmentId>(`sha256:${'c'.repeat(64)}`) }
+    const pages = settled({ content: [{ type: 'text', text: SUMMARY }, { type: 'image', attachment: image }, { type: 'image', attachment: second }] })
+    expect(officeImageCard('office_render', pages)?.images).toEqual([{ attachment: image }, { attachment: second }])
+  })
+
+  it('declines a running call, an error, other Office tools, a result without images, and a malformed image', () => {
+    expect(officeImageCard('office_render', running())).toBeNull()
+    expect(officeImageCard('office_render', settled({ isError: true }))).toBeNull()
+    expect(officeImageCard('office_convert', settled({}, RENDER_ARGS, 'office_convert'))).toBeNull()
+    expect(officeImageCard('office_render', settled({ content: [{ type: 'text', text: SUMMARY }] }))).toBeNull()
+    expect(officeImageCard('office_render', settled({ content: [{ type: 'image', attachment: { ...image, bytes: 0 } }] }))).toBeNull()
+  })
+})
+
 describe('OfficeRow', () => {
   const list = () => bindSnapshotSelector(createSnapshotStore<SessionListState>({
     ids: [SID],
@@ -83,23 +110,35 @@ describe('OfficeRow', () => {
     useDisclosure, callId: 'c1', toolName: block.name,
     ...'kind' in block ? { phase: 'result' as const, block } : { phase: block.phase, block },
     openFile: vi.fn(), useContextMenu: contextMenuHook(), resolveFilePath: path => path,
-    sessionId: SID, useSessions: list(), cwd: '/w/app', t,
+    sessionId: SID, useSessions: list(), cwd: '/w/app', t, loadImage, renderFactorySlot,
   } as OfficeRowProps)
 
-  it('expands a render to its result text without the image references', () => {
+  afterEach(() => { renderFactorySlot.mockClear() })
+
+  it('expands a render to its gallery and result text without the image references', () => {
     const view = render(<OfficeRow {...props(settled())} />)
     expect(view.container.textContent).toContain('渲染文档')
     fireEvent.click(view.container.querySelector('[data-expandable]')!)
     expect(view.container.textContent).toContain(`${SUMMARY}\nPage 2: 800x600 px`)
     expect(view.container.textContent).not.toContain('attachmentId')
-    expect(view.container.querySelector('[data-images]')).toBeNull()
+    expect(view.container.querySelector('[data-images]')?.getAttribute('data-count')).toBe('1')
+    expect(renderFactorySlot).toHaveBeenLastCalledWith('conversation.images.content', { images: [{ attachment: image }], loadImage, align: 'start' })
   })
 
-  it('shows no output body when a settled result carries only images', () => {
+  it('shows the gallery when a settled result carries only images', () => {
     const view = render(<OfficeRow {...props(settled({ content: [{ type: 'image', attachment: image }] }))} />)
-    expect(view.container.textContent).toContain('渲染文档')
     expect(view.container.textContent).not.toContain('attachmentId')
-    expect(view.container.querySelector('[data-expandable]')).toBeNull()
+    fireEvent.click(view.container.querySelector('[data-expandable]')!)
+    expect(view.container.querySelector('[data-images]')).not.toBeNull()
+  })
+
+  it('keeps the text body and no gallery for an error or a malformed image', () => {
+    const error = render(<OfficeRow {...props(settled({ isError: true, content: [{ type: 'text', text: 'boom' }] }))} />)
+    expect(error.container.querySelector('[data-images]')).toBeNull()
+    const broken = render(<OfficeRow {...props(settled({ content: [{ type: 'text', text: SUMMARY }, { type: 'image', attachment: { ...image, width: 0 } }] }))} />)
+    fireEvent.click(broken.container.querySelector('[data-expandable]')!)
+    expect(broken.container.querySelector('[data-images]')).toBeNull()
+    expect(renderFactorySlot).not.toHaveBeenCalled()
   })
 
   it('shows a running call with its input', () => {
@@ -143,6 +182,21 @@ describe('OfficeRow', () => {
     ])
     await fiber.dispose()
     expect(runtime.slots.entries('tool.call.toolview')).toHaveLength(0)
+  })
+
+  it('coexists with read_image, which keeps the only tool.call.images declaration', async () => {
+    const runtime = await SlotTestRuntime.create()
+    onTestFinished(() => runtime.dispose())
+    const locale = new LocaleRuntime(runtime.ctx)
+    locale.register('conversation', { en, zh })
+    runtime.ctx.provide('locale', locale)
+    runtime.slots.installLocale(locale)
+    await runtime.mount(readImageToolview)
+    await runtime.mount(officeToolview)
+    await runtime.root.declare({ 'tool.call.toolview': { kind: 'keyed', scope: 'session' } }, () => null)
+    expect(runtime.slots.entries('tool.call.toolview').map(entry => entry.options.key)).toEqual(
+      expect.arrayContaining(['read_image', 'office_render', 'office_convert', 'office_recalculate']),
+    )
   })
 })
 

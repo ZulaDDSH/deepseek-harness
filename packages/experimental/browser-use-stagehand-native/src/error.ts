@@ -59,3 +59,10 @@ export class StagehandDrainError extends StagehandError {
     this.name = 'StagehandDrainError'
   }
 }
+
+export class StagehandTimeoutError extends StagehandError {
+  constructor(message: string) {
+    super(message, 'STAGEHAND_WORKER_FAILED')
+    this.name = 'StagehandTimeoutError'
+  }
+}

@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest'
-import { parseAnchoredFieldNotes } from './code-notes.ts'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { codeNotesDir, missingCodeNotesMessage, parseAnchoredFieldNotes } from './code-notes.ts'
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 describe('anchored code-note fields', () => {
   it('reads field prose under source declaration headings', () => {
@@ -21,5 +27,20 @@ Other prose ends the field list.
     expect(() => parseAnchoredFieldNotes(`### \`a.ts:Config\`
 - \`enabled\`: One.
 - \`enabled\`: Two.`)).toThrow('duplicate code-note field')
+  })
+})
+
+describe('code notes directory', () => {
+  it('uses DSH_CODE_NOTES_DIR for the repository root and names it when the directory is absent', () => {
+    vi.stubEnv('DSH_CODE_NOTES_DIR', tmpdir())
+    expect(codeNotesDir()).toBe(resolve(tmpdir()))
+    expect(missingCodeNotesMessage()).toBeUndefined()
+    vi.stubEnv('DSH_CODE_NOTES_DIR', join(tmpdir(), 'dsh-missing-code-notes'))
+    expect(missingCodeNotesMessage()).toContain('DSH_CODE_NOTES_DIR')
+  })
+
+  it('keeps other scan roots on their own docs/code-notes directory', () => {
+    vi.stubEnv('DSH_CODE_NOTES_DIR', tmpdir())
+    expect(codeNotesDir(join(tmpdir(), 'fixture-root'))).toBe(resolve(tmpdir(), 'fixture-root', 'docs/code-notes'))
   })
 })

@@ -939,6 +939,18 @@ describe('writeFileAtomic — temp-file safety', () => {
   })
 })
 
+describe('applyLiteralEdit append', () => {
+  it('appends to the end, to an empty file, and normalizes CRLF in the appended text', () => {
+    expect(applyLiteralEdit('a\n', '', 'b\r\n', false, 'f', true)).toEqual({ content: 'a\nb\n', replacements: 1 })
+    expect(applyLiteralEdit('', '', 'first', false, 'f', true)).toEqual({ content: 'first', replacements: 1 })
+  })
+
+  it('rejects a non-empty search text while appending, and still rejects an empty one otherwise', () => {
+    expect(() => applyLiteralEdit('a', 'a', 'b', false, 'f', true)).toThrow('old_string must be empty when appending')
+    expect(() => applyLiteralEdit('a', '', 'b', false, 'f')).toThrow('old_string must be a non-empty string')
+  })
+})
+
 describe('applyLiteralEdit', () => {
   it('replaces a unique match', () => {
     expect(applyLiteralEdit('a b c', 'b', 'X', false, 'f')).toEqual({ content: 'a X c', replacements: 1 })
@@ -954,6 +966,16 @@ describe('applyLiteralEdit', () => {
 
   it('rejects multiple matches without replaceAll', () => {
     expect(() => applyLiteralEdit('a a a', 'a', 'X', false, 'f')).toThrow(expect.objectContaining({ code: 'FS_AMBIGUOUS_EDIT' }))
+  })
+
+  it('rejects a search string whose occurrences overlap', () => {
+    expect(() => applyLiteralEdit('aaa', 'aa', 'X', false, 'f')).toThrow(expect.objectContaining({ code: 'FS_AMBIGUOUS_EDIT' }))
+    expect(() => applyLiteralEdit('abab a', 'aba', 'X', false, 'f')).not.toThrow()
+    expect(() => applyLiteralEdit('ababa', 'aba', 'X', false, 'f')).toThrow(expect.objectContaining({ code: 'FS_AMBIGUOUS_EDIT' }))
+  })
+
+  it('replaceAll still replaces non-overlapping matches only', () => {
+    expect(applyLiteralEdit('aaa', 'aa', 'X', true, 'f')).toEqual({ content: 'Xa', replacements: 1 })
   })
 
   it('replaces all matches with replaceAll', () => {

@@ -29,6 +29,14 @@ describe('packHtml', () => {
     expect(read).not.toHaveBeenCalled()
   })
 
+  it('does not read dependencies that climb above the document directory', async () => {
+    const read = vi.fn<ReadHtmlRelative>().mockResolvedValue(file(utf8('x')))
+    const html = '<script src="../secret.js"></script><script src="a/../../secret.js"></script><script src="%2e%2e/secret.js"></script><script src="..\\secret.js"></script><link rel="stylesheet" href="../../s.css"><script src="a/../ok.js"></script>'
+    const bundle = await packHtml(utf8(html), read, new AbortController().signal)
+    expect(bundle.assets.map(asset => asset.reference)).toEqual(['a/../ok.js'])
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+
   it('does not turn base-relative browser resources into local file reads', async () => {
     const read = vi.fn<ReadHtmlRelative>()
     for (const base of ['https://example.invalid/assets/', './assets/', 'file:///assets/']) {

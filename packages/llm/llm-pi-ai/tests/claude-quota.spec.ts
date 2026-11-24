@@ -120,6 +120,14 @@ describe('Claude quota source', () => {
     })
   })
 
+  it('cancels an unread error body before reporting a usage failure', async () => {
+    const cancelled = vi.fn()
+    const body = new ReadableStream<Uint8Array>({ cancel: cancelled })
+    const result = await claudeSource({ record: { anthropic: subscription }, fetch: async () => new Response(body, { status: 500 }) }).fetch()
+    expect(result).toMatchObject({ subscriptionError: 'Claude usage API returned HTTP 500' })
+    expect(cancelled).toHaveBeenCalledTimes(1)
+  })
+
   it('bills the subscription and names why its usage could not be read', async () => {
     await expect(claudeSource({ record: { anthropic: subscription }, fetch: usageFetch({}, 404) }).fetch()).resolves.toEqual({
       providerId: 'anthropic',

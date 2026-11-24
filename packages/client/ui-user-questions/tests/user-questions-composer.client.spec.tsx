@@ -254,9 +254,13 @@ describe('QuestionComposer', () => {
     expect(screen.getByRole('checkbox', { name: 'Lint' }).getAttribute('aria-checked')).toBe('false')
     expect(screen.getByRole('checkbox', { name: 'Types' }).getAttribute('aria-checked')).toBe('true')
 
-    fireEvent.keyDown(screen.getByRole('checkbox', { name: 'Lint' }), { key: 'Enter' })
+    expect(fireEvent.keyDown(screen.getByRole('checkbox', { name: 'Lint' }), { key: 'Enter' })).toBe(true)
+    expect(answer).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Lint' }))
+    expect(screen.getByRole('checkbox', { name: 'Lint' }).getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: '提交' }))
     expect(answer).toHaveBeenCalledWith(answerBatch([
-      { id: 'checks', selected: ['Unit (Recommended)', 'Types（推荐）'] },
+      { id: 'checks', selected: ['Unit (Recommended)', 'Types（推荐）', 'Lint'] },
     ]))
   })
 
@@ -296,16 +300,21 @@ describe('QuestionComposer', () => {
     expect(screen.getByRole('radio', { name: 'D' }).getAttribute('aria-checked')).toBe('false')
   })
 
-  it('treats Enter on an unselected option as submit, without selecting it', () => {
+  it('leaves Enter on an option to its native activation instead of submitting the earlier choice', () => {
     const { carrier, answer } = wait([{
-      id: 'mode', question: 'Which mode?', options: [{ label: 'Alpha' }, { label: 'Beta' }],
+      id: 'mode', question: 'Which mode?', options: [{ label: 'Alpha (Recommended)' }, { label: 'Beta' }],
     }])
     render(<QuestionComposer matched={carrier} {...kit} />)
-    const option = screen.getByRole('radio', { name: 'Alpha' })
-    expect(fireEvent.keyDown(option, { key: 'Enter' })).toBe(false)
-    expect(option.getAttribute('aria-checked')).toBe('false')
-    expect(screen.getByRole('status').textContent).toBe('请先完成这道问题。')
+    expect(screen.getByRole('radio', { name: 'Alpha' }).getAttribute('aria-checked')).toBe('true')
+    const other = screen.getByRole('radio', { name: 'Beta' })
+    expect(fireEvent.keyDown(other, { key: 'Enter' })).toBe(true)
     expect(answer).not.toHaveBeenCalled()
+    fireEvent.click(other)
+    expect(screen.getByRole('radio', { name: 'Beta' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('radio', { name: 'Alpha' }).getAttribute('aria-checked')).toBe('false')
+    expect(answer).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '提交' }))
+    expect(answer).toHaveBeenCalledWith(answerBatch([{ id: 'mode', selected: ['Beta'] }]))
   })
 
   it('collects single, custom, and multi-select answers before one batch submit', () => {

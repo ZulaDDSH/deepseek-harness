@@ -336,6 +336,35 @@ describe.skipIf(!isWin32)('ACL editing', () => {
     }
   })
 
+  it('grantWrite refuses a directory with a NULL DACL and leaves it untouched', async () => {
+    const api = await win32()
+    const dir = scratch()
+    const capabilitySid = sidFromString(api, 'S-1-4-4242-31')
+    const lowSid = lowLabelSid(api)
+    const world = worldSid(api)
+    try {
+      const UNPROTECTED_DACL_SECURITY_INFORMATION = 0x20000000
+      const setNull = api.setNamedSecurityInfoW(
+        dir, abi.SE_FILE_OBJECT, abi.DACL_SECURITY_INFORMATION | UNPROTECTED_DACL_SECURITY_INFORMATION, null, null, null, null,
+      )
+      expect(setNull, `SetNamedSecurityInfoW NULL DACL setup (${setNull})`).toBe(abi.ERROR_SUCCESS)
+      expect(() => grantWrite(api, dir, capabilitySid, lowSid, world)).toThrow(/NULL DACL/u)
+      const daclSlot = allocPtrSlot()
+      const descriptorSlot = allocPtrSlot()
+      const read = api.getNamedSecurityInfoW(
+        dir, abi.SE_FILE_OBJECT, abi.DACL_SECURITY_INFORMATION, allocPtrSlot(), allocPtrSlot(), daclSlot, allocPtrSlot(), descriptorSlot,
+      )
+      expect(read).toBe(abi.ERROR_SUCCESS)
+      expect(decodePtr(daclSlot)).toBeNull()
+      const descriptor = decodePtr(descriptorSlot)
+      if (descriptor !== null) api.localFree(descriptor)
+    } finally {
+      if (!isNullPtr(capabilitySid)) api.localFree(capabilitySid)
+      if (!isNullPtr(lowSid)) api.localFree(lowSid)
+      if (!isNullPtr(world)) api.localFree(world)
+    }
+  })
+
   it('grantWrite is idempotent: a second grant over the standing exact ACE, deny, and label skips the SetNamedSecurityInfoW apply (no eager full-tree re-propagation)', async () => {
     const api = await win32()
     const dir = scratch()

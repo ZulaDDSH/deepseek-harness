@@ -279,6 +279,7 @@ export interface SkillEntry {
 /** Human-invocable skills visible through one Session's composition. */
 export interface SkillListValue {
   readonly skills: readonly SkillEntry[]
+  readonly incomplete?: true
 }
 
 /** Session list request. */
@@ -374,6 +375,7 @@ export interface SessionSelectModelRequest extends ModelSelection {
 /** Accepted model selection after Host resolution. */
 export interface SessionSelectModelValue {
   readonly selected: ModelSelection
+  readonly defaultSave?: 'saved' | 'unavailable' | 'failed'
 }
 
 /** Per-Session hook overrides keyed by `hookKey`; true enables, false disables. */
@@ -642,6 +644,25 @@ export interface SessionPageRequest {
   }
 }
 
+export interface SessionOutlineRequest {
+  readonly address: SessionAddress
+  readonly beforeSeq?: number
+  readonly maxEntries?: number
+}
+
+export interface SessionOutlineEntry {
+  readonly turn: number
+  readonly seq: number
+  readonly prompt: string
+  readonly response: string
+}
+
+export interface SessionOutlinePage {
+  readonly entries: readonly SessionOutlineEntry[]
+  readonly hasMore: boolean
+  readonly before: number
+}
+
 /** One live event request for a durable Session address. */
 export interface SessionFollowRequest extends Pick<SessionPageRequest, 'maxMessages' | 'turnWindow'> {
   readonly address: SessionAddress
@@ -742,7 +763,14 @@ export interface SessionProjectionUpdate {
    * `val`. A key absent from `changes` is unchanged; unlike a baseline, absence
    * does not mean an absent capability.
    */
-  readonly changes: readonly { readonly key: string; readonly val: SessionProjectionValue }[]
+  readonly changes: readonly (
+    | { readonly key: string; readonly val: SessionProjectionValue; readonly append?: undefined }
+    | {
+      readonly key: string
+      readonly val?: undefined
+      readonly append: { readonly from: number; readonly items: readonly SessionProjectionValue[] }
+    }
+  )[]
 }
 
 /** Host-wide live state stream. Each generation starts with exactly one baseline. */
@@ -821,7 +849,11 @@ export type SessionEventFrame =
   | SessionEventEntry
 
 /** Projection changes caused by one committed event of the observed Session. */
-export type SessionProjectionChange = { readonly type: 'projection' } & Omit<SessionProjectionUpdate, 'sessionId'>
+export type SessionProjectionChange = {
+  readonly type: 'projection'
+  readonly seq: number
+  readonly changes: readonly { readonly key: string; readonly val: SessionProjectionValue }[]
+}
 
 /** Subscription readiness without a baseline, followed by one change frame per committed event. */
 export type SessionProjectionFrame =

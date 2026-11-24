@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createSnapshotStore, defineStore, shallowEqual } from '../src/index.ts'
+import { browserStorage, createSnapshotStore, defineStore, shallowEqual } from '../src/index.ts'
 
 interface State {
   a: { n: number }
@@ -12,6 +12,31 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
+})
+
+describe('blocked localStorage getter', () => {
+  function blockStorage(): () => void {
+    const saved = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, get: () => { throw new DOMException('blocked', 'SecurityError') } })
+    return () => {
+      if (saved === undefined) Reflect.deleteProperty(globalThis, 'localStorage')
+      else Object.defineProperty(globalThis, 'localStorage', saved)
+    }
+  }
+
+  it('builds a persisted store in memory, clears without throwing, and reports no storage', () => {
+    const restore = blockStorage()
+    try {
+      expect(browserStorage()).toBeUndefined()
+      const store = createSnapshotStore(init(), { persist: { name: 'spec-blocked-getter' } })
+      store.update((draft) => { draft.a.n = 5 })
+      expect(store.getSnapshot().a.n).toBe(5)
+      const inst = defineStore({ init: () => ({ n: 0 }), persist: 'spec.blocked', actions: { inc: (d) => { d.n += 1 } } }).create()
+      inst.actions.inc()
+      expect(inst.getSnapshot().n).toBe(1)
+      expect(() => { inst.clearPersisted() }).not.toThrow()
+    } finally { restore() }
+  })
 })
 
 describe('createSnapshotStore', () => {

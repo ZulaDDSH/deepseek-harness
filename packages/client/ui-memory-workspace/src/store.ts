@@ -34,9 +34,13 @@ export async function callMemorix(provider: McpHumanOperations, tool: string, ar
   if (!reply.success) throw new Error(`Memorix returned an unexpected reply to ${tool} for this ${subject}`)
   const outcome = reply.data
   const text = outcome.content.filter(item => item.type === 'text').map(item => item.text ?? '').join('\n')
-  const detail = text.trim() === '' ? '' : `: ${text.trim().slice(0, 300)}`
-  if (outcome.isError === true) throw new Error(`Memorix rejected this ${subject}${detail}`)
+  if (outcome.isError === true) throw new Error(`Memorix rejected this ${subject}${excerpt(provider, text)}`)
   return text
+}
+
+function excerpt(provider: McpHumanOperations, text: string): string {
+  const trimmed = text.trim()
+  return trimmed === '' ? '' : `: ${(provider.redact?.(trimmed) ?? trimmed).slice(0, 300)}`
 }
 
 /**
@@ -53,8 +57,7 @@ export async function storeObservation(provider: McpHumanOperations, args: Recor
   const text = await callMemorix(provider, 'memorix_store', args, signal, subject)
   const stored = ACKNOWLEDGEMENT.exec(text)
   if (stored === null) {
-    const detail = text.trim() === '' ? '' : `: ${text.trim().slice(0, 300)}`
-    throw new Error(`Memorix did not persist the complete ${subject}${detail}`)
+    throw new Error(`Memorix did not persist the complete ${subject}${excerpt(provider, text)}`)
   }
   return { id: Number(stored[1]), project: String(stored[2]).trim() }
 }

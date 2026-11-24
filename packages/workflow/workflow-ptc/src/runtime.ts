@@ -59,6 +59,8 @@ export class WorkflowExecution {
   private activeSlots = 0
   private readonly slotWaiters: (() => void)[] = []
   private currentPhase: string | undefined
+  private readonly unobserved = new Set<{ failed: boolean; error?: unknown }>()
+  private readonly observers = new WeakMap<object, () => void>()
   private readonly context: vm.Context
   private readonly compiled: vm.Script
 
@@ -105,7 +107,8 @@ export class WorkflowExecution {
   async drive(): Promise<WorkflowResult> {
     try {
       const scriptPromise = this.compiled.runInContext(this.context, { timeout: this.limits.syncTimeoutMs }) as Promise<unknown>
-      const raw: unknown = await this.contain(Promise.resolve(scriptPromise))
+      const raw: unknown = await scriptPromise
+      this.assertNoDroppedFailure()
       const value = raw === undefined ? null : this.materializeResult(raw)
       return { value, stopReason: 'completed', agentsStarted: this.started }
     } catch (error: unknown) {
@@ -119,15 +122,31 @@ export class WorkflowExecution {
     }
   }
 
-  /**
-   * Attach a no-op rejection consumer WITHOUT changing what the caller
-   * receives: if the script drops the promise, a host rejection cannot become
-   * an unhandled rejection that kills the process; if
-   * the script does await it, it still observes the rejection.
-   */
   private contain<T>(promise: Promise<T>): Promise<T> {
-    promise.catch(() => { /* consumed: see method contract — a dropped hook promise must not surface an unhandled rejection */ })
+    const entry: { failed: boolean; error?: unknown } = { failed: false }
+    const then = promise.then.bind(promise)
+    const observe = (): void => { this.unobserved.delete(entry) }
+    this.unobserved.add(entry)
+    void then(observe, (error: unknown) => { entry.failed = true; entry.error = error })
+    promise.then = ((...args: Parameters<Promise<T>['then']>) => { observe(); return then(...args) }) as Promise<T>['then']
+    this.observers.set(promise, observe)
     return promise
+  }
+
+  private observe(value: unknown): void {
+    this.observers.get(value as object)?.()
+  }
+
+  private assertNoDroppedFailure(): void {
+    for (const entry of this.unobserved) {
+      if (!entry.failed) continue
+      const error = entry.error
+      throw new WorkflowError(
+        `the script ended while a helper call it neither awaited nor caught had failed: ${renderThrown(error)}`,
+        error instanceof WorkflowError ? error.code : 'RUN_FAILED',
+        { cause: error },
+      )
+    }
   }
 
   /** Materialize the script's return value; violations become RESULT_UNSERIALIZABLE. */
@@ -304,7 +323,9 @@ export class WorkflowExecution {
     })
     return Promise.all(thunks.map(async (thunk) => {
       try {
-        return await thunk()
+        const outcome = thunk()
+        this.observe(outcome)
+        return await outcome
       } catch (error: unknown) {
         // Hook failures are WorkflowErrors built OUTSIDE the script's realm;
         // fatality is recognized by `instanceof` against this realm's class —
@@ -335,7 +356,9 @@ export class WorkflowExecution {
       let value: unknown = item
       try {
         for (const stage of stages) {
-          value = await stage(value, item, index)
+          const outcome = stage(value, item, index)
+          this.observe(outcome)
+          value = await outcome
         }
         return value
       } catch (error: unknown) {

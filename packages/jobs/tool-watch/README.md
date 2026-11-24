@@ -87,7 +87,7 @@ These limits define when watches are a poor fit. They are current package constr
 
 - **Watches last only while the host process runs.** Nothing is persisted, so a restart drops every pending watch without a notice.
 - **A kill from the client still wakes an idle owner.** Only a kill the model itself requests suppresses the notice; a client kill settles as a normal notice.
-- **Hook matchers do not see watch checks.** A PreToolUse hook matched by a shell tool name does not run for each check, because checks do not pass through the tool-call path.
+- **Shell hooks see watch checks through a preflight, not a real shell call.** Before the first check the plugin asks `ctx.tools.preflight` for the decision a `bash` (else `pwsh`) call with that command would get, so a shell-specific PreToolUse hook, approval rule, or guard can deny it. A denial ends the watch as `failed` at once with the reason; an `ask` decision prompts for approval once, and an allowed watch is not asked again at later checks. The preflight runs no tool body and records no tool-call events, so PostToolUse hooks and tool-call audit records do not see checks. `denyCommands` (regular expressions; a matching command is refused) and `allowCommands` (when set, a command must match one) are an extra layer evaluated first; they match command text, not shell syntax.
 - **Progress lines and the wake-up notice are English.** The job-list progress text is not localised.
 - **Watches share the owner's background-job limit** with bash and subagent jobs.
 - **A watch that settles into an idle owner with a spent wake budget waits for the next user input.** The goal driver is not re-driven by a watch settlement, so a goal paused on that watch resumes at the next turn boundary.
@@ -98,7 +98,7 @@ These limits define when watches are a poor fit. They are current package constr
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-- The design decisions (abort reasons, the consecutive-failure rule, the goal gate placement, and the sandbox refusal) are recorded in [the code notes](../../../docs/code-notes/deepseek-harness.md#watch-tool-and-goal-waits), anchored to `poll.ts` and `index.ts` symbols.
+- The design decisions (abort reasons, the consecutive-failure rule, the goal gate placement, and the sandbox refusal) are recorded in [the code notes](https://github.com/ZulaDDSH/CodeNotes/blob/main/Deepseek%20Harness/deepseek-harness.md#watch-tool-and-goal-waits), anchored to `poll.ts` and `index.ts` symbols.
 - The check loop is tested through a scripted shell in `tests/tool-watch.spec.ts`; the pending-watch goal gate is tested in `packages/goal/goal-round-driver/tests/goal-watch-wait.spec.ts`.
 - After changing the `watch` parameters, `DESCRIPTION`, or `Config`, run `pnpm run gen-tool-catalog` and `pnpm run gen-config-catalog` so the generated catalogs stay current.
 

@@ -112,6 +112,7 @@ The system prompt is identical across checkouts, ports, and installations, so a 
 
 These limits describe what the stability guarantee covers. They are current package constraints.
 
+- **Checkout detection is a file check** — the directory four levels above the module counts as a checkout only when it holds `pnpm-workspace.yaml` and this package's own `package.json` under `packages/context/harness-dev-context`. Otherwise (for example an npm or pnpm installation of the published package) the runtime context says it is an installed distribution rather than an editable checkout, and the section tells the agent to ask the user for a source checkout before proposing source edits or rebuilds. The Web GUI guidance still refers to rebuilding from "this same checkout" in both cases. The check has not been run against a real package-manager installation.
 - **Two paragraphs only** — other system-prompt text that changes between releases still rewrites the first system message on routes without in-history prompt updates.
 - **Earlier values stay** — an earlier-format Session keeps its old checkout path and URL in the system prompt for its whole lifetime; only the later runtime-context lines are current.
 - **Mixed releases** — a release without this package rewrites the first system message of a Session started with it, so every checkout that serves a shared `DSH_HOME` needs this package before they alternate.

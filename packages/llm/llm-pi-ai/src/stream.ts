@@ -47,7 +47,10 @@ const LEADING_HTTP_STATUS = /^[45]\d\d\b/
 // If pi-ai ever forwards the original Error (or a fetch/dispatcher hook that lets
 // us capture the cause ourselves), classify on `code`/`cause` instead of text.
 function classifyPiAiError(message: string): BuiltinLlmFailureCode {
-  const statusSource = LEADING_HTTP_STATUS.exec(message)?.[0] ?? message
+  const leadingStatus = LEADING_HTTP_STATUS.exec(message)?.[0]
+  // Ordering constraint: a leading 5xx must outrank body wording that may quote an upstream 400, quota, or rate-limit error.
+  if (leadingStatus?.startsWith('5') === true) return 'SERVER'
+  const statusSource = leadingStatus ?? message
   if (/\b(?:401|403)\b/.test(statusSource)) return 'AUTH'
   if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE
   if (/\b429\b/.test(statusSource) || /rate.?limit/i.test(message)) return 'RATE_LIMIT'

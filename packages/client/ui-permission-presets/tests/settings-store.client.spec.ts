@@ -105,6 +105,22 @@ describe('permission settings store', () => {
     expect(failing.store.getSnapshot()).toMatchObject({ status: 'error', error: 'stale' })
   })
 
+  it('publishes an error and re-enables the row when the write invocation throws', async () => {
+    const mutate = vi.fn()
+      .mockRejectedValueOnce(new Error('no Connection'))
+      .mockResolvedValueOnce(ok(view('workspace-write', 6)))
+    const { controller } = permissionController({
+      describe: () => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [view('read-only', 5)] })),
+      mutate,
+    })
+    await controller.load()
+    await expect(controller.select('workspace-write')).resolves.toBeUndefined()
+    expect(controller.store.getSnapshot()).toMatchObject({ status: 'error', error: 'no Connection' })
+    await controller.select('workspace-write')
+    expect(mutate).toHaveBeenCalledTimes(2)
+    expect(controller.store.getSnapshot()).toMatchObject({ status: 'ready', currentValue: 'workspace-write' })
+  })
+
   it('contains read failures and no-ops without a writable view', async () => {
     const mutate = vi.fn()
     const readOnly = permissionController({

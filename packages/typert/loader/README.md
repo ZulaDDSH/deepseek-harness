@@ -48,7 +48,7 @@ Source compositions requiring strict Remote validation prebuild and load the ord
 
 ### Observable behavior and failures
 
-Packages without the export are skipped silently. Resolution verdicts and imported manifests are cached for the process lifetime, so adding a `./typert` export requires a restart. A malformed artifact among already-mounted entries fails activation loudly; a later failure is logged per package without preventing unrelated packages from registering. An explicit `packages` entry that cannot be resolved from the config tree, or that lacks the export, fails loudly and names the package.
+Packages without the export are skipped silently. Resolution verdicts and imported manifests are cached while the entry stays mounted; an unmount drops them, so a remount, including an HMR update, resolves and imports the artifact again and a rejected import can recover. Node's module cache is keyed by URL, so a remount that rewrites an artifact in place outside HMR still needs a restart. A malformed artifact among already-mounted entries fails activation loudly; a later failure is logged per package without preventing unrelated packages from registering. An explicit `packages` entry that cannot be resolved from the config tree, or that lacks the export, fails loudly and names the package.
 
 -----
 

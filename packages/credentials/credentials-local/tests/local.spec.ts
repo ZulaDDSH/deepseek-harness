@@ -6,7 +6,10 @@ import { join, resolve } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { createLaunchEnvironmentSnapshot, DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { LocalCredentialProvider, resolveSpec } from '../src/index.ts'
+import { system32, windowsAclViolations } from '../src/windows-acl.ts'
 
 function writeCredentials(file: string, text: string): Promise<void> {
   return writeFile(file, text, { mode: 0o600 })
@@ -217,6 +220,33 @@ describe('layer ladder', () => {
     // world-readable file would make the 0600 the provider writes meaningless.
     await expect(ctx.plugin(LocalCredentialProvider, { path, watch: false }))
       .rejects.toThrow(/readable beyond its owner \(mode 644\)/)
+  })
+
+  it.runIf(process.platform === 'win32')('refuses a document whose access list grants other accounts, and restricts a document it creates', async () => {
+    const dir = await tempDir()
+    const run = promisify(execFile)
+    const icacls = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'icacls.exe')
+    const loose = join(dir, 'loose.yaml')
+    await writeFile(loose, 'version: 1\nrefs:\n  DSH_CRED_TEST: leaked\n')
+    await run(icacls, [loose, '/grant', '*S-1-1-0:R'], { windowsHide: true })
+    await expect(new Context().plugin(LocalCredentialProvider, { path: loose, watch: false }))
+      .rejects.toThrow(/readable beyond its owner \(also granted to WD\)/)
+
+    const created = join(dir, 'created.yaml')
+    const ctx = await boot({ path: created, watch: false })
+    await ctx.credentials.set(KEY, 'sk-fresh')
+    expect(await windowsAclViolations(created)).toEqual([])
+    expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'sk-fresh', source: 'file' })
+  })
+
+  it.runIf(process.platform === 'win32')('resolves system tools to an absolute C:\\Windows path when SystemRoot is unset', () => {
+    const saved = process.env.SystemRoot
+    delete process.env.SystemRoot
+    try {
+      expect(system32('icacls.exe').toLowerCase()).toBe('c:\\windows\\system32\\icacls.exe')
+    } finally {
+      if (saved !== undefined) process.env.SystemRoot = saved
+    }
   })
 
   it('propagates a permission check that fails for a reason other than absence', async () => {

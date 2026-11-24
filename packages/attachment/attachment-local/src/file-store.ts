@@ -1,7 +1,10 @@
 /** Verbatim content-addressed local file storage. @module @deepseek-ai/dsh-attachment-local/file-store */
 
 import { createHash } from 'node:crypto'
-import { createReadStream } from 'node:fs'
+import type { Stats } from 'node:fs'
+import {
+  closeSync, createReadStream, existsSync, openSync, readSync, statSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentId } from '@deepseek-ai/dsh-attachment/types'
@@ -9,9 +12,11 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type {
   FileAttachmentRef, SaveFileAttachment, SaveFileStreamAttachment,
 } from '@deepseek-ai/dsh-attachment'
+import type { FileStoreQuota } from './file-quota.ts'
 import {
   publishImmutableAlias, publishImmutableObject, publishImmutableObjectStream,
 } from './store.ts'
+import type { StreamedImmutableObject } from './store.ts'
 
 const FILE_ID_PATTERN = /^sha256:([a-f0-9]{64})$/
 const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/iu
@@ -93,6 +98,7 @@ function storedFileObjectPath(root: string, sha256: string): string {
 export async function saveFileVerbatim(
   root: string,
   input: SaveFileAttachment,
+  quota?: FileStoreQuota,
 ): Promise<FileAttachmentRef> {
   const sha256 = createHash('sha256').update(input.data).digest('hex')
   const ref: FileAttachmentRef = {
@@ -101,8 +107,17 @@ export async function saveFileVerbatim(
     bytes: input.data.byteLength,
   }
   const objectPath = storedFileObjectPath(root, sha256)
-  await publishImmutableObject(root, objectPath, input.data, sha256)
-  await publishImmutableAlias(root, objectPath, storedFilePath(root, ref), sha256)
+  const isNew = !existsSync(objectPath)
+  if (isNew) await quota?.reserve(0, ref.bytes)
+  let stored = 0
+  try {
+    await publishImmutableObject(root, objectPath, input.data, sha256)
+    if (isNew) stored = ref.bytes
+    await publishImmutableAlias(root, objectPath, storedFilePath(root, ref), sha256)
+    rememberSavedFile(root, ref)
+  } finally {
+    if (isNew) quota?.settle(ref.bytes, stored)
+  }
   return ref
 }
 
@@ -115,14 +130,25 @@ export async function saveFileVerbatim(
 export async function saveFileStreamVerbatim(
   root: string,
   input: SaveFileStreamAttachment,
+  quota?: FileStoreQuota,
 ): Promise<FileAttachmentRef> {
   const name = fileLeafName(input.name)
-  const stored = await publishImmutableObjectStream(
-    root,
-    input.data,
-    sha256 => storedFileObjectPath(root, sha256),
-    input.signal,
-  )
+  const progress = { reserved: 0, isNew: false }
+  let stored: StreamedImmutableObject | undefined
+  try {
+    stored = await publishImmutableObjectStream(
+      root,
+      quota === undefined ? input.data : quota.meter(input.data, progress),
+      (sha256) => {
+        const path = storedFileObjectPath(root, sha256)
+        progress.isNew = !existsSync(path)
+        return path
+      },
+      input.signal,
+    )
+  } finally {
+    quota?.settle(progress.reserved, stored !== undefined && progress.isNew ? stored.bytes : 0)
+  }
   const ref: FileAttachmentRef = {
     attachmentId: brandString<AttachmentId>(`sha256:${stored.sha256}`),
     name,
@@ -135,6 +161,7 @@ export async function saveFileStreamVerbatim(
     storedFilePath(root, ref),
     stored.sha256,
   )
+  rememberSavedFile(root, ref)
   input.signal?.throwIfAborted()
   return ref
 }
@@ -179,5 +206,78 @@ export async function* readFileStreamVerbatim(
   signal?.throwIfAborted()
   if (bytes !== ref.bytes || hash.digest('hex') !== sha256) {
     throw new AttachmentError('Stored file attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
+  }
+}
+
+const VERIFIED_HOST_PATH_LIMIT = 512
+const verifiedHostPathIdentities = new Map<string, string>()
+
+function storedFileIdentity(stat: Stats): string {
+  return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(':')
+}
+
+function digestFileSync(path: string): { sha256: string, bytes: number } {
+  const fd = openSync(path, 'r')
+  try {
+    const hash = createHash('sha256')
+    const buffer = Buffer.allocUnsafe(1 << 16)
+    let bytes = 0
+    for (;;) {
+      const read = readSync(fd, buffer, 0, buffer.length, null)
+      if (read === 0) break
+      hash.update(buffer.subarray(0, read))
+      bytes += read
+    }
+    return { sha256: hash.digest('hex'), bytes }
+  } finally {
+    closeSync(fd)
+  }
+}
+
+export function verifiedStoredFilePath(root: string, ref: FileAttachmentRef, maxVerifyBytes: number): string | undefined {
+  const path = storedFilePath(root, ref)
+  const sha256 = ensureFileReference(ref)
+  let stat: Stats
+  try {
+    stat = statSync(path)
+  } catch {
+    verifiedHostPathIdentities.delete(path)
+    return undefined
+  }
+  if (!stat.isFile() || stat.size !== ref.bytes) {
+    verifiedHostPathIdentities.delete(path)
+    return undefined
+  }
+  const identity = storedFileIdentity(stat)
+  if (verifiedHostPathIdentities.get(path) === identity) return path
+  if (stat.size > maxVerifyBytes) return undefined
+  let digest: { sha256: string, bytes: number }
+  try {
+    digest = digestFileSync(path)
+  } catch {
+    verifiedHostPathIdentities.delete(path)
+    return undefined
+  }
+  if (digest.bytes !== ref.bytes || digest.sha256 !== sha256) {
+    verifiedHostPathIdentities.delete(path)
+    return undefined
+  }
+  rememberVerifiedIdentity(path, identity)
+  return path
+}
+
+function rememberVerifiedIdentity(path: string, identity: string): void {
+  if (verifiedHostPathIdentities.size >= VERIFIED_HOST_PATH_LIMIT) verifiedHostPathIdentities.clear()
+  verifiedHostPathIdentities.set(path, identity)
+}
+
+// constraint: call only after the alias was published and its bytes verified.
+function rememberSavedFile(root: string, ref: FileAttachmentRef): void {
+  const path = storedFilePath(root, ref)
+  try {
+    const stat = statSync(path)
+    if (stat.isFile() && stat.size === ref.bytes) rememberVerifiedIdentity(path, storedFileIdentity(stat))
+  } catch {
+    verifiedHostPathIdentities.delete(path)
   }
 }

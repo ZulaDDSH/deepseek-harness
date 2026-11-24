@@ -262,8 +262,8 @@ it('does not wait for the DOM callback of a screen whose generation was already 
   expect(model.state.getSnapshot().writable).toBe(true)
 })
 
-it('renames an existing terminal, skips unchanged names, and exposes rename failures', async () => {
-  const { model, remote } = fixture()
+it('renames an existing terminal, skips unchanged names, and keeps the attachment live after a rename failure', async () => {
+  const { model, remote, sent } = fixture()
   await connected(model)
   await model.rename(`  ${info.title}  `)
   expect(remote.rename).not.toHaveBeenCalled()
@@ -271,10 +271,15 @@ it('renames an existing terminal, skips unchanged names, and exposes rename fail
   expect(model.state.getSnapshot()).toMatchObject({ title: 'Build', info: { title: 'Build' } })
   vi.mocked(remote.rename).mockRejectedValueOnce('rename connection lost')
   await model.rename('Other')
-  expect(model.state.getSnapshot()).toMatchObject({ phase: 'failed', error: 'rename connection lost', title: 'Build' })
+  expect(model.state.getSnapshot()).toMatchObject({ phase: 'connected', writable: true, error: 'rename connection lost', title: 'Build' })
+  model.write('still typing')
+  await expect.poll(() => sent[0]).toEqual([expect.objectContaining({ type: 'write', data: 'still typing' })])
+  vi.mocked(remote.rename).mockResolvedValueOnce({ ok: false, error: new RemoteError('terminal/unavailable', 'gone', {}) } as never)
+  await model.rename('Gone')
+  expect(model.state.getSnapshot()).toMatchObject({ phase: 'failed', writable: false, issue: 'missingTerminal' })
   await model.dispose()
   await model.rename('Ignored')
-  expect(remote.rename).toHaveBeenCalledTimes(2)
+  expect(remote.rename).toHaveBeenCalledTimes(3)
 })
 
 it('classifies a discovery carrier failure as disconnected and supports explicit retry', async () => {

@@ -24,7 +24,7 @@ export interface NativeFlowInjected {
  */
 export function NativeDirectoryFlow(props: DirectoryFlowOwnerProps & NativeFlowInjected): ReactElement | null {
   const { open, pick } = props
-  const armed = useRef(false)
+  const request = useRef<object | undefined>(undefined)
   // Callbacks ride a ref so the settled pick reports through the owner's
   // latest handlers, not the ones captured when the chooser opened.
   const outcome = useRef(props)
@@ -45,18 +45,19 @@ export function NativeDirectoryFlow(props: DirectoryFlowOwnerProps & NativeFlowI
   }, [])
   useEffect(() => {
     if (!open) {
-      armed.current = false
+      request.current = undefined
       return
     }
-    if (armed.current) return
-    armed.current = true
+    if (request.current !== undefined) return
+    const ticket = {}
+    request.current = ticket
     pick().then(
       (path) => {
-        if (!alive.current) return
+        if (!alive.current || request.current !== ticket) return
         if (path === null) outcome.current.onCancel(); else outcome.current.onPicked(path)
       },
       (reason: unknown) => {
-        if (!alive.current) return
+        if (!alive.current || request.current !== ticket) return
         outcome.current.onError(reason instanceof Error ? reason.message : String(reason))
       },
     )

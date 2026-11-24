@@ -22,6 +22,7 @@ import { SessionSeq } from '@deepseek-ai/dsh-session'
 import { Duration } from '@deepseek-ai/dsh-util-time'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import {
+  BROWSER_POLICY_PREFIX,
   deriveBrowserTimeZoneContext,
   reportedBrowserTimeZone,
   renderBrowserTimeZoneContext,
@@ -43,7 +44,14 @@ const timeContextStateSchema = zod.object({
   browserTurn: zod.number().nullable(),
   /** Distinct reported zones in encounter order; validation remains request-time. */
   browserTimeZones: zod.array(zod.string()),
+  lastBrowserPolicy: zod.string().nullable(),
 })
+
+function injectedPolicy(source: UserMessage['source']): string | null {
+  if (source.kind !== name || !('sections' in source)) return null
+  const lines = source.sections.flatMap(section => section.text.split('\n'))
+  return lines.find(line => line.startsWith(BROWSER_POLICY_PREFIX)) ?? null
+}
 
 /** The agent registry that owns pre-step processing. */
 export const inject = ['agents', 'sessionProjections']
@@ -157,7 +165,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
 
   const projectionReady = ctx.sessionProjections.register({
     key: 'timeContext',
-    stateVersion: 3,
+    stateVersion: 4,
     stateSchema: timeContextStateSchema,
     init: () => ({
       lastMessageTime: null,
@@ -165,6 +173,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       lastTurnInjectionTime: null,
       browserTurn: null,
       browserTimeZones: [],
+      lastBrowserPolicy: null,
     }),
     apply: (state, event) => {
       if (event.type === 'turn/start') {
@@ -187,6 +196,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           ...withMessage,
           lastInjectionTime: event.time,
           lastTurnInjectionTime: event.time,
+          lastBrowserPolicy: injectedPolicy(event.data.source),
         }
       }
       if (event.type === 'assistant/message' || event.type === 'tool/result') {
@@ -206,19 +216,24 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     if (decision.kind === 'reject' || signal.aborted) return decision
     const now = Date.now()
     const state = timeContextProjectionHandle.stateOf(agent.session)
-    if (refreshIntervalMs > 0) {
-      const lastInjection = state.lastInjectionTime
-      if (lastInjection != null
-        && now >= lastInjection
-        && now - lastInjection < refreshIntervalMs) return decision
-    }
+    const lastInjection = state.lastInjectionTime
+    const withinInterval = refreshIntervalMs > 0 && lastInjection != null
+      && now >= lastInjection
+      && now - lastInjection < refreshIntervalMs
     /* v8 ignore next 3 -- every later step follows a recorded injection in the same turn */
     const previous = step === 1
       ? state.lastMessageTime ?? undefined
       : state.lastTurnInjectionTime ?? undefined
-    const browser = state.browserTurn === turn
-      ? deriveBrowserTimeZoneContext(decision.messages, state.browserTimeZones)
-      : deriveBrowserTimeZoneContext(requestMessages(agent, turn, decision.messages))
+    let browser: BrowserTimeZoneContext
+    try {
+      browser = state.browserTurn === turn
+        ? deriveBrowserTimeZoneContext(decision.messages, state.browserTimeZones)
+        : deriveBrowserTimeZoneContext(requestMessages(agent, turn, decision.messages))
+    } catch (error) {
+      if (withinInterval && error instanceof TypeError) return decision
+      throw error
+    }
+    if (withinInterval && renderBrowserTimeZoneContext(browser) === state.lastBrowserPolicy) return decision
     const selectedTimeZone = browser.kind === 'resolved' ? browser.timeZone : fallbackTimeZone
     const text = renderText(
       now,

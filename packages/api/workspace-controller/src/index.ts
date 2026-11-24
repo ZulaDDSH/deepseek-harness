@@ -2,7 +2,7 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, TypertRemoteService, principalOf } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-api-remote-access'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { WorkspaceCommands } from './commands.ts'
@@ -194,9 +194,10 @@ export class WorkspaceController extends TypertRemoteService {
   /**
    * Stream a complete Workspace baseline followed by ordered increments. A
    * non-owner receives only the Workspaces and Sessions `allows()` admits.
-   * When a delivered Workspace is no longer admitted at its next change or
-   * the next order change, the stream sends a `replace` frame with the
-   * complete filtered state instead of a `remove`, because a Client never
+   * When a delivered Workspace is no longer admitted at its next change, the
+   * next order change, or an access invalidation for the caller, the stream
+   * sends a `replace` frame with the complete filtered state (an
+   * invalidation always sends one) instead of a `remove`, because a Client never
    * resurrects a removed Workspace; a `remove` frame reports a deletion and
    * reaches only a Client that received that Workspace.
    * @param signal - generation cancellation.
@@ -221,8 +222,13 @@ export class WorkspaceController extends TypertRemoteService {
         pinnedSessionIds: sessions(value.pinnedSessionIds),
       }
     }
-    for await (const frame of this.feed.follow(signal)) {
+    const principal = principalOf(this.ctx.invocation)
+    const refreshes = principal === undefined ? undefined : (generation: AbortSignal): AsyncIterable<void> => access.changes(principal, generation)
+    for await (const frame of this.feed.follow(signal, refreshes)) {
       switch (frame.type) {
+        case 'refresh':
+          yield { type: 'replace', value: filtered(this.feed.baseline()) }
+          break
         case 'baseline':
           yield { type: 'baseline', value: filtered(frame.value) }
           break

@@ -1,10 +1,10 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Loader, { type ModuleLoaderV2 } from '@deepseek-ai/cordis-plugin-loader'
 import { afterEach, describe, expect, it } from 'vitest'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import WebhookRuntime, {
@@ -90,5 +90,88 @@ describe('real Loader composition', () => {
       receivedAt: 1,
     })
     await called.promise
+  })
+
+  it('journals under the Host data directory by default and replays after a restart', { timeout: 60_000 }, async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-webhook-loader-journal-'))
+    const configPath = join(root, 'cordis.yml')
+    await writeFile(configPath, [
+      '- name: fixture-dependencies',
+      "- name: '@deepseek-ai/dsh-webhook'",
+      '- name: fixture-rule',
+      '',
+    ].join('\n'))
+    const journalPath = join(root, 'home', 'data', 'webhook', 'journal.jsonl')
+
+    const boot = async (run: (delivery: { deliveryId: string }, signal: AbortSignal) => Promise<null>): Promise<Context> => {
+      const ctx = new Context()
+      ctx.baseUrl = pathToFileURL(root!).href + '/'
+      await ctx.plugin(Loader)
+      ctx.loader.builtins.include = Include
+      const modules = new Map<string, unknown>([
+        ['fixture-dependencies', {
+          name: 'fixture-dependencies',
+          apply(inner: Context) {
+            for (const service of [
+              'agents', 'agentDefaultModel', 'agentPresets', 'permissionPresets', 'sessionTitle', 'workspaceRegistry',
+            ]) {
+              inner.provide(service as never, {} as never)
+            }
+            inner.provide('dshPath' as never, ((category: string, ...segments: string[]) => join(root!, 'home', category, ...segments)) as never)
+          },
+        }],
+        ['@deepseek-ai/dsh-webhook', WebhookRuntime],
+        ['fixture-rule', {
+          name: 'fixture-rule',
+          inject: ['webhookRuntime'],
+          apply(inner: Context) {
+            inner.webhookRuntime.register({
+              id: brandString<WebhookRuleId>('loader-rule'),
+              kind: 'fixture',
+              run: (delivery, signal) => run(delivery, signal),
+            })
+          },
+        }],
+      ])
+      const internal: ModuleLoaderV2 = {
+        version: 'v2',
+        loadCache: new Map(),
+        import: (specifier: string) => {
+          if (!modules.has(specifier)) throw new Error(`unexpected Loader import: ${specifier}`)
+          return Promise.resolve(modules.get(specifier))
+        },
+        register(): never { throw new Error('unexpected module hook registration') },
+        getOrCreateModuleJob(): never { throw new Error('unexpected module job creation') },
+        resolveSync(): never { throw new Error('unexpected synchronous module resolution') },
+        load(): never { throw new Error('unexpected module load') },
+      }
+      ctx.loader.internal = internal
+      await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
+      await ctx.loader.await()
+      return ctx
+    }
+
+    const entered = Promise.withResolvers<boolean>()
+    const first = await boot((_delivery, signal) => {
+      entered.resolve(true)
+      return new Promise((_resolve, reject) => { signal.addEventListener('abort', () => { reject(signal.reason) }) })
+    })
+    first.webhookRuntime.dispatch({
+      kind: 'fixture',
+      source: brandString<WebhookSourceId>('loader'),
+      deliveryId: brandString<WebhookDeliveryId>('loader-delivery'),
+      event: {},
+      receivedAt: 1,
+    })
+    await entered.promise
+    expect(await readFile(journalPath, 'utf8')).toContain('"deliveryId":"loader-delivery"')
+    await first.fiber.dispose()
+
+    const replayed = Promise.withResolvers<string>()
+    context = await boot((delivery) => {
+      replayed.resolve(delivery.deliveryId)
+      return Promise.resolve(null)
+    })
+    expect(await replayed.promise).toBe('loader-delivery')
   })
 })

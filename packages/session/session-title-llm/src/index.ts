@@ -218,6 +218,15 @@ function terminalFinish(finish: FinishReason): SessionTitleLlmFinish {
   }
 }
 
+function raceAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => { reject(signal.reason as Error) }
+    if (signal.aborted) onAbort()
+    else signal.addEventListener('abort', onAbort, { once: true })
+    void work.then(resolve, reject).finally(() => { signal.removeEventListener('abort', onAbort) })
+  })
+}
+
 /**
  * Execute one prepared auxiliary title request.
  *
@@ -255,13 +264,13 @@ export async function executeSessionTitleLlm(
   })]
   using callDeadline = deadline(request.signal, config.timeoutMs, SESSION_TITLE_TIMEOUT_CODE)
   const maxTokens = config.maxOutputTokens
-  const call = await ctx.llm.prepareCall({
+  const call = await raceAbort(ctx.llm.prepareCall({
     ...route,
     maxTokens,
   }, callDeadline.signal, (controls, model) => {
     const effort = prepared.selectReasoningEffort(model)
     return { ...controls, ...effort === undefined ? {} : { reasoningEffort: effort } }
-  })
+  }), callDeadline.signal)
   const options: GenerateOptions = deepFreeze({
     ...call.config,
     messages,
@@ -281,9 +290,20 @@ export async function executeSessionTitleLlm(
   })
   callDeadline.signal.throwIfAborted()
   const assembler = new BlockAssembler()
-  for await (const chunk of call.stream(options)) {
-    callDeadline.signal.throwIfAborted()
-    assembler.push(chunk)
+  const iterator = call.stream(options)[Symbol.asyncIterator]()
+  let exhausted = false
+  try {
+    while (true) {
+      const next = await raceAbort(iterator.next(), callDeadline.signal)
+      if (next.done) {
+        exhausted = true
+        break
+      }
+      callDeadline.signal.throwIfAborted()
+      assembler.push(next.value)
+    }
+  } finally {
+    if (!exhausted) void new Promise<unknown>(resolve => { resolve(iterator.return?.()) }).catch(() => {})
   }
   callDeadline.signal.throwIfAborted()
   const finish = terminalFinish(assembler.finish)

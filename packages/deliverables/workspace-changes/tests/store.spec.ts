@@ -1,10 +1,10 @@
 /** Durable record storage: the session directory rule, the on-disk record, and retention pruning. */
 import { mkdir, mkdtemp, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  isStoredRecord, pruneRoot, readRecord, sessionDirectory,
+  isStoredRecord, migrateLegacyDirectory, pruneRoot, readRecord, sessionDirectory,
   STORE_VERSION, writeRecord, type RetentionPolicy, type StoredRecord,
 } from '../src/store.ts'
 
@@ -44,14 +44,52 @@ function record(over: Partial<StoredRecord> = {}): StoredRecord {
 }
 
 describe('session directory', () => {
-  it('keeps a plain id and disambiguates one that needs sanitizing', () => {
+  it('keeps a plain lowercase id as its own directory', () => {
     expect(sessionDirectory('/root', 'session-abc_1.2')).toBe(join('/root', 'session-abc_1.2'))
-    // A separator never reaches the path, and the digest keeps distinct ids apart.
-    const unsafe = sessionDirectory('/root', 'a/b')
-    expect(unsafe.startsWith(join('/root', 'a_b-'))).toBe(true)
-    expect(sessionDirectory('/root', 'a?b')).not.toBe(unsafe)
   })
 
+  it.each(['.', '..', '', 'a/b', 'a\b', '../x', 'ABC', 'x'.repeat(200), 'con', 'nul.txt', 'trailing.', '~abc'])(
+    'maps %j to one direct child of the root with no special segment', (id) => {
+      const directory = sessionDirectory('/root', id)
+      expect(dirname(directory)).toBe(join('/root'))
+      expect(['.', '..', '']).not.toContain(basename(directory))
+    },
+  )
+
+  it('keeps distinct ids apart, including an id equal to the directory name of another', () => {
+    const escaped = sessionDirectory('/root', 'a/b')
+    expect(sessionDirectory('/root', basename(escaped))).not.toBe(escaped)
+    expect(sessionDirectory('/root', 'a?b')).not.toBe(escaped)
+    expect(sessionDirectory('/root', 'ABC')).not.toBe(sessionDirectory('/root', 'abc'))
+    expect(sessionDirectory('/root', '..')).not.toBe(join('/'))
+    expect(sessionDirectory('/root', '.')).not.toBe(join('/root'))
+  })
+
+  it('moves a directory written under the previous rule once, and never touches . or ..', async () => {
+    const root = await scratch('dsh-store-')
+    const legacy = join(root, 'ABC')
+    await mkdir(join(legacy, 'records'), { recursive: true })
+    await writeFile(join(legacy, 'records', '1.json'), 'kept')
+    await migrateLegacyDirectory(root, 'ABC')
+    expect(await readdir(root)).toEqual([basename(sessionDirectory(root, 'ABC'))])
+    expect(await readdir(join(sessionDirectory(root, 'ABC'), 'records'))).toEqual(['1.json'])
+    await migrateLegacyDirectory(root, 'ABC')
+    await migrateLegacyDirectory(root, '..')
+    await migrateLegacyDirectory(root, '.')
+    expect(await readdir(root)).toEqual([basename(sessionDirectory(root, 'ABC'))])
+  })
+
+  it('leaves both directories alone when the current one already exists', async () => {
+    const root = await scratch('dsh-store-')
+    await mkdir(join(root, 'ABC', 'records'), { recursive: true })
+    await writeFile(join(root, 'ABC', 'records', 'old.json'), 'old')
+    const current = sessionDirectory(root, 'ABC')
+    await mkdir(join(current, 'records'), { recursive: true })
+    await writeFile(join(current, 'records', 'new.json'), 'new')
+    await migrateLegacyDirectory(root, 'ABC')
+    expect(await readdir(join(root, 'ABC', 'records'))).toEqual(['old.json'])
+    expect(await readdir(join(current, 'records'))).toEqual(['new.json'])
+  })
 })
 
 describe('stored records', () => {
@@ -96,7 +134,7 @@ describe('stored records', () => {
     expect(isStoredRecord(withSource('x'))).toBe(false)
     expect(isStoredRecord(withSource({ before: 'x' }))).toBe(false)
     expect(isStoredRecord(withSource({ before: { kind: 'other' } }))).toBe(false)
-    expect(isStoredRecord(withSource({ before: { kind: 'file', name: 'a' } }))).toBe(false)
+    expect(isStoredRecord(withSource({ before: { kind: 'file', name: 'a\b' } }))).toBe(false)
     expect(isStoredRecord(withSource({ before: { kind: 'snapshot', tree: 't' } }))).toBe(false)
   })
 })
@@ -160,6 +198,35 @@ describe('retention', () => {
     expect(await pruneRoot(root, bounded, Date.now())).toBe(2)
     // The newest survives even though it alone exceeds nothing but the pair does.
     expect(await readdir(root)).toEqual(['newest'])
+  })
+
+  it('never removes a live session and counts it toward the bounds', async () => {
+    const root = await scratch('dsh-prune-')
+    const live = await session(root, 'live', 10, 5_000)
+    await session(root, 'old', 10, 3_000)
+    await session(root, 'new', 10, 0)
+    const bounded: RetentionPolicy = { maxSessions: 2, maxBytes: 1_000_000, maxAgeMs: 1_000 }
+    expect(await pruneRoot(root, bounded, Date.now(), path => path === live)).toBe(1)
+    expect((await readdir(root)).sort()).toEqual(['live', 'new'])
+  })
+
+  it('exceeds a bound rather than remove live sessions that alone break it', async () => {
+    const root = await scratch('dsh-prune-')
+    const one = await session(root, 'one', 800, 2_000)
+    const two = await session(root, 'two', 800, 1_000)
+    await session(root, 'idle', 10, 0)
+    const bounded: RetentionPolicy = { maxSessions: 1, maxBytes: 1_000, maxAgeMs: 1_000_000 }
+    expect(await pruneRoot(root, bounded, Date.now(), path => path === one || path === two)).toBe(1)
+    expect((await readdir(root)).sort()).toEqual(['one', 'two'])
+  })
+
+  it('spares a directory that turns live between the scan and its removal', async () => {
+    const root = await scratch('dsh-prune-')
+    const racing = await session(root, 'racing', 10, 5_000)
+    let asks = 0
+    const isLive = (path: string): boolean => path === racing && ++asks > 2
+    expect(await pruneRoot(root, policy, Date.now(), isLive)).toBe(0)
+    expect(await readdir(root)).toEqual(['racing'])
   })
 
   it('ignores entries that are not session directories', async () => {

@@ -153,6 +153,8 @@ None. The log-only command lifecycle, browser download, and clipboard write do n
 These limits define when this package is a poor fit or needs special operational care. They are current package constraints, not a task backlog.
 
 - **Browser download, not a Host-path writer** — the browser chooses the local destination; no Host path or native folder action is returned.
+- **HEAD only checks that the root log exists** — the preflight opens and closes a read handle without reading events or flushing, so it does not prepare the archive; the following GET flushes and reads the root once.
+- **ZIP memory is bounded by the largest single log, not by the output queue** — the root log is read whole and held as one serialized string, and each descendant log is read whole one at a time, before being pushed into the ZIP in chunks. There is no per-export byte limit or paged event streaming, so a very large Session log can still cause a memory spike, and concurrent downloads multiply it.
 - **Preflight reports only pre-stream failures** — a descendant or attachment failure after the browser accepts the GET is reported by the browser download manager, not by the dialog.
 - **Markdown contains committed history only** — an unsettled live token chunk has no committed text, so it is absent from the copied transcript. Compaction and fork inheritance follow the raw log rather than the current model context.
 - **Markdown copy is the selected Session only** — descendant Session logs are exported by the ZIP download, not by the Markdown copy.

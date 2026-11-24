@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-web-app/memorix
  */
 
-import { copyFileSync, existsSync, linkSync, mkdtempSync, rmSync } from 'node:fs'
+import { copyFileSync, existsSync, linkSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -22,14 +22,21 @@ const SIDECARS = ['', '-wal', '-shm']
 export function backupExistingDatabase(dataDirectory = resolve(process.env['MEMORIX_DATA_DIR'] || join(homedir(), '.memorix', 'data'))): string | undefined {
   const database = join(dataDirectory, 'memorix.db')
   const backup = `${database}${BACKUP_SUFFIX}`
-  if (!existsSync(database) || existsSync(backup)) return undefined
+  if (!existsSync(database)) return undefined
+  if (existsSync(backup)) {
+    const kept = statSync(backup)
+    if (!kept.isFile() || kept.size === 0) throw new Error(`existing Memorix backup ${backup} is not a usable file`)
+    return undefined
+  }
   const staging = mkdtempSync(join(dataDirectory, '.dsh-memorix-backup-'))
   const created: string[] = []
   try {
     for (const suffix of SIDECARS) {
       const source = `${database}${suffix}`
       if (!existsSync(source)) continue
-      copyFileSync(source, join(staging, `memorix.db${suffix}`))
+      const copy = join(staging, `memorix.db${suffix}`)
+      copyFileSync(source, copy)
+      if (statSync(copy).size !== statSync(source).size) throw new Error(`${source} changed while it was being copied`)
     }
     for (const suffix of SIDECARS.slice(1)) {
       const source = join(staging, `memorix.db${suffix}`)
@@ -82,7 +89,7 @@ export function memorixLaunch(): MemorixLaunch {
 }
 
 /**
- * Back up an existing database, then provide the launch recipe. A failed backup is logged and never blocks the Host.
+ * Back up an existing database, then provide the launch recipe. A failed backup is logged and withholds the recipe; the Host still starts.
  * @param ctx - plugin context that receives the service.
  */
 export function apply(ctx: Context): void {
@@ -90,7 +97,8 @@ export function apply(ctx: Context): void {
     const backup = backupExistingDatabase()
     if (backup !== undefined) ctx.logger.info(`memorix-launch: kept a copy of the existing Memorix database at ${backup}`)
   } catch (error) {
-    ctx.logger.warn(`memorix-launch: could not back up the existing Memorix database: ${error instanceof Error ? error.message : String(error)}`)
+    ctx.logger.warn(`memorix-launch: could not back up the existing Memorix database, so Memorix is not started: ${error instanceof Error ? error.message : String(error)}`)
+    return
   }
   ctx.provide(MEMORIX_LAUNCH_SERVICE, memorixLaunch())
 }

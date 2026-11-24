@@ -571,7 +571,7 @@ describe('agent/pre-step', () => {
     expect(statuses).toEqual(['running', 'idle'])
     expect(adapter.requests).toHaveLength(0)
     expect(agent.inbox.nextTurn.map(message => message.content[0]))
-      .toEqual([{ type: 'text', text: 'second' }])
+      .toEqual([{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }])
   })
 })
 

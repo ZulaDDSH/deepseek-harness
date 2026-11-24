@@ -2,6 +2,7 @@ import { listChildren } from '../src/list-children.ts'
 import { mountWorkingDirectoryFixture } from './working-directory-fixture.ts'
 /** External execution ownership, result delivery, and process cleanup. */
 
+import { dirname } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -250,7 +251,7 @@ describe('external subagent activations', () => {
         await disposal
       }
       await expect(activation.result).resolves.toEqual(aborted)
-      expect(dispose).toHaveBeenCalledTimes(1)
+      expect(dispose).toHaveBeenCalledTimes(kind === 'ancestor' ? 3 : 1)
       expect(fixture.parent.inbox.nextTurn).toEqual([])
     } finally {
       backend.cleanup.resolve(undefined)
@@ -322,7 +323,7 @@ describe('external subagent activations', () => {
     expect((error as Error).message).not.toContain('SECRET_TOKEN')
     expect((error as Error).message).not.toContain('/private/path')
     await expect(activation.result).resolves.toEqual(completed)
-    expect(activation.dispose()).toBe(disposal)
+    await expect(activation.dispose()).rejects.toMatchObject({ code: 'ACTIVATION_TEARDOWN_FAILED' })
     expect(fixture.records()).toMatchObject(delivery === 'parent' ? [{
       id: activation.childId, mode: 'external',
     }] : [])
@@ -429,4 +430,16 @@ it('rejects a name for a caller-delivered external run that never enters the cat
   backend.result.resolve(completed)
   backend.cleanup.resolve(undefined)
   await unnamed.dispose()
+})
+
+it('refuses an external child directory outside a restricted parent workspace before the provider starts', async () => {
+  const start = vi.fn<(request: SubagentStartRequest) => Promise<SubagentRun>>()
+  const fixture = await setup(start)
+  const root = process.cwd()
+  fixture.ctx.provide('sandboxPolicy', { resolve: () => ({ mode: 'workspace-write', workspaceRoot: root }) } as never)
+  await expect(fixture.ctx.subagents.startActivation({
+    provider: 'external', label: 'Escape', signal: fixture.controller.signal, delivery: 'caller',
+    parent: fixture.parent, prompt: [{ type: 'text', text: 'go' }], cwd: dirname(root),
+  })).rejects.toMatchObject({ code: 'INVALID_CWD' })
+  expect(start).not.toHaveBeenCalled()
 })

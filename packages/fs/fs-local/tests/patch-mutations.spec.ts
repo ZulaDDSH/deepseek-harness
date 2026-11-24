@@ -65,6 +65,35 @@ describe('patchText', () => {
   })
 })
 
+describe('unrelated line endings', () => {
+  const mixed = 'one\r\ntwo\nthree\r\nfour\nfive\r\n'
+
+  it('patchText rewrites only the changed line of a mixed-ending file', async () => {
+    const { fs, file, bytes } = await setup()
+    await fs.patchText(await file('a', mixed), hunks('three', 'THREE'))
+    expect(await bytes('a')).toBe('one\r\ntwo\nTHREE\r\nfour\nfive\r\n')
+  })
+
+  it('editText rewrites only the changed span of a mixed-ending file', async () => {
+    const { fs, file, bytes } = await setup()
+    await fs.editText(await file('a', mixed), { oldString: 'two', newString: 'TWO', replaceAll: false })
+    expect(await bytes('a')).toBe('one\r\nTWO\nthree\r\nfour\nfive\r\n')
+  })
+
+  it('a CRLF file whose first line exceeds the detection sample keeps its CRLF', async () => {
+    const { fs, file, bytes } = await setup()
+    const long = 'x'.repeat(5000)
+    await fs.editText(await file('a', `${long}\r\nold\r\nlast\r\n`), { oldString: 'old\nlast', newString: 'new\nmid\nlast', replaceAll: false })
+    expect(await bytes('a')).toBe(`${long}\r\nnew\r\nmid\r\nlast\r\n`)
+  })
+
+  it('moveFile without hunks copies the exact source bytes', async () => {
+    const { fs, file, bytes } = await setup()
+    await fs.moveFile(await file('a', mixed), await file('b'), {})
+    expect(await bytes('b')).toBe(mixed)
+  })
+})
+
 describe('source guards', () => {
   it.each(['patch', 'delete', 'move'] as const)('%s rejects missing, directory, and stale sources', async (operation) => {
     const { fs, file, root, bytes } = await setup()

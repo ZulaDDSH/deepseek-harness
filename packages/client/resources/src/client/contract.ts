@@ -76,7 +76,7 @@ export interface ResourceProvider<P extends ResourceProtocol> {
    * content and every later frame one change. An `ok` frame replaces the value;
    * a failure frame marks the resource `failed` with its error and keeps the
    * last value. Ending the stream keeps the last state. A failure is always a
-   * frame: a throw inside the stream is a programming error and is not caught.
+   * frame: a throw inside the stream becomes a failed snapshot.
    * @param address - the full address, a `dsh-resource://<type>/…` URL.
    * @param ctx - the stream's abort signal.
    * @returns the frame stream; it must stop once `ctx.signal` aborts.

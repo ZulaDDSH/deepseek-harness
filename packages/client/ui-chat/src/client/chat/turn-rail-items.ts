@@ -23,6 +23,10 @@ export interface TurnRailItem {
     | { readonly kind: 'unloaded'; readonly seq: SessionSeq }
 }
 
+export type OutlineEntry = { turn: number; seq: SessionSeq; prompt: string; response: string }
+
+export type KnownOutline = Map<number, OutlineEntry>
+
 const EMPTY_ITEMS: readonly TurnRailItem[] = []
 
 /**
@@ -32,7 +36,7 @@ const EMPTY_ITEMS: readonly TurnRailItem[] = []
  * decorative, so a malformed one degrades to `''` and the turn stays
  * navigable by number.
  */
-function outlineEntry(value: unknown): { turn: number; seq: SessionSeq; prompt: string; response: string } | undefined {
+function outlineEntry(value: unknown): OutlineEntry | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   const entry = value as { turn?: unknown; seq?: unknown; prompt?: unknown; response?: unknown }
   if (typeof entry.turn !== 'number' || !Number.isSafeInteger(entry.turn) || entry.turn < 0) return undefined
@@ -86,4 +90,17 @@ export function mergeTurnRailItems(
   }
   if (byTurn.size === 0) return EMPTY_ITEMS
   return [...byTurn.values()].sort((left, right) => left.turn - right.turn)
+}
+
+export function absorbOutline(known: KnownOutline, wire: unknown): void {
+  for (const raw of outlineEntries(wire)) {
+    const entry = outlineEntry(raw)
+    if (entry !== undefined) known.set(entry.turn, entry)
+  }
+}
+
+export function oldestKnownSeq(known: KnownOutline): SessionSeq | undefined {
+  let oldest: SessionSeq | undefined
+  for (const entry of known.values()) if (oldest === undefined || entry.seq < oldest) oldest = entry.seq
+  return oldest
 }

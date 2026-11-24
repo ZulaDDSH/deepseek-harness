@@ -367,6 +367,48 @@ describe('file upload service', () => {
     expect(FakeWorker.all[4]?.postMessage).not.toHaveBeenCalled()
     await fiber.dispose()
   })
+
+  it('revokes the object URL and rejects when Worker construction throws', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:worker')
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    vi.stubGlobal('Worker', class { constructor() { throw new Error('worker blocked') } })
+    const ctx = new Context()
+    const fiber = ctx.plugin(FileUploadRuntime)
+    await fiber
+    await expect((ctx.fileUpload as FileUploadRuntime).post({ path: 'upload', body: new Blob() }))
+      .rejects.toThrow('worker blocked')
+    expect(revoked).toHaveBeenCalledWith('blob:worker')
+    await fiber.dispose()
+  })
+
+  it('terminates the Worker and detaches cancellation when the initial transfer throws', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:worker')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    class FakeWorker {
+      static last: FakeWorker | undefined
+      onmessage: ((event: MessageEvent) => void) | null = null
+      onerror: ((event: ErrorEvent) => void) | null = null
+      readonly postMessage = vi.fn(() => { throw new Error('stream is locked') })
+      readonly terminate = vi.fn()
+      constructor() { FakeWorker.last = this }
+    }
+    vi.stubGlobal('Worker', FakeWorker)
+    vi.stubGlobal('document', { baseURI: 'https://harness.test/mount/' })
+    const ctx = new Context()
+    const fiber = ctx.plugin(FileUploadRuntime)
+    await fiber
+    const controller = new AbortController()
+    const stream = new ReadableStream<Uint8Array>()
+    await expect((ctx.fileUpload as FileUploadRuntime).post({ path: 'upload', body: stream, signal: controller.signal }))
+      .rejects.toThrow('stream is locked')
+    expect(FakeWorker.last?.terminate).toHaveBeenCalledOnce()
+    controller.abort()
+    expect(FakeWorker.last?.terminate).toHaveBeenCalledOnce()
+    await expect((ctx.fileUpload as FileUploadRuntime).post({ path: 'upload', body: new ReadableStream<Uint8Array>() }))
+      .rejects.toThrow('stream is locked')
+    expect(FakeWorker.last?.terminate).toHaveBeenCalledOnce()
+    await fiber.dispose()
+  })
 })
 
 describe('Session-addressed file upload', () => {

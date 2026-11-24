@@ -1,7 +1,18 @@
 /** XLSX preview copies without DrawingML parts; worksheet XML and source bytes remain untouched. */
 import { unzipSync, zipSync, type Unzipped } from 'fflate'
 import { XMLParser } from 'fast-xml-parser'
+import { ExcelPreviewError } from './error.ts'
 import type { ExcelUnsupportedFeature } from './model.ts'
+
+const MAX_ENTRIES = 2048
+const MAX_ENTRY_BYTES = 64 * 1024 * 1024
+const MAX_EXPANDED_BYTES = 128 * 1024 * 1024
+
+export interface XlsxArchiveBudget {
+  readonly maxEntries?: number
+  readonly maxEntryBytes?: number
+  readonly maxExpandedBytes?: number
+}
 
 /** Owns the unpacked preview copy and its detected unsupported content. */
 export class XlsxPreviewArchive {
@@ -15,13 +26,25 @@ export class XlsxPreviewArchive {
    * @param bytes - Complete XLSX source bytes.
    * @throws When ZIP entries have ASCII case-equivalent names.
    */
-  constructor(private readonly bytes: Uint8Array<ArrayBuffer>) {
-    this.files = unzipSync(bytes)
+  constructor(private readonly bytes: Uint8Array<ArrayBuffer>, budget: XlsxArchiveBudget = {}) {
+    const { maxEntries = MAX_ENTRIES, maxEntryBytes = MAX_ENTRY_BYTES, maxExpandedBytes = MAX_EXPANDED_BYTES } = budget
+    const names = new Set<string>()
+    let entries = 0
+    let expanded = 0
+    this.files = unzipSync(bytes, {
+      filter: ({ name, originalSize }) => {
+        if (++entries > maxEntries) throw new ExcelPreviewError('tooLarge')
+        expanded += originalSize
+        if (originalSize > maxEntryBytes || expanded > maxExpandedBytes) throw new ExcelPreviewError('tooLarge')
+        if (name.endsWith('/')) return true
+        const key = partKey(name)
+        if (names.has(key)) throw new Error(`Ambiguous XLSX part: ${name}`)
+        names.add(key)
+        return true
+      },
+    })
     for (const [path, bytes] of Object.entries(this.files)) {
-      if (path.endsWith('/')) continue
-      const key = partKey(path)
-      if (this.parts.has(key)) throw new Error(`Ambiguous XLSX part: ${path}`)
-      this.parts.set(key, bytes)
+      if (!path.endsWith('/')) this.parts.set(partKey(path), bytes)
     }
   }
 

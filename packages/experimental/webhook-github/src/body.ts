@@ -7,7 +7,7 @@ export class WebhookHttpError extends Error {
   override readonly name = 'WebhookHttpError'
 
   constructor(
-    readonly status: 400 | 401 | 405 | 413 | 415 | 503,
+    readonly status: 400 | 401 | 405 | 408 | 413 | 415 | 429 | 503,
     message: string,
   ) {
     super(message)
@@ -36,6 +36,7 @@ function contentLength(request: IncomingMessage): number | undefined {
 export async function readBoundedUtf8Body(
   request: IncomingMessage,
   maxBodyBytes: number,
+  timeoutMs?: number,
 ): Promise<string> {
   const declared = contentLength(request)
   if (declared !== undefined && declared > maxBodyBytes) {
@@ -45,6 +46,11 @@ export async function readBoundedUtf8Body(
 
   const chunks: Buffer[] = []
   let size = 0
+  let timedOut = false
+  const timer = timeoutMs === undefined ? undefined : setTimeout(() => {
+    timedOut = true
+    request.destroy()
+  }, timeoutMs)
   try {
     for await (const raw of request) {
       const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw as string)
@@ -57,8 +63,12 @@ export async function readBoundedUtf8Body(
     }
   } catch (error: unknown) {
     if (error instanceof WebhookHttpError) throw error
+    if (timedOut) throw new WebhookHttpError(408, 'request body timed out')
     throw new WebhookHttpError(400, 'request body was aborted')
+  } finally {
+    clearTimeout(timer)
   }
+  if (timedOut) throw new WebhookHttpError(408, 'request body timed out')
   if (!request.complete) throw new WebhookHttpError(400, 'request body was aborted')
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks, size))

@@ -3,6 +3,7 @@ import type { PluginInventorySnapshot } from '@deepseek-ai/dsh-api-remotes/clien
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PluginInventorySettingsTabInjected } from './PluginInventorySettingsTab.tsx'
 import type { PluginInventoryLocaleKey } from './locales.ts'
+import { enabledAfterDisableAll, enabledAfterEnableAll, enabledAfterSwitch } from './hook-writes.ts'
 import { Button, IconSearchOutlineRegular, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './HooksSettingsSection.module.css'
 
@@ -20,8 +21,8 @@ interface HookRow {
 }
 
 export interface HooksSettingsSectionInjected extends Pick<PluginInventorySettingsTabInjected, 'list'> {
-  setEnabledHooks: (entryId: string, keys: readonly string[]) => Promise<void>
-  setHookDescriptions: (entryId: string, descriptions: Readonly<Record<string, string>>) => Promise<void>
+  updateEnabledHooks: (entryId: string, next: (stored: readonly string[]) => readonly string[]) => Promise<void>
+  setHookDescriptions: (entryId: string, keys: readonly string[], text: string | undefined) => Promise<void>
 }
 
 export type HooksSettingsSectionProps = PropsRuntime<'settings.section'>
@@ -64,7 +65,7 @@ function groupByCommand(handlers: readonly HookHandler[]): [string, HookHandler[
  * @param props Locale, the inventory reader and the enable and description writers.
  * @returns The Hooks settings section.
  */
-export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescriptions }: HooksSettingsSectionProps) {
+export function HooksSettingsSection({ t, list, updateEnabledHooks, setHookDescriptions }: HooksSettingsSectionProps) {
   const [snapshot, setSnapshot] = useState<PluginInventorySnapshot>()
   const [failed, setFailed] = useState(false)
   const [saving, setSaving] = useState<string>()
@@ -76,28 +77,25 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
   useEffect(() => {
     let current = true
     setFailed(false)
-    void list().then((value) => { if (current) setSnapshot(value) }, () => { if (current) setFailed(true) })
+    void list().then(
+      (value) => { if (current) { setSnapshot(value); setSaving(undefined) } },
+      () => { if (current) { setFailed(true); setSaving(undefined) } })
     return () => { current = false }
   }, [list, revision])
-  const save = (entryId: string, operation: Promise<void>): void => {
+  const save = (entryId: string, operation: Promise<void>, onSaved?: () => void): void => {
     setSaving(entryId)
     setFailure(undefined)
     void operation
-      .catch((error: unknown) => { setFailure({ entryId, message: error instanceof Error ? error.message : String(error) }) })
-      .finally(() => {
-        setSaving(undefined)
-        setRevision(value => value + 1)
-      })
+      .then(() => { onSaved?.() }, (error: unknown) => { setFailure({ entryId, message: error instanceof Error ? error.message : String(error) }) })
+      .finally(() => { setRevision(value => value + 1) })
   }
-  const write = (entryId: string, enabled: readonly string[]): void => { save(entryId, setEnabledHooks(entryId, enabled)) }
-  const describe = (entryId: string, report: HookInventoryReport, keys: readonly string[], text: string): void => {
-    const descriptions: Record<string, string> = {}
-    for (const handler of report.handlers) {
-      if (handler.description !== undefined && !keys.includes(handler.key)) descriptions[handler.key] = handler.description
-    }
-    if (text.trim().length > 0) for (const key of keys) descriptions[key] = text.trim()
-    setEditing(undefined)
-    save(entryId, setHookDescriptions(entryId, descriptions))
+  const writeEnabled = (entryId: string, next: (stored: readonly string[]) => readonly string[]): void => {
+    save(entryId, updateEnabledHooks(entryId, next))
+  }
+  const saveDescription = (entryId: string, row: HookRow, draft: string): void => {
+    save(entryId, setHookDescriptions(entryId, row.keys, draft.trim()), () => {
+      setEditing(current => current?.id === row.id && current.draft === draft ? undefined : current)
+    })
   }
   const toggleDetails = (id: string): void => {
     setExpanded(ids => ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id])
@@ -105,8 +103,6 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
   const reports = snapshot?.hooks ?? []
   const needle = query.trim().toLowerCase()
   const searching = needle.length > 0
-  const enabledOf = (report: HookInventoryReport): string[] =>
-    report.handlers.filter(handler => handler.disabled !== true).map(handler => handler.key)
   const rowsOf = (report: HookInventoryReport): HookRow[] => groupByCommand(report.handlers).map(([command, handlers]) => ({
     id: JSON.stringify([report.dialect, report.source, report.settingsNs ?? null, command]),
     command,
@@ -147,6 +143,7 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
       {visible.map(({ report, all, rows }) => {
         const entryId = report.settingsNs
         const enabledCount = all.filter(row => row.on).length
+        const reportKeys = all.flatMap(row => row.keys)
         const statusText = report.status === 'failed' ? t('hooksFailed') : entryId === undefined ? t('hooksConfigured') : undefined
         return <article key={JSON.stringify([report.dialect, report.source, entryId ?? null])} className={css.card}>
           <header className={css.cardHeader}>
@@ -160,10 +157,12 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
             <div className={css.cardActions}>
               {entryId !== undefined && saving === entryId ? <span role="status" className={css.muted}>{t('hooksSaving')}</span> : null}
               {entryId === undefined || all.length === 0 || searching ? null : <>
-                <Button variant="ghost" size="sm" disabled={saving !== undefined} onClick={() => { write(entryId, all.flatMap(row => row.keys)) }}>
+                <Button variant="ghost" size="sm" disabled={saving !== undefined}
+                  onClick={() => { writeEnabled(entryId, stored => enabledAfterEnableAll(stored, reportKeys)) }}>
                   {t('hooksEnableAll')}
                 </Button>
-                <Button variant="ghost" size="sm" disabled={saving !== undefined} onClick={() => { write(entryId, []) }}>
+                <Button variant="ghost" size="sm" disabled={saving !== undefined}
+                  onClick={() => { writeEnabled(entryId, stored => enabledAfterDisableAll(stored, reportKeys)) }}>
                   {t('hooksDisableAll')}
                 </Button>
               </>}
@@ -189,8 +188,7 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
                 disabled={saving !== undefined}
                 label={`${t('hooksToggle')}: ${row.name}`}
                 onChange={(next) => {
-                  const others = enabledOf(report).filter(key => !row.keys.includes(key))
-                  write(entryId, next ? [...others, ...row.keys] : others)
+                  writeEnabled(entryId, stored => enabledAfterSwitch(stored, reportKeys, row.keys, next))
                 }}
               />}
               <div className={css.rowBody}>
@@ -200,7 +198,7 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
                 </div>
                 {editor ? <form className={css.editor} onSubmit={(event) => {
                   event.preventDefault()
-                  describe(entryId, report, row.keys, editing.draft)
+                  saveDescription(entryId, row, editing?.draft ?? '')
                 }}>
                   <input
                     className={css.field}

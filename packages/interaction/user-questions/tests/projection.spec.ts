@@ -193,6 +193,68 @@ describe('userQuestions projection fold', () => {
     })])).toEqual(empty)
   })
 
+  describe('PTC sub-call admission', () => {
+    const rootCallId = brandString<ToolCallId>('run_1')
+    const subCallId = brandString<ToolCallId>('run_1:ptc:1')
+    const runCodeHeader = header(0, [{ name: 'run_code', description: 'Run code.', parameters: { type: 'object' } }])
+    const start = event(1, 'tool/ptc-dispatch-start', {
+      rootCallId, parentCallId: rootCallId, subCallId, name: 'ask_user_question', arguments: JSON.parse(toolArguments),
+    })
+    const settle = (isError: boolean, text: string) => event(3, 'tool/ptc-dispatch', {
+      rootCallId, parentCallId: rootCallId, subCallId, name: 'ask_user_question', arguments: JSON.parse(toolArguments),
+      isError, content: [{ type: 'text', text }],
+    })
+    const rootResult = (error?: { name: string; code: string }) => event(4, 'tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({ callId: rootCallId, content: [{ type: 'text', text: 'run_code outcome' }], isError: error !== undefined }),
+      ...(error === undefined ? {} : { error }),
+    })
+    const open = { active: [{ callId: subCallId, questions, state: 'open' }], settled: [] }
+    const continued = { active: [{ callId: subCallId, questions, state: 'continued' }], settled: [] }
+
+    it('admits the sub-call as open from its dispatch start, before any result', () => {
+      expect(foldUserQuestions([runCodeHeader, start])).toEqual(open)
+    })
+
+    it('ignores a start for another tool or with unreadable arguments', () => {
+      expect(foldUserQuestions([runCodeHeader, event(1, 'tool/ptc-dispatch-start', {
+        rootCallId, parentCallId: rootCallId, subCallId, name: 'bash', arguments: JSON.parse(toolArguments),
+      })])).toEqual(empty)
+      expect(foldUserQuestions([runCodeHeader, event(1, 'tool/ptc-dispatch-start', {
+        rootCallId, parentCallId: rootCallId, subCallId, name: 'ask_user_question', arguments: { questions: 'invalid' },
+      })])).toEqual(empty)
+    })
+
+    it('continues on a pending dispatch result and drops on an error or in-time answer result', () => {
+      const pending = JSON.stringify({ pending: true, callId: subCallId })
+      expect(foldUserQuestions([runCodeHeader, start, settle(false, pending)])).toEqual(continued)
+      expect(foldUserQuestions([runCodeHeader, start, settle(true, 'execution canceled')])).toEqual(empty)
+      expect(foldUserQuestions([runCodeHeader, start, settle(false, JSON.stringify({ answers: answerBatch }))])).toEqual(empty)
+    })
+
+    it('keeps a question the run_code process never settled answerable after resume repair', () => {
+      const repaired = [runCodeHeader, start, rootResult({ name: 'ToolOutcomeUnknown', code: TOOL_OUTCOME_UNKNOWN })]
+      expect(foldUserQuestions(repaired)).toEqual(continued)
+      const lateReply = createUserMessage({
+        source: { kind: 'user-question-reply', callId: subCallId, outcome: 'answered' },
+        content: [{ type: 'text', text: JSON.stringify({ answers: answerBatch }) }],
+      })
+      expect(foldUserQuestions([...repaired, event(5, 'user/message', lateReply)])).toEqual({
+        active: [], settled: [{ callId: subCallId, answers: answerBatch }],
+      })
+    })
+
+    it('drops a still-open sub-call when the root result is not an unknown outcome', () => {
+      expect(foldUserQuestions([runCodeHeader, start, rootResult()])).toEqual(empty)
+      expect(foldUserQuestions([runCodeHeader, start, rootResult({ name: 'Error', code: 'ABORTED' })])).toEqual(empty)
+    })
+
+    it('leaves an already-continued sibling untouched by the root result', () => {
+      const pending = JSON.stringify({ pending: true, callId: subCallId })
+      expect(foldUserQuestions([runCodeHeader, start, settle(false, pending), rootResult()])).toEqual(continued)
+    })
+  })
+
   it('settles with no answers when the reply text carries none this reader can use', () => {
     const continued = [timedHeader, asked, resulted('{"pending":true,"callId":"call_ask_1"}')]
     const settled = { active: [], settled: [{ callId, answers: [] }] }
@@ -296,6 +358,6 @@ describe('userQuestions projection fold', () => {
     expect(userQuestionProjectionDefinition.wire.view(opened))
       .toEqual({ active: [{ callId, questions, state: 'open' }], settled: [] })
     expect(userQuestionProjectionDefinition.apply(opened, event(5, 'turn/start', { turn: 2 }))).toBe(opened)
-    expect(userQuestionProjectionDefinition.stateVersion).toBe(2)
+    expect(userQuestionProjectionDefinition.stateVersion).toBe(3)
   })
 })

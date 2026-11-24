@@ -25,6 +25,7 @@ import {
 import type { RemoteAccessEndpoint } from '@deepseek-ai/dsh-api-remote-access/types'
 import type { ShareablePluginCatalog, ViewerPluginPolicy } from '../src/host/viewer-capability-types.ts'
 import { shareViewerPrincipal } from '../src/host/viewer-principal.ts'
+import { VIEWER_ENDPOINT_CLASSES } from '../src/endpoint-classification.ts'
 
 const reader = { providerId: 'feishu', tenantId: 'tenant-a', subjectId: 'ou_reader' }
 const other = { ...reader, subjectId: 'ou_other' }
@@ -46,10 +47,10 @@ const GLOBAL_ACTIONS = [
 ] as const
 /** Session reads the served page's startup and render paths need; see {@link GLOBAL_ACTIONS}. */
 const SESSION_READS = [
-  'commands/list', 'fileUploads/upload', 'goals/get', 'session/attachment', 'session/control',
+  'commands/list', 'goals/get', 'session/attachment', 'session/control',
   'session/events', 'session/follow', 'session/list', 'session/observeEvent', 'session/observeProjections',
-  'session/observeState', 'session/page', 'session/projections', 'session/state', 'session/wait',
-  'skills/list', 'toolResults/watch', 'workspace/follow',
+  'session/observeState', 'session/outline', 'session/page', 'session/projections', 'session/state', 'session/wait',
+  'skills/list', 'workspace/follow',
 ] as const
 const SESSION_EVENTS = [
   'event:api-session/activity', 'event:api-session/added', 'event:api-session/error',
@@ -224,20 +225,45 @@ describe('share reader access policy', () => {
 
   it.each([
     ['view', false], ['view', true], ['write', false], ['write', true],
-  ] as const)('allows attachment upload on every Session the reader can see (mode=%s, fork=%s)', async (mode, allowsFork) => {
+  ] as const)('allows attachment upload where the reader may prompt (mode=%s, fork=%s)', async (mode, allowsFork) => {
     const { decide } = await fixture({ mode, allowsFork })
-    // Neither the tier nor the fork switch decides an attachment: upload follows the visibility the read
-    // role already grants, so every readable Session accepts files.
-    for (const id of ['source', 'own-child', 'revoked-child']) {
-      expect(decide('fileUploads/upload', session(id))).toEqual(ALLOW)
+    for (const id of ['source', 'own-child']) {
+      expect(decide('fileUploads/upload', session(id), CALL)).toEqual(ALLOW)
     }
-    // Another reader's fork, a foreign share's fork, and a Session the reader cannot see stay read-only.
+    expect(decide('fileUploads/upload', session('revoked-child'), CALL)).toEqual(deny('fork-source-revoked'))
     for (const id of ['other-child', 'foreign-child', 'private']) {
-      expect(decide('fileUploads/upload', session(id))).toEqual(deny('liveshare/read-only'))
+      expect(decide('fileUploads/upload', session(id), CALL)).toEqual(deny('liveshare/read-only'))
     }
-    // A share whose tier this host cannot establish is still visible, so it still accepts files.
-    expect((await fixture({ mode: null })).decide('fileUploads/upload', session('source'))).toEqual(ALLOW)
   }, 10_000)
+
+  it('refuses attachment upload on the shared Session while the host cannot drive it', async () => {
+    expect((await fixture({ mode: null })).decide('fileUploads/upload', session('source'), CALL))
+      .toEqual(deny('source-write-unavailable'))
+    expect((await fixture({ confined: false })).decide('fileUploads/upload', session('source'), CALL))
+      .toEqual(deny('source-write-unavailable'))
+    expect((await fixture({ confined: false })).decide('fileUploads/upload', session('own-child'), CALL)).toEqual(ALLOW)
+  })
+
+  it('classifies toolResults/watch as owner-only and refuses it to every reader', async () => {
+    const { decide } = await fixture()
+    expect(VIEWER_ENDPOINT_CLASSES['toolResults/watch']).toBe('owner-only')
+    expect(POLICY_DECIDED_ACTIONS.has('toolResults/watch')).toBe(false)
+    for (const id of ['source', 'own-child', 'revoked-child', 'other-child', 'private']) {
+      expect(decide('toolResults/watch', session(id), CALL).kind).toBe('deny')
+      expect(decide('toolResults/watch', session(id)).kind).toBe('deny')
+    }
+    expect(decide('toolResults/watch', GLOBAL).kind).toBe('deny')
+  })
+
+  it('classifies sessionFeedback/sharing as owner-only and refuses it to every reader', async () => {
+    const { decide } = await fixture()
+    expect(VIEWER_ENDPOINT_CLASSES['sessionFeedback/sharing']).toBe('owner-only')
+    expect(POLICY_DECIDED_ACTIONS.has('sessionFeedback/sharing')).toBe(false)
+    for (const id of ['source', 'own-child', 'revoked-child', 'other-child', 'private']) {
+      expect(decide('sessionFeedback/sharing', session(id), CALL).kind).toBe('deny')
+    }
+    expect(decide('sessionFeedback/sharing', GLOBAL).kind).toBe('deny')
+  })
 
   it('follows a Workspace only while it holds a Session the reader can see', async () => {
     const { decide } = await fixture()
@@ -345,10 +371,10 @@ describe('share reader access policy', () => {
     const reads = [...SESSION_READS]
     expect(grants()).toEqual([
       { resource: GLOBAL, actions: [...GLOBAL_ACTIONS].sort() },
-      { resource: session('source'), actions: [...reads, 'session/cancel', 'session/fork', 'session/prompt'].sort() },
+      { resource: session('source'), actions: [...reads, 'fileUploads/upload', 'session/cancel', 'session/fork', 'session/prompt'].sort() },
       // The reader's own fork carries the source grant's fork verb, and is the only Session it may rename.
-      { resource: session('own-child'), actions: [...reads, 'session/cancel', 'session/fork', 'session/prompt',
-        'session/rename'].sort() },
+      { resource: session('own-child'), actions: [...reads, 'fileUploads/upload', 'session/cancel', 'session/fork',
+        'session/prompt', 'session/rename'].sort() },
       // A revoked fork stays readable, so the page states it as read-only rather than unknown.
       { resource: session('revoked-child'), actions: [...reads].sort() },
       { resource: workspace('shared-ws'), actions: ['workspace/follow'] },
@@ -365,18 +391,18 @@ describe('share reader access policy', () => {
       (await fixture(options)).grants().find(grant => grant.resource.kind === 'session' && grant.resource.id === 'source')?.actions
     const childActions = async (options: FixtureOptions) =>
       (await fixture(options)).grants().find(grant => grant.resource.kind === 'session' && grant.resource.id === 'own-child')?.actions
-    const driving = [...SESSION_READS, 'session/cancel', 'session/fork', 'session/prompt'].sort()
+    const driving = [...SESSION_READS, 'fileUploads/upload', 'session/cancel', 'session/fork', 'session/prompt'].sort()
     expect(await sourceActions({ mode: 'view' })).toEqual(driving)
     expect(await sourceActions({ mode: 'write' })).toEqual(driving)
     // Without the confined layer the Session is not driven, and without the switch it is not forked.
     expect(await sourceActions({ confined: false })).toEqual([...SESSION_READS, 'session/fork'].sort())
-    expect(await sourceActions({ allowsFork: false })).toEqual([...SESSION_READS, 'session/cancel', 'session/prompt'].sort())
+    expect(await sourceActions({ allowsFork: false })).toEqual([...SESSION_READS, 'fileUploads/upload', 'session/cancel', 'session/prompt'].sort())
     const { grants } = await fixture({ mode: 'view' })
     expect(grants().find(grant => grant.resource.kind === 'session' && grant.resource.id === 'own-child')?.actions)
-      .toEqual([...SESSION_READS, 'session/cancel', 'session/fork', 'session/prompt', 'session/rename'].sort())
+      .toEqual([...SESSION_READS, 'fileUploads/upload', 'session/cancel', 'session/fork', 'session/prompt', 'session/rename'].sort())
     // The switch removes the child's fork alone: the child role and its rename stay in the snapshot.
     expect(await childActions({ allowsFork: false }))
-      .toEqual([...SESSION_READS, 'session/cancel', 'session/prompt', 'session/rename'].sort())
+      .toEqual([...SESSION_READS, 'fileUploads/upload', 'session/cancel', 'session/prompt', 'session/rename'].sort())
   })
 })
 

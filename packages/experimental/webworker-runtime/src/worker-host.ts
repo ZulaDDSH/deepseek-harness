@@ -32,7 +32,7 @@ import { join } from './module-system/posix-path.ts'
 import { installProcessGlobal } from './node/globals/process.ts'
 import type { RequestListener } from './transport/synthetic-http.ts'
 import { TunnelServer, type TunnelPort } from './transport/tunnel.ts'
-import { inflateImage, inflateImageStream } from './storage/image-gzip.ts'
+import { inflateDigestedArchive, inflateImage, inflateImageStream } from './storage/image-gzip.ts'
 import { loadVfsImage, loadVfsOverlay, MemoryVfs } from './storage/memory.ts'
 import { setActiveVfs } from './storage/active.ts'
 import { setTextViewer } from './shell/process/xdg-open.ts'
@@ -161,6 +161,12 @@ async function readImage(image: Uint8Array | string): Promise<Uint8Array> {
   // Inflated off the response stream: the archive is built while the rest of the
   // image is still arriving.
   return await inflateImageStream(response.body, image)
+}
+
+async function readLazyArchive(url: string, name: string): Promise<Uint8Array> {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`webworker host: lazy archive fetch failed with ${String(response.status)} for ${url}`)
+  return await inflateDigestedArchive(new Uint8Array(await response.arrayBuffer()), name)
 }
 
 /**
@@ -404,7 +410,7 @@ function deferLazyArchives(vfs: MemoryVfs, manifest: ImageManifest, root: string
   const base = new URL(image, (globalThis as { location?: { href: string } }).location?.href)
   for (const archive of manifest.lazy) {
     const url = new URL(archive.archive, base).href
-    vfs.deferArchive({ name: archive.archive, root, files: archive.files, load: () => readImage(url) })
+    vfs.deferArchive({ name: archive.archive, root, files: archive.files, load: () => readLazyArchive(url, archive.archive) })
   }
 }
 

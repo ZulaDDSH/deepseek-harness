@@ -260,3 +260,54 @@ it('does not report an observation failure after its provider unloads', () => {
   expect(failed).not.toHaveBeenCalled()
   menu.dispose(); registry.dispose()
 })
+
+describe('cross-realm and self-withdrawing providers', () => {
+  const foreign = <T>(promise: Promise<T>): PromiseLike<T> => ({ then: (yes, no) => promise.then(yes, no) }) as PromiseLike<T>
+
+  it('treats a foreign-realm thenable as asynchronous, fulfilled or rejected', async () => {
+    const failed = vi.fn(), registry = new MenuRegistry(failed)
+    registry.register({ id: 'ok', target: 'extension', order: 0, resolve: () => foreign(Promise.resolve([{ id: 'copy', label: 'Copy' }])) as never })
+    registry.register({ id: 'bad', target: 'extension', order: 1, resolve: () => foreign(Promise.reject(new Error('denied'))) as never })
+    const menu = registry.resolve(target)
+    expect(menu.source.getSnapshot()).toEqual([])
+    await menu.ready
+    expect(menu.source.getSnapshot().map(item => item.id)).toEqual(['ok/copy'])
+    expect(failed).toHaveBeenCalledOnce()
+    registry.dispose()
+  })
+
+  it('applies the deadline to a foreign-realm thenable', async () => {
+    vi.useFakeTimers()
+    const failed = vi.fn(), registry = new MenuRegistry(failed, 50)
+    registry.register({ id: 'slow', target: 'extension', order: 0, resolve: () => ({ then: () => {} }) as never })
+    const menu = registry.resolve(target)
+    try {
+      expect(failed).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(50)
+      await menu.ready
+      expect(failed).toHaveBeenCalledOnce()
+    } finally { registry.dispose(); vi.useRealTimers() }
+  })
+
+  it('settles without a timeout report when a resolver withdraws itself and returns a pending promise', async () => {
+    vi.useFakeTimers()
+    const failed = vi.fn(), registry = new MenuRegistry(failed, 50)
+    let remove = () => {}
+    remove = registry.register({ id: 'self', target: 'extension', order: 0, resolve: () => { remove(); return new Promise<readonly MenuAction[]>(() => {}) } })
+    const menu = registry.resolve(target)
+    try {
+      await menu.ready
+      await vi.advanceTimersByTimeAsync(100)
+      expect(failed).not.toHaveBeenCalled()
+    } finally { registry.dispose(); vi.useRealTimers() }
+  })
+
+  it('settles readiness without a timeout when the registry is disposed inside resolve', async () => {
+    const failed = vi.fn(), registry = new MenuRegistry(failed)
+    registry.register({ id: 'self', target: 'extension', order: 0, resolve: () => { registry.dispose(); return new Promise<readonly MenuAction[]>(() => {}) } })
+    const menu = registry.resolve(target)
+    await menu.ready
+    expect(failed).not.toHaveBeenCalled()
+    registry.dispose()
+  })
+})

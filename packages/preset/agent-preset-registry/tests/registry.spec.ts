@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import AgentRegistry, { assembleContextFor } from '@deepseek-ai/dsh-agent'
 import { entryListProblem } from '../src/index.ts'
@@ -411,4 +411,51 @@ it('reports every process-global service published by a preset', async () => {
   } }
   await declare(ctx, { id: 'leaks', plugins: [{ name: 'cordis:leaks' }] })
   expect((await ctx.agentPresets.resolve('leaks')).broken).toContain('presetAlpha, presetZulu')
+})
+
+it('rejects a selection whose resolution outlasts the first prompt and leaves the live binding alone', async () => {
+  const ctx = await setup()
+  await declare(ctx, contribution('standard'))
+  await declare(ctx, contribution('minimal'))
+  const agent = await agentOn(ctx, 'selection-race')
+  const registry = ctx.agentPresets
+  const retain = registry['retain'].bind(registry)
+  let release!: () => void
+  const paused = new Promise<void>((resolve) => { release = resolve })
+  let entered!: () => void
+  const resolving = new Promise<void>((resolve) => { entered = resolve })
+  registry['retain'] = async (id?: string) => { entered(); const generation = await retain(id); await paused; return generation }
+  const pending = ctx.agentPresets.select(agent, 'minimal')
+  const outcome = expect(pending).rejects.toThrow('already started')
+  await resolving
+  agent.session.append('turn/start', { turn: 1 })
+  release()
+  await outcome
+  expect(ctx.agentPresets.composedPreset(agent.ctx)).toBe('standard')
+  expect(ctx.tools.schemas(agent).map(row => row.name)).toEqual(['standard'])
+  expect(agent.session.snapshotEvents().some(event => event.type === 'agent-preset/selected')).toBe(false)
+  expect(ctx.agentPresets.inspectCompositions()).toHaveLength(2)
+})
+
+it('restores the live binding and the old revision when the selection event cannot be appended', async () => {
+  const ctx = await setup()
+  await declare(ctx, contribution('standard'))
+  await declare(ctx, contribution('minimal'))
+  const agent = await agentOn(ctx, 'selection-append-failure')
+  let notified = 0
+  ctx.on('tools/change', () => { notified++ })
+  const append = agent.session.append.bind(agent.session) as (type: string, data: unknown) => unknown
+  const spy = vi.spyOn(agent.session, 'append').mockImplementation(((type: string, data: unknown) => {
+    if (type === 'agent-preset/selected') throw new Error('append failed')
+    return append(type, data)
+  }) as never)
+  await expect(ctx.agentPresets.select(agent, 'minimal')).rejects.toThrow('append failed')
+  expect(ctx.agentPresets.composedPreset(agent.ctx)).toBe('standard')
+  expect(ctx.tools.schemas(agent).map(row => row.name)).toEqual(['standard'])
+  expect(notified).toBe(0)
+  spy.mockRestore()
+  expect(await ctx.agentPresets.select(agent, 'minimal')).toBe('minimal')
+  expect(ctx.agentPresets.composedPreset(agent.ctx)).toBe('minimal')
+  expect(ctx.tools.schemas(agent).map(row => row.name)).toEqual(['minimal'])
+  expect(ctx.sessionProjections.checkpoint(agent.session).agentPreset?.val).toBe('minimal')
 })

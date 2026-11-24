@@ -61,10 +61,21 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+interface SourceEntry {
+  readonly kind: string
+  readonly id: string
+  readonly action: string
+  readonly source: HostObservable<boolean>
+  readonly listeners: Set<() => void>
+  last: boolean
+}
+
+const IDLE_SOURCE_LIMIT = 256
+
 /**
  * Snapshot owner for one Client generation. Sources are cached per
- * `(kind, id, action)` so Hook bindings keep their identity; each source
- * computes its boolean from the current snapshot.
+ * `(kind, id, action)` so Hook bindings keep their identity while subscribed;
+ * each source computes its boolean from the current snapshot.
  */
 export class ClientAccessState {
   private snapshot: AccessSnapshot = CLOSED
@@ -73,13 +84,14 @@ export class ClientAccessState {
   constructor(initial?: Baseline) {
     if (initial !== undefined) this.replace(initial)
   }
-  private readonly listeners = new Set<() => void>()
-  private readonly sources = new Map<string, HostObservable<boolean>>()
+  private readonly pinned = new Map<string, SourceEntry>()
+  private readonly live = new Set<SourceEntry>()
+  private readonly idle = new Map<string, SourceEntry>()
 
   /**
    * Answer for one action on the global resource.
    * @param action - endpoint action the caller may invoke.
-   * @returns identity-stable boolean source.
+   * @returns boolean source, identity-stable while subscribed.
    */
   global(action: string): HostObservable<boolean> {
     return this.cached(GLOBAL_KEY, '', action)
@@ -90,7 +102,7 @@ export class ClientAccessState {
    * @param kind - declared resource kind.
    * @param id - resource identity.
    * @param action - endpoint action the caller may invoke.
-   * @returns identity-stable boolean source.
+   * @returns boolean source, identity-stable while subscribed.
    */
   resource(kind: string, id: string, action: string): HostObservable<boolean> {
     return this.cached(kind, id, action)
@@ -155,23 +167,64 @@ export class ClientAccessState {
 
   private cached(kind: string, id: string, action: string): HostObservable<boolean> {
     const key = `${kind}\u0000${id}\u0000${action}`
-    let source = this.sources.get(key)
-    if (source === undefined) {
-      source = {
+    const known = this.pinned.get(key) ?? this.idle.get(key)
+    if (known !== undefined) {
+      if (this.idle.delete(key)) this.idle.set(key, known)
+      return known.source
+    }
+    const entry: SourceEntry = {
+      kind,
+      id,
+      action,
+      listeners: new Set(),
+      last: false,
+      source: {
         getSnapshot: () => answer(this.snapshot, kind, id, action),
         subscribe: (listener) => {
-          this.listeners.add(listener)
-          return () => { this.listeners.delete(listener) }
+          entry.listeners.add(listener)
+          if (entry.listeners.size === 1) this.pin(key, entry)
+          return () => {
+            entry.listeners.delete(listener)
+            if (entry.listeners.size === 0) this.release(key, entry)
+          }
         },
-      }
-      this.sources.set(key, source)
+      },
     }
-    return source
+    this.idle.set(key, entry)
+    this.trimIdle()
+    return entry.source
+  }
+
+  private pin(key: string, entry: SourceEntry): void {
+    entry.last = answer(this.snapshot, entry.kind, entry.id, entry.action)
+    this.live.add(entry)
+    if (this.idle.get(key) === entry) this.idle.delete(key)
+    if (!this.pinned.has(key)) this.pinned.set(key, entry)
+  }
+
+  private release(key: string, entry: SourceEntry): void {
+    this.live.delete(entry)
+    if (this.pinned.get(key) !== entry) return
+    this.pinned.delete(key)
+    if (!this.idle.has(key)) this.idle.set(key, entry)
+    this.trimIdle()
+  }
+
+  private trimIdle(): void {
+    for (const key of this.idle.keys()) {
+      if (this.idle.size <= IDLE_SOURCE_LIMIT) return
+      this.idle.delete(key)
+    }
   }
 
   private publish(next: AccessSnapshot): void {
     this.snapshot = next
-    for (const listener of [...this.listeners]) listener()
+    for (const entry of [...this.live]) {
+      const current = answer(next, entry.kind, entry.id, entry.action)
+      if (current === entry.last) continue
+      entry.last = current
+      for (const listener of [...entry.listeners]) listener()
+    }
   }
 }
 

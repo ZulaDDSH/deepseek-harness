@@ -195,6 +195,27 @@ describe('open and options load', () => {
     expect(attempts).toBe(2)
   })
 
+  it('a provider that throws before returning a promise fails the shell, retries, and ignores a late dismissal', async () => {
+    const report = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let attempts = 0
+    const { popup } = await readyPopup({
+      options: () => {
+        attempts += 1
+        if (attempts === 1) throw new Error('dependency missing')
+        return Promise.resolve(OPTIONS)
+      },
+    })
+    await Promise.resolve()
+    expect(popup.state.getSnapshot()).toMatchObject({ open: true, status: 'failed', error: 'dependency missing' })
+    popup.retry()
+    expect(popup.state.getSnapshot()).toMatchObject({ status: 'pending', error: null })
+    await Promise.resolve()
+    expect(popup.state.getSnapshot()).toMatchObject({ status: 'ready', options: OPTIONS })
+    popup.dispose()
+    expect(popup.state.getSnapshot().open).toBe(false)
+    report.mockRestore()
+  })
+
   it('retry is a no-op unless the options load failed', async () => {
     const { popup } = await readyPopup()
     popup.retry()

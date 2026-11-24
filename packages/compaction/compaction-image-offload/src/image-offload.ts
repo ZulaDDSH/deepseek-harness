@@ -44,3 +44,23 @@ export function offloadOldestImages(session: Session, sourceEventSeqs: readonly 
   session.append('image/offload', { targets })
   return true
 }
+
+export function restoreOffloadedImages(session: Session, sourceEventSeqs: readonly SessionSeq[] = session.surface.nodes): boolean {
+  const targets: ImageOffloadTarget[] = []
+  for (const seq of sourceEventSeqs) {
+    const event = session.eventAt(seq)
+    if (event?.type !== 'user/message' && event?.type !== 'tool/result') continue
+    const message = session.deriveEventMessage(event)
+    const imageIndexes: number[] = []
+    let imageIndex = 0
+    for (const block of message?.content ?? []) {
+      if (block.type !== 'image') continue
+      if (block.offloaded === true) imageIndexes.push(imageIndex)
+      imageIndex += 1
+    }
+    if (imageIndexes.length > 0) targets.push({ seq, imageIndexes })
+  }
+  if (targets.length === 0) return false
+  session.append('image/restore', { targets })
+  return true
+}

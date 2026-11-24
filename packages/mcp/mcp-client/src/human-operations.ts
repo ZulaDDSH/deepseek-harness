@@ -12,6 +12,8 @@ export interface McpHumanOperations {
   readonly env: Readonly<Record<string, string>>
 
   call(name: string, args: Record<string, JsonValue>, signal: AbortSignal): Promise<unknown>
+
+  redact?(text: string): string
 }
 
 declare module '@deepseek-ai/cordis' {

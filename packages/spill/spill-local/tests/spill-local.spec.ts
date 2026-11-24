@@ -265,6 +265,26 @@ describe('startup cleanup sweep', () => {
     expect(existsSync(fresh)).toBe(true)
   })
 
+  it('sweeps again in a long-lived process and stops the timer on disposal', async () => {
+    let sweeps = 0
+    class Ticking extends SweptStore {
+      protected override sweepIntervalMs(): number { return 20 }
+      protected override async gatherRoots(): Promise<SweepRoot[]> {
+        sweeps += 1
+        return [active(root)]
+      }
+    }
+    const ctx = new Context()
+    const fiber = await ctx.plugin(Ticking, { root, cleanupPeriodDays: 30 })
+    const deadline = Date.now() + 5000
+    while (sweeps < 3 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10))
+    expect(sweeps).toBeGreaterThanOrEqual(3)
+    await fiber.dispose()
+    const settled = sweeps
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(sweeps).toBe(settled)
+  })
+
   it('keeps a file exactly at the boundary (only strictly-older expires)', async () => {
     const dir = sessionDir(root, 'sess-1')
     mkdirSync(dir, { recursive: true })

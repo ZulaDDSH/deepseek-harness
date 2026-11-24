@@ -21,7 +21,7 @@ Use this package when a browser surface needs normalized provider quota or balan
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the package in a Host composition that also provides `ctx.credentials` and the Remote gateway. `listProviders()` reports every built-in provider and every registered source, set up or not, and `fetch(providerId)` reports whether that provider is configured and, if so, its normalized quota state; an unset built-in provider reports `Set up <name> in Settings > Models`. The credential itself is never returned. Concurrent reads share one pending request; completed and failed requests release it so later reads can retry.
+Mount the package in a Host composition that also provides `ctx.credentials` and the Remote gateway. `listProviders()` reports every built-in provider and every registered source, set up or not, and `fetch(providerId)` reports whether that provider is configured and, if so, its normalized quota state; an unset built-in provider reports `Set up <name> in Settings > Models`. The credential itself is never returned. Concurrent reads share one pending request; completed and failed requests release it so later reads can retry. A whole read, credential lookup included, is bounded by a 30-second deadline: on expiry the request signal given to the source is aborted, the caller gets an unavailable result (`Quota request timed out`), and the next read starts fresh. A pending read belongs to the source that started it: removing or replacing a registered source ends its pending read with `Quota source changed`, and a changed credential reference or record ends the pending read of the built-in provider that uses it with `Quota credential changed`.
 
 The built-in providers read DeepSeek account credits and OpenCode Go rolling quota windows. The DeepSeek credit provider is registered under the `deepseek-official` route id, so it merges with the connected official DeepSeek route instead of listing a second row; it reads `DEEPSEEK_API_KEY`, the credential reference the Models page writes. Deployment code can supply additional `QuotaProvider` entries through `QuotaControllerInternals`. Providers with their own authentication register a `QuotaSource` through `registerSource()` and retain its disposer through a Cordis effect; the source resolves and refreshes its own credentials.
 
@@ -42,6 +42,7 @@ No direct effect; quota reads happen outside model requests and do not alter reu
 
 <a id="known-limitations-and-deferred-work"></a>
 
+- A credential lookup or source step that ignores the abort signal keeps running in the background after the deadline; its late result is dropped. Registered account sources are invalidated by removal or replacement only, not by credential change events.
 - Provider APIs are queried on demand, and only fields required by the quota presentation are normalized; unsupported provider fields are not exposed.
 - A DeepSeek route configured with a custom `apiKeyEnv` is not followed; the quota reads `DEEPSEEK_API_KEY` or the pi-ai `deepseek` record.
 - The OpenAI Codex read (`https://chatgpt.com/backend-api/wham/usage`) is not a documented API and may change without notice. The OpenCode Go read (`https://opencode.ai/zen/go/v1/usage`) has not been checked against published documentation.

@@ -21,3 +21,7 @@ class JsonRpcError(HarnessError):
         self.code = code
         self.message = message
         self.data = data
+
+
+class NotificationOverflowError(HarnessError):
+    """Raised after the queued items of a notification or request queue that exceeded its bound."""

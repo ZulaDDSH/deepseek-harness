@@ -52,7 +52,7 @@ A round starts only at whole-agent idle and, when the subagent service is loaded
 
 ### After resume, fork, or unload
 
-Mounting the driver over an existing agent never arms a goal, and after session resume or fork an active goal stays disarmed until an explicit human-authorized resume — the driver never revives work on its own. Unloading the plugin cancels any in-flight round and ensures no later round starts.
+Mounting the driver over an existing agent never arms a goal, and after session resume or fork an active goal stays disarmed until an explicit human-authorized resume — the driver never revives work on its own. Unloading the plugin cancels any in-flight round and ensures no later round starts. A round that was admitted and then aborted by a host pause, a host cancel, or this unload is refunded through `ctx.goals.refundRound`, so only uninterrupted rounds consume the cap; failed rounds (provider error, token limit, persistence failure, agent disposal) keep their count.
 
 -----
 
@@ -122,7 +122,7 @@ These limits define when the driver is a poor fit or needs special care. They ar
 
 - **No independent evaluator** — the model-facing goal policy decides when evidence is sufficient for completion and whether a blocker is semantically unchanged; evaluator-backed certification remains deferred.
 - **Same-session execution only** — this package deliberately does not spawn a fresh agent, fork a session prefix, or implement Ralph-style independent attempts; that workflow belongs to its own plugin layer.
-- **Accepted-queue unload race** — Cordis plugin unload is asynchronous. A goal prompt already accepted by the agent inbox can begin and consume its round before unload starts; teardown then cancels the request, disarms the goal, and awaits quiescence. No later round starts.
+- **Accepted-queue unload race** — Cordis plugin unload is asynchronous. A goal prompt already accepted by the agent inbox can begin and count its round before unload starts; teardown then cancels the request, disarms the goal, awaits quiescence, and refunds that round when the turn ended aborted. A round whose message was not yet appended consumes nothing. No later round starts.
 - **Round cap, not resource budget** — token, currency, time, and provider quota policies remain independent. Their session events are not attributed to the goal message or mapped into goal blocker codes.
 - **No abnormal auto-retry** — transient provider and persistence failures require a later human-authorized resume rather than an implicit retry policy.
 

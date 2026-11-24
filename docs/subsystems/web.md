@@ -84,7 +84,7 @@ interface WebFetchRequest {
 }
 ```
 
-HTTP status is part of the fetched resource state, not automatically a failure: a successful network fetch of a `404`/`500` returns a `WebFetchResult` with the status code and a bounded decoded body. `url` is the final URL after allowed redirects. `WebError` is reserved for failures to safely retrieve or represent the resource.
+HTTP status is part of the fetched resource state, not automatically a failure: a successful network fetch of a `404`/`500` returns a `WebFetchResult` with the status code and a bounded decoded body. `url` is the requested URL; `finalUrl` is the URL after allowed redirects and `statusCode` the HTTP status, each `null` when the provider does not observe it. `WebError` is reserved for failures to safely retrieve or represent the resource.
 
 ```ts type-equiv
 /**
@@ -94,10 +94,9 @@ HTTP status is part of the fetched resource state, not automatically a failure: 
  * represent the resource.
  */
 interface WebFetchResult {
-  /** The final URL after allowed redirects (the request URL is in the request). */
   readonly url: string
-  /** HTTP status code of the fetched response. */
-  readonly statusCode: number
+  readonly finalUrl: string | null
+  readonly statusCode: number | null
   /** Decoded body, classified by content kind. */
   readonly body: WebFetchBody
   /** True when the provider capped the decoded body. */

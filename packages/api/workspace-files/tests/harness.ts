@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
+import { remoteErrorOf, type PeerId, type Principal, type RemoteInvocation } from '@deepseek-ai/dsh-typert-protocol'
 import { WorkspaceFiles, type Config, type WorkspaceFileScope } from '../src/index.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 
@@ -22,6 +22,18 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 function fileScope(workspaceRoot: string): WorkspaceFileScope {
   return { sessionId: brandString<SessionId>('s-test'), workspaceRoot }
 }
+
+function invocationOf(ctx: Context, principal: Principal): RemoteInvocation {
+  return {
+    request: { namespace: 'workspaceFiles', method: 'read', args: {} },
+    service: 'workspaceFiles',
+    peer: { id: 'peer-test' as PeerId, ctx, principal, interactions: 'none', signal: new AbortController().signal, dispose: async () => {} },
+    signal: new AbortController().signal,
+    uplink: <In>(): AsyncIterable<In> => ({ [Symbol.asyncIterator]: () => ({ next: async () => ({ done: true, value: undefined }) }) }),
+  }
+}
+
+export const viewer = { kind: 'share-viewer' as string } as Principal
 
 export const signal = (): AbortSignal => new AbortController().signal
 
@@ -38,7 +50,7 @@ export interface Harness {
    * The service under test, at the given caps. One per test: the service key is
    * global to the Context, so a second call with caps is a defect in the test.
    */
-  endpoint(caps?: Caps): WorkspaceFiles
+  endpoint(caps?: Caps, principal?: Principal): WorkspaceFiles
   dispose(): Promise<void>
 }
 
@@ -66,16 +78,18 @@ export async function openWorkspace(prefix: string): Promise<Harness> {
     outside,
     ctx,
     scope: fileScope(workspace),
-    endpoint: (caps) => {
+    endpoint: (caps, principal) => {
       if (service !== undefined) {
         if (caps !== undefined) throw new Error('the harness serves one WorkspaceFiles per test; hoist the endpoint')
         return service
       }
-      service = new WorkspaceFiles(ctx, {
+      service = new WorkspaceFiles(principal === undefined ? ctx : ctx.extend({ invocation: invocationOf(ctx, principal) }), {
         maxBytes: caps?.maxBytes ?? 1024 * 1024,
         maxFileBytes: caps?.maxFileBytes ?? 1024 * 1024,
         maxLines: caps?.maxLines ?? 5000,
         maxEntries: caps?.maxEntries ?? 2000,
+        confineReads: caps?.confineReads ?? true,
+        readRoots: caps?.readRoots ?? [],
         search: {
           maxResults: caps?.search?.maxResults ?? 512,
           maxEntries: caps?.search?.maxEntries ?? 100000,

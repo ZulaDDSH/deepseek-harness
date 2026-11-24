@@ -44,7 +44,7 @@ export function canonicalClientTimeZone(value: string): string | undefined {
   return resolved.kind === 'accepted' ? resolved.timeZone : undefined
 }
 
-export { Cron, CRON_SEARCH_HORIZON_YEARS } from './cron.ts'
+export { Cron, CRON_MAX_EXPRESSION_LENGTH, CRON_SEARCH_HORIZON_YEARS } from './cron.ts'
 export type { CronFields } from './cron.ts'
-export { RRule } from './rrule.ts'
+export { RRule, RRULE_MAX_LENGTH } from './rrule.ts'
 export type { RecurrenceOccurrence, RecurrenceRejection, RecurrenceResult } from './recurrence.ts'

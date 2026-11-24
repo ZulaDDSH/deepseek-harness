@@ -885,6 +885,26 @@ describe('ToolRuntime', () => {
     expect(result.content[0]).toMatchObject({ text: 'Error: needs approval' })
   })
 
+  it('preflight applies pre-execute policy to a derived call without running the tool', async () => {
+    const ctx = await setup()
+    let ran = 0
+    ctx.tools.register(defineTool({
+      name: 'echo', description: 'echo', parameters: { text: { type: 'string', required: true, description: 'text' } },
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute() { ran++; return Promise.resolve('ran') },
+    }))
+    ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> =>
+      (exec.name === 'echo' && (exec.arguments as { text: string }).text === 'bad'
+        ? { kind: 'deny', reason: 'denied by hook' }
+        : next()))
+    const input = { signal: testToolSignal, callId: brandString<ToolCallId>('pf'), name: 'echo' }
+    await expect(ctx.tools.preflight({ ...input, arguments: { text: 'ok' } })).resolves.toEqual({ allowed: true })
+    await expect(ctx.tools.preflight({ ...input, arguments: { text: 'bad' } })).resolves.toEqual({ allowed: false, reason: 'denied by hook' })
+    ctx.on('tools/pre-execute', async (): Promise<PreToolDecision> => ({ kind: 'ask', reason: 'needs approval' }))
+    await expect(ctx.tools.preflight({ ...input, arguments: { text: 'ok' } })).resolves.toMatchObject({ allowed: false, reason: 'needs approval' })
+    expect(ran).toBe(0)
+  })
+
   it('an ask decision with no reason degrades to deny with a default message', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
@@ -939,8 +959,33 @@ describe('ToolRuntime', () => {
       expect(seen).toHaveLength(1)
       expect(seen[0]).toMatchObject({
         agent, toolName: 'echo', callId: 'c1', reason: 'hook wants a human', displayReason: { en: 'Allow it?', zh: '允许吗？' },
+        operation: '{"text":"hi"}',
       })
       expect(seen[0]?.signal).toBe(controller.signal)
+    })
+
+    it('forwards a bounded operation summary with secret-named values redacted', async () => {
+      const ctx = await approvalSetup()
+      const seen: ApprovalRequest[] = []
+      ctx.on('approval/request', (req) => {
+        seen.push(req)
+        return Promise.resolve<ApprovalOutcome>('allowed-once')
+      })
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask', reason: 'r' }))
+
+      await executeToolFixture(ctx, {
+        signal: testToolSignal,
+        callId: brandString<ToolCallId>('c2'),
+        name: 'echo',
+        arguments: { text: 'x'.repeat(5000), apiKey: 'sk-live', nested: { Authorization: 'Bearer t' }, list: Array.from({ length: 100 }, (_, i) => i) },
+        agent: fakeAgent(),
+      })
+
+      const operation = seen[0]?.operation ?? ''
+      expect(operation.length).toBeLessThanOrEqual(1024 + 3)
+      expect(operation).not.toContain('sk-live')
+      expect(operation).toContain('"apiKey":"[redacted]"')
+      expect(seen[0]?.reason).toBe('r')
     })
 
     it('denies with the user-rejection reason on rejected', async () => {

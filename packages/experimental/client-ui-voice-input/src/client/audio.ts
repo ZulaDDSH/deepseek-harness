@@ -26,6 +26,10 @@ export function encodeWave(samples: Float32Array): Uint8Array<ArrayBuffer> {
   return bytes
 }
 
+export function recordingLimitSeconds(maxDurationSeconds: number, maxAudioBytes: number): number {
+  return Math.min(maxDurationSeconds, Math.max(0, maxAudioBytes - 44) / 32000)
+}
+
 /**
  * Encode the binary recording for the existing JSON Remote carrier.
  * @param bytes - complete recording.

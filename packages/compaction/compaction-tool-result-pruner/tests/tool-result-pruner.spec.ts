@@ -1,5 +1,5 @@
 import { imageOffloadProjection } from '@deepseek-ai/dsh-compaction-image-offload/projection'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { type ToolCallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
@@ -143,6 +143,28 @@ describe('ToolResultPruner content transform', () => {
     expect(prune.measureContent(result!)).toBeLessThanOrEqual(50)
     expect(result![0]).toMatchObject({ type: 'text' })
     expect((result![0] as { text: string }).text).not.toContain('\uFFFD')
+  })
+
+  it('measures and prunes large supplementary-plane text without code-point arrays', () => {
+    const prune = service()
+    const from = vi.spyOn(Array, 'from')
+    try {
+      const text = `a${'😀'.repeat(200_000)}z`
+      expect(prune.measureContent([{ type: 'text', text }])).toBe(200_002)
+      const result = prune.pruneContent([{ type: 'text', text }])
+      expect(result).toEqual([{
+        type: 'text',
+        text: `a${'😀'.repeat(3)}${PRUNE_MARKER}${'😀'.repeat(2)}z`,
+      }])
+      expect(from.mock.calls.filter(([input]) => typeof input === 'string' && input.length > 1000)).toEqual([])
+    } finally {
+      from.mockRestore()
+    }
+  })
+
+  it('counts a lone surrogate as one code point', () => {
+    expect(codePointLength('\uD83D')).toBe(1)
+    expect(codePointLength('\uDE00\uD83D😀')).toBe(3)
   })
 
   it('preserves non-text blocks and their relative ordering across removed text', () => {

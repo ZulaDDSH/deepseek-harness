@@ -7,6 +7,7 @@ import OTel from '@deepseek-ai/dsh-otel'
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, expectTypeOf, it, vi } from 'vitest'
+import { randomUUID } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import { once } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -860,4 +861,86 @@ it('does not upload a record whose redaction policy removes its canonical envelo
   } finally {
     await ctx.fiber.dispose()
   }
+})
+
+describe('OpenTelemetrySessionBackend feedback privacy', () => {
+  async function bootWith(url: string, redactSecrets?: boolean) {
+    const ctx = new Context()
+    ctx.plugin(OTel)
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(OpenTelemetrySessionBackend, {
+      mode: SessionTelemetryMode.FEEDBACK_ONLY,
+      exporter: { url },
+      ...(redactSecrets === undefined ? {} : { redactSecrets }),
+    })
+    return { ctx, fiber }
+  }
+
+  it('exports nothing for local-only feedback and withholds its text from a later release', async () => {
+    const { url, captures } = await mockCollector()
+    const { ctx, fiber } = await bootWith(url)
+    const session = ctx.sessions.create(brandString<SessionId>('local'), { meta: {} })
+    session.append('turn/start', { turn: 1 })
+    recordFeedback(session, { text: 'private remark', localOnly: true })
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(captures).toEqual([])
+    recordFeedback(session, { text: 'shared remark' })
+    await fiber.dispose()
+
+    const wire = JSON.stringify(captures)
+    expect(wire).not.toContain('private remark')
+    expect(wire).toContain('shared remark')
+    expect(eventTypes(captures)).toEqual(['turn/start', 'feedback/record', 'feedback/record'])
+  })
+
+  it('exports nothing for local-only message ratings and withdrawals and withholds their notes from a later release', async () => {
+    const { url, captures } = await mockCollector()
+    const { ctx, fiber } = await bootWith(url)
+    const session = ctx.sessions.create(brandString<SessionId>('local-rating'), { meta: {} })
+    session.append('turn/start', { turn: 1 })
+    const item = (note: string) => ({ messageId: 'm1', rating: 'negative', note, version: randomUUID(), createdAt: 1, updatedAt: 1 })
+    session.append('feedback/message-put', { sessionId: session.id, item: item('private rating note'), localOnly: true } as never)
+    session.append('feedback/message-delete', { sessionId: session.id, messageId: 'm1', localOnly: true } as never)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(captures).toEqual([])
+    session.append('feedback/message-put', { sessionId: session.id, item: item('shared rating note') } as never)
+    await fiber.dispose()
+
+    const wire = JSON.stringify(captures)
+    expect(wire).not.toContain('private rating note')
+    expect(wire).toContain('shared rating note')
+    expect(eventTypes(captures)).toEqual(['turn/start', 'feedback/message-put', 'feedback/message-delete', 'feedback/message-put'])
+  })
+
+  it('publishes only the collector origin as the destination, and none when disabled', async () => {
+    const { ctx, fiber } = await bootWith(`http://user:${'pass' + 'word'}@collector.example.test:4318/v1/logs?key=abc`)
+    expect(ctx.sessionTelemetry.sharing).toBe('feedback-only')
+    expect(ctx.sessionTelemetry.destination).toBe('http://collector.example.test:4318')
+    await fiber.dispose()
+    const off = new Context()
+    off.plugin(OTel)
+    await off.plugin(SessionStore)
+    const disabled = await off.plugin(OpenTelemetrySessionBackend, { mode: SessionTelemetryMode.DISABLED, exporter: { url: 'https://collector.example.test/v1/logs' } })
+    expect(off.sessionTelemetry.sharing).toBe('disabled')
+    expect(off.sessionTelemetry.destination).toBeUndefined()
+    await disabled.dispose()
+  })
+
+  it('scrubs recognisable secrets from exported bodies unless redactSecrets is off', async () => {
+    const secret = `sk${'-'}abcdefghijklmnopqrstuvwx`
+    const run = async (redactSecrets?: boolean): Promise<string> => {
+      const { url, captures } = await mockCollector()
+      const { ctx, fiber } = await bootWith(url, redactSecrets)
+      const session = ctx.sessions.create(brandString<SessionId>('secret'), { meta: {} })
+      recordFeedback(session, { text: `my key is ${secret} and ${'pass' + 'word'}=hunter22 via https://bob:pw12345@host/x` })
+      await fiber.dispose()
+      return JSON.stringify(captures)
+    }
+    const redacted = await run()
+    expect(redacted).not.toContain(secret)
+    expect(redacted).not.toContain('hunter22')
+    expect(redacted).not.toContain('pw12345')
+    expect(redacted).toContain('[redacted]')
+    expect(await run(false)).toContain(secret)
+  })
 })

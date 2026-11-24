@@ -9,6 +9,7 @@ export const zh = {
   allow: '允许',
   allowOnce: '允许一次',
   allowAlways: '始终允许',
+  'detail.unavailable': '无法加载此操作的详细信息。仅在信任上方所述请求时才批准。',
 } satisfies Record<string, string>
 
 /** Approval dictionary key union. */
@@ -23,6 +24,7 @@ export const en = {
   allow: 'Allow',
   allowOnce: 'Allow once',
   allowAlways: 'Always allow',
+  'detail.unavailable': 'The details of this operation could not be loaded. Approve only if you trust the request as described above.',
 } satisfies Record<ApprovalKey, string>
 
 /** Japanese copy, checked against the English keys. */
@@ -34,6 +36,7 @@ export const ja = {
   'allow': '許可',
   'allowOnce': '1 回だけ許可',
   'allowAlways': '常に許可',
+  'detail.unavailable': 'この操作の詳細を読み込めませんでした。上の説明どおりと信頼できる場合のみ許可してください。',
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
@@ -45,6 +48,7 @@ export const es = {
   allow: 'Permitir',
   allowOnce: 'permitir una vez',
   allowAlways: 'Permitir siempre',
+  'detail.unavailable': 'No se pudieron cargar los detalles de esta operación. Aprueba solo si confías en la solicitud tal como se describe arriba.',
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
@@ -56,6 +60,7 @@ export const fr = {
   allow: 'Autoriser',
   allowOnce: 'Autoriser une fois',
   allowAlways: 'Toujours autoriser',
+  'detail.unavailable': "Les détails de cette opération n'ont pas pu être chargés. N'approuvez que si vous faites confiance à la demande telle que décrite ci-dessus.",
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
@@ -67,6 +72,7 @@ export const de = {
   allow: 'Erlauben',
   allowOnce: 'Einmal zulassen',
   allowAlways: 'Immer zulassen',
+  'detail.unavailable': 'Die Einzelheiten dieses Vorgangs konnten nicht geladen werden. Genehmigen Sie nur, wenn Sie der oben beschriebenen Anfrage vertrauen.',
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
@@ -78,6 +84,7 @@ export const ru = {
   allow: 'Разрешить',
   allowOnce: 'Разрешить один раз',
   allowAlways: 'Всегда разрешать',
+  'detail.unavailable': 'Не удалось загрузить сведения об этой операции. Одобряйте, только если доверяете запросу в том виде, как он описан выше.',
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
@@ -89,4 +96,5 @@ export const pt = {
   allow: 'Permitir',
   allowOnce: 'Permitir uma vez',
   allowAlways: 'Sempre permitir',
+  'detail.unavailable': 'Não foi possível carregar os detalhes desta operação. Aprove somente se confiar na solicitação conforme descrita acima.',
 } satisfies Record<keyof typeof en, string>

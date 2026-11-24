@@ -95,7 +95,7 @@ Every mutation is a durable `goal/change` session event whose payload is either 
 interface GoalSnapshotChangeMeta {
   readonly kind: 'goal/change'
   readonly version: 1
-  readonly operation: Exclude<GoalOperation, 'clear'>
+  readonly operation: Exclude<GoalOperation, 'clear' | 'refund'>
   readonly goal: GoalSnapshot
   readonly roundsStarted: number
   readonly createdAt: number
@@ -252,6 +252,13 @@ block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView
  * @returns the tombstone ref whose revision is one past the cleared snapshot.
  */
 @Remote('clear') clear(agent: Agent, ref: GoalRef): GoalRef
+
+/** Durably refund the admitted round the host or an unload aborted, keeping the goal's phase and activation. Refuses a stale ref, a goal with no admitted round and a completed goal.
+ * @param agent - Agent that owns the goal.
+ * @param ref - The goal reference the caller last observed.
+ * @returns The goal view after the refund.
+ */
+refundRound(agent: Agent, ref: GoalRef): GoalView
 
 /**
  * Create one Goal through the remote boundary.

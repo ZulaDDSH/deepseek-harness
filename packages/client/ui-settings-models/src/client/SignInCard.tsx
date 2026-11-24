@@ -38,6 +38,7 @@ type SignInPhase =
   | { readonly status: 'running'; readonly attempt: string; readonly notices: readonly AuthorizationNotice[] }
   | { readonly status: 'failed'; readonly message: string }
   | { readonly status: 'cancelled' }
+  | { readonly status: 'interrupted' }
 
 /** Props of {@link SignInCard}. */
 export interface SignInCardProps {
@@ -71,6 +72,8 @@ export function SignInCard(props: SignInCardProps): ReactNode {
   const answerId = useId()
   const [entry, setEntry] = useState<AuthorizationEntryView | null>(null)
   const [loaded, setLoaded] = useState(false)
+  const [loadFailure, setLoadFailure] = useState<string | undefined>(undefined)
+  const loadSequenceRef = useRef(0)
   const [phase, setPhase] = useState<SignInPhase>({ status: 'idle' })
   const [question, setQuestion] = useState<OpenQuestion | null>(null)
   const [answerFailure, setAnswerFailure] = useState<string | undefined>(undefined)
@@ -89,9 +92,16 @@ export function SignInCard(props: SignInCardProps): ReactNode {
    * reaches a card that is already mounted.
    */
   const reloadEntry = useCallback(async (): Promise<void> => {
-    const flows = await operations.list()
-    if (!mountedRef.current) return
-    setEntry(flows.find(flow => flow.key.endsWith(`/${provider}`)) ?? null)
+    const sequence = ++loadSequenceRef.current
+    try {
+      const flows = await operations.list()
+      if (!mountedRef.current || sequence !== loadSequenceRef.current) return
+      setEntry(flows.find(flow => flow.key.endsWith(`/${provider}`)) ?? null)
+      setLoadFailure(undefined)
+    } catch (error: unknown) {
+      if (!mountedRef.current || sequence !== loadSequenceRef.current) return
+      setLoadFailure(error instanceof Error ? error.message : String(error))
+    }
     setLoaded(true)
   }, [operations, provider])
 
@@ -159,6 +169,12 @@ export function SignInCard(props: SignInCardProps): ReactNode {
       onSignedIn?.()
       return
     }
+    if (outcome.kind === 'interrupted') {
+      setPhase({ status: 'interrupted' })
+      await reloadEntry()
+      onSignedIn?.()
+      return
+    }
     setPhase(outcome.kind === 'cancelled' ? { status: 'cancelled' } : { status: 'failed', message: outcome.message })
   }, [entry, operations, onSignedIn, reloadEntry])
 
@@ -203,7 +219,19 @@ export function SignInCard(props: SignInCardProps): ReactNode {
   if (!loaded) return null
   // A route with no registered flow authenticates through its API key, which
   // the surrounding editor already offers.
-  if (entry === null) return null
+  if (entry === null) {
+    if (loadFailure === undefined) return null
+    return (
+      <div className={styles['signInCard']}>
+        <p className={styles['signInError']}>{t('signInLoadFailed', { message: loadFailure })}</p>
+        <div className={styles['signInActions']}>
+          <button type="button" className={styles['secondaryButton']} onClick={() => { void reloadEntry() }}>
+            {t('signInLoadRetry')}
+          </button>
+        </div>
+      </div>
+    )
+  }
   // The warning is about a stored record, so it waits for a grant this borrowed flow produced.
   const borrowed = entry.kind === 'grant' ? entry.borrowedFrom : undefined
   const running = phase.status === 'running'
@@ -309,6 +337,7 @@ export function SignInCard(props: SignInCardProps): ReactNode {
         <p className={styles['signInError']}>{t('signInFailed', { message: phase.message })}</p>
       ) : null}
       {phase.status === 'cancelled' ? <p className={styles['signInHint']}>{t('signInCancelled')}</p> : null}
+      {phase.status === 'interrupted' ? <p className={styles['signInError']}>{t('signInInterrupted')}</p> : null}
 
       {confirming && !running ? (
         <div className={styles['signInNotice']}>
@@ -354,7 +383,7 @@ export function SignInCard(props: SignInCardProps): ReactNode {
           ) : (
             <>
               <button type="button" className={styles['primaryButton']} onClick={begin}>
-                {phase.status === 'failed' || phase.status === 'cancelled'
+                {phase.status === 'failed' || phase.status === 'cancelled' || phase.status === 'interrupted'
                   ? t('signInRetry')
                   : t(granted ? 'signInAgain' : 'signIn')}
               </button>

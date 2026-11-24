@@ -13,6 +13,7 @@ import * as WorkspaceChanges from '../src/index.ts'
 import { changes, endTurn, git, mutate, scratchDir, settle, startTurn, toolCall } from './support.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { sessionDirectory } from '../src/store.ts'
+import { GitRunner } from '../src/git.ts'
 import * as Store from '../src/store.ts'
 
 // These tests spawn real git children and can exceed the default budget under load.
@@ -76,12 +77,15 @@ describe('workspace-changes in a repository', () => {
     ctx.provide('workspaceRegistry', { get: () => ({ path }) } as never)
     const status = await ctx.workspaceChanges.status(workspaceId, signal)
     expect(status?.files).toContainEqual(expect.objectContaining({ path: 'a.txt' }))
-    const index = status!.files.findIndex(file => file.path === 'a.txt')
-    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, index, signal)).toMatchObject({ kind: 'text', path: 'a.txt' })
-    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, status!.files.length, signal)).toBeUndefined()
+    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, 'a.txt', signal)).toMatchObject({ kind: 'text', path: 'a.txt' })
+    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, 'missing.txt', signal)).toBeUndefined()
+    await writeFile(join(cwd, '0-first.txt'), 'new\n')
+    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, 'a.txt', signal)).toMatchObject({ kind: 'text', path: 'a.txt' })
+    await rm(join(cwd, 'a.txt'))
+    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, 'a.txt', signal)).toMatchObject({ kind: 'text', path: 'a.txt', after: false })
     path = outside
     expect(await ctx.workspaceChanges.status(workspaceId, signal)).toBeUndefined()
-    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, 0, signal)).toBeUndefined()
+    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, 'a.txt', signal)).toBeUndefined()
   })
 
   it('reports retention failures without failing plugin load', async () => {
@@ -93,6 +97,119 @@ describe('workspace-changes in a repository', () => {
     await vi.waitFor(() => { expect(warn).toHaveBeenCalledWith(expect.stringContaining('retention pruning failed')) })
     const session = ctx.sessions.create(SessionId('unrecorded'))
     ctx.emit('session/disposed', session)
+  })
+
+  it('announces no card when the record cannot be written', async () => {
+    const cwd = await repository()
+    const { ctx } = await boot()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const write = vi.spyOn(Store, 'writeRecord').mockRejectedValueOnce(new Error('no space left'))
+    const session = ctx.sessions.create(brandString<SessionId>('full-disk'), { meta: { cwd } })
+    startTurn(session, 1)
+    await settle(ctx, session)
+    await writeFile(join(cwd, 'one.txt'), 'x\n')
+    toolCall(session, 1, 'bash', { command: 'x' })
+    endTurn(session, 1)
+    await settle(ctx, session)
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(await changes(ctx, session)).toEqual([])
+    expect(await ctx.workspaceChanges.summary(session.id, session.seq - 1)).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no space left'))
+    startTurn(session, 2)
+    await settle(ctx, session)
+    await writeFile(join(cwd, 'two.txt'), 'y\n')
+    toolCall(session, 2, 'bash', { command: 'y' })
+    endTurn(session, 2)
+    await settle(ctx, session)
+    expect(await ctx.workspaceChanges.summary(session.id, announcedSeq(session))).toMatchObject({ turn: 2 })
+  })
+
+  it('stores the record under the sequence of the event that announces it', async () => {
+    const cwd = await repository()
+    const { ctx, root } = await boot()
+    const session = ctx.sessions.create(brandString<SessionId>('ordered'), { meta: { cwd } })
+    startTurn(session, 1)
+    await settle(ctx, session)
+    await writeFile(join(cwd, 'one.txt'), 'x\n')
+    toolCall(session, 1, 'bash', { command: 'x' })
+    const write = vi.spyOn(Store, 'writeRecord')
+    endTurn(session, 1)
+    await settle(ctx, session)
+    const seq = announcedSeq(session)
+    expect(write.mock.calls.map(call => call[1])).toEqual([seq])
+    expect(await readdir(join(root, 'ordered', 'records'))).toEqual([`${String(seq)}.json`])
+  })
+
+  it('rewrites the record under the new sequence when the log moves during the write', async () => {
+    const cwd = await repository()
+    const { ctx, root } = await boot()
+    const session = ctx.sessions.create(brandString<SessionId>('moving'), { meta: { cwd } })
+    startTurn(session, 1)
+    await settle(ctx, session)
+    await writeFile(join(cwd, 'one.txt'), 'x\n')
+    toolCall(session, 1, 'bash', { command: 'x' })
+    const original = Store.writeRecord
+    let moved = false
+    const write = vi.spyOn(Store, 'writeRecord').mockImplementation(async (directory, seq, record) => {
+      await original(directory, seq, record)
+      if (!moved) {
+        moved = true
+        startTurn(session, 2)
+      }
+    })
+    endTurn(session, 1)
+    await settle(ctx, session)
+    const seq = announcedSeq(session)
+    expect(write.mock.calls).toHaveLength(2)
+    expect(write.mock.calls[1]?.[1]).toBe(seq)
+    expect(await readdir(join(root, 'moving', 'records'))).toEqual([`${String(seq)}.json`])
+    expect(await ctx.workspaceChanges.summary(session.id, seq)).toMatchObject({ turn: 1 })
+  })
+
+  it('marks a card incomplete when a snapshot skipped a path', async () => {
+    const cwd = await repository()
+    const { ctx } = await boot()
+    const run = GitRunner.prototype.run
+    vi.spyOn(GitRunner.prototype, 'run').mockImplementation(async function (this: GitRunner, args, options) {
+      const result = await run.call(this, args, options)
+      if (args[0] !== 'add') return result
+      return { ...result, exitCode: 1, stderr: "error: unable to index file 'locked.txt'\n" }
+    })
+    const session = ctx.sessions.create(brandString<SessionId>('partial'), { meta: { cwd } })
+    startTurn(session, 1)
+    await settle(ctx, session)
+    toolCall(session, 1, 'bash', { command: 'x' })
+    endTurn(session, 1)
+    await settle(ctx, session)
+    expect(await ctx.workspaceChanges.summary(session.id, announcedSeq(session)))
+      .toMatchObject({ total: 0, files: [], incomplete: { paths: ['locked.txt'] } })
+  })
+
+  it('never prunes the directory of a Session whose recorder is live', async () => {
+    const cwd = await repository()
+    const { ctx, root } = await boot({ retentionSessions: 1 })
+    const prune = vi.spyOn(Store, 'pruneRoot')
+    const record = async (id: string, file: string, turn: number): Promise<Session> => {
+      const session = ctx.sessions.create(brandString<SessionId>(id), { meta: { cwd } })
+      startTurn(session, turn)
+      await settle(ctx, session)
+      await writeFile(join(cwd, file), 'x\n')
+      toolCall(session, turn, 'bash', { command: 'x' })
+      endTurn(session, turn)
+      await settle(ctx, session)
+      return session
+    }
+    const first = await record('first', 'one.txt', 1)
+    await new Promise<void>(resolve => setTimeout(resolve, 50))
+    await record('second', 'two.txt', 1)
+    await Promise.all(prune.mock.results.map(result => result.value))
+    expect(await readdir(root)).toEqual(['first', 'second'])
+    const seq = announcedSeq(first)
+    expect(await ctx.workspaceChanges.diff(first.id, seq, 0, signal)).toMatchObject({ kind: 'text' })
+    ctx.emit('session/disposed', first)
+    await record('third', 'three.txt', 1)
+    await Promise.all(prune.mock.results.map(result => result.value))
+    expect(await readdir(root)).not.toContain('first')
   })
 
   it.each([
@@ -565,7 +682,7 @@ describe('workspace-changes without git', () => {
     vi.spyOn(ctx.subprocess, 'resolveExecutable').mockRejectedValue(new Error('missing git'))
     ctx.provide('workspaceRegistry', { get: () => ({ path: '/unused' }) } as never)
     expect(await ctx.workspaceChanges.status('workspace' as WorkspaceId, signal)).toBeUndefined()
-    expect(await ctx.workspaceChanges.workspaceDiff('workspace' as WorkspaceId, 0, signal)).toBeUndefined()
+    expect(await ctx.workspaceChanges.workspaceDiff('workspace' as WorkspaceId, 'a.txt', signal)).toBeUndefined()
   })
   it('summarizes file-tool edits only, even inside a repository, and reports the absence once', async () => {
     const cwd = await repository()

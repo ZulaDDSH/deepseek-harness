@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { TerminalView, TerminalViewState } from '@deepseek-ai/dsh-api-terminal-controller/client'
@@ -97,6 +97,34 @@ it('reports an exited CLI with its exit code and keeps the screen', () => {
   mount({ phase: 'connected', writable: true, environment, info: { ...cliInfo, state: 'exited', exitCode: 0 } })
   expect(screen.getByRole('status').textContent).toContain('0')
   expect(fake.terminals).toHaveLength(1)
+})
+
+it('offers Take control for a read-only running attachment', () => {
+  const { model } = mount({ phase: 'connected', writable: false, environment, info: cliInfo })
+  expect(screen.getByRole('status').textContent).toContain(en.readonly)
+  fireEvent.click(screen.getByRole('button', { name: en.control }))
+  expect(model.connect).toHaveBeenCalledOnce()
+  expect(model.refresh).not.toHaveBeenCalled()
+})
+
+it('offers Reconnect for a known process whose attachment failed or dropped', () => {
+  const { model, state } = mount({ phase: 'failed', writable: false, environment, info: cliInfo, error: 'attachment ended' })
+  fireEvent.click(screen.getByRole('button', { name: en.reconnect }))
+  expect(model.connect).toHaveBeenCalledOnce()
+  act(() => { state.set({ phase: 'disconnected', writable: false, environment, info: cliInfo }) })
+  fireEvent.click(screen.getByRole('button', { name: en.reconnect }))
+  expect(model.connect).toHaveBeenCalledTimes(2)
+  expect(screen.getByRole('status').textContent).toContain(en.disconnected)
+})
+
+it('offers Retry after an initial failure and never offers recovery for an exited process', () => {
+  const { model, state } = mount({ phase: 'failed', writable: false, environment, error: 'start failed' })
+  fireEvent.click(screen.getByRole('button', { name: en.retry }))
+  expect(model.refresh).toHaveBeenCalledOnce()
+  expect(model.connect).not.toHaveBeenCalled()
+  act(() => { state.set({ phase: 'failed', writable: false, environment, info: { ...cliInfo, state: 'exited', exitCode: 1 } }) })
+  expect(screen.queryByRole('button', { name: en.reconnect })).toBeNull()
+  expect(screen.queryByRole('button', { name: en.retry })).toBeNull()
 })
 
 it('writes to the PTY only from the terminal input handler', () => {

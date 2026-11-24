@@ -5,3 +5,9 @@
   min-width: 0;
   min-height: 0;
 }
+
+.failure {
+  padding: 12px;
+  color: var(--danger, #c0392b);
+  overflow-wrap: anywhere;
+}

@@ -236,6 +236,7 @@ export async function compactSurfaceRegion(
     : assertSelectedSpanStable
   let failure: TransactionFailure | undefined
   let flushFailure: unknown
+  let mutated = false
   let result: CompactionResult | undefined
   let closed = false
   let closing = false
@@ -255,6 +256,7 @@ export async function compactSurfaceRegion(
     if (options.owner === null) signal?.throwIfAborted()
     assertStable(dependencies, session, summarized)
     stage = 'commit'
+    mutated = true
     const pending = commitCompactionBody(session, startEvent, summarized)
     closing = true
     const endEvent = session.append('compaction/end', lifecycle)
@@ -281,7 +283,7 @@ export async function compactSurfaceRegion(
     }
   }
 
-  if (options.owner === null) signal?.throwIfAborted()
+  if (options.owner === null && !mutated) signal?.throwIfAborted()
   if (failure !== undefined) {
     if (options.owner === null) throwManualFailure(failure)
     throw failure.error

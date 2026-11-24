@@ -10,18 +10,21 @@ import type { Transport } from '@modelcontextprotocol/client'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { createScope } from '@deepseek-ai/dsh-scope'
+import type { McpResourceProvider } from '@deepseek-ai/dsh-mcp-resources'
+import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 
 // ---- Mock MCP SDK ----
 
 // vi.mock factories are hoisted above every import/const, so the mock fns and
 // class must be created inside vi.hoisted to exist when the factories run.
-const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotificationHandler, MockClient } = vi.hoisted(() => {
+const { mockConnect, mockClose, mockListTools, mockCallTool, mockReadResource, mockSetNotificationHandler, MockClient } = vi.hoisted(() => {
   const mockConnect = vi.fn<() => Promise<void>>()
   const mockClose = vi.fn<() => Promise<void>>()
   const mockListTools = vi.fn<(_params?: Record<string, unknown>) => Promise<unknown>>()
   const mockCallTool = vi.fn<(
     _params?: Record<string, unknown>, _options?: unknown,
   ) => Promise<unknown>>()
+  const mockReadResource = vi.fn<(_params?: Record<string, unknown>) => Promise<unknown>>()
   const mockSetNotificationHandler = vi.fn()
   class MockClient {
     transport: Transport | undefined
@@ -36,13 +39,14 @@ const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotification
     close = mockClose
     listTools = mockListTools
     callTool = mockCallTool
+    readResource = mockReadResource
     constructor(_info: unknown, options: { listChanged: { tools: { onChanged: () => void } } }) {
       mockSetNotificationHandler('notifications/tools/list_changed', options.listChanged.tools.onChanged)
     }
-    getServerCapabilities = () => ({ tools: {} })
+    getServerCapabilities = () => ({ tools: {}, resources: {} })
     getInstructions(): string | undefined { return undefined }
   }
-  return { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotificationHandler, MockClient }
+  return { mockConnect, mockClose, mockListTools, mockCallTool, mockReadResource, mockSetNotificationHandler, MockClient }
 })
 
 vi.mock('@modelcontextprotocol/client', async importOriginal => ({
@@ -478,6 +482,59 @@ describe('apply (plugin lifecycle)', () => {
     handler()
 
     await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__updated')).toBeDefined() })
+  })
+
+  it('coalesces a notification burst during a stalled listing into one rerun that reads the final list', async () => {
+    await apply(ctx, stdioConfig)
+    const initialCalls = mockListTools.mock.calls.length
+    const stalled = Promise.withResolvers<unknown>()
+    mockListTools.mockReturnValueOnce(stalled.promise)
+    const handler = mockSetNotificationHandler.mock.calls[0]![1] as () => void
+
+    for (let n = 0; n < 200; n++) handler()
+    await sleep(20)
+    expect(mockListTools).toHaveBeenCalledTimes(initialCalls + 1)
+
+    mockListTools.mockResolvedValue({ tools: [{ name: 'final', inputSchema: { type: 'object' } }], nextCursor: undefined })
+    stalled.resolve({ tools: [{ name: 'stale', inputSchema: { type: 'object' } }], nextCursor: undefined })
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__final')).toBeDefined() })
+    await sleep(400)
+
+    expect(mockListTools).toHaveBeenCalledTimes(initialCalls + 2)
+    expect(ctx.tools.get('mcp__srv__stale')).toBeUndefined()
+  })
+
+  describe('resource read size bound', () => {
+    async function connectProvider(): Promise<McpResourceProvider> {
+      let provider: McpResourceProvider | undefined
+      ctx.provide('mcpResources')
+      ctx.set('mcpResources', { register: (_server: string, registered: McpResourceProvider) => { provider = registered; return () => {} } } as never)
+      await apply(ctx, stdioConfig)
+      return provider!
+    }
+    const exec = { signal: new AbortController().signal } as ToolExecution
+
+    it('forwards a read under the limit unchanged', async () => {
+      const provider = await connectProvider()
+      const small = { contents: [{ uri: 'docs://a', text: 'hello', blob: 'AAAA' }] }
+      mockReadResource.mockResolvedValue(small)
+      await expect(provider.request({ method: 'resources/read', uri: 'docs://a' }, exec)).resolves.toEqual(small)
+    })
+
+    it('rejects oversized text before it is forwarded', async () => {
+      const provider = await connectProvider()
+      mockReadResource.mockResolvedValue({ contents: [{ uri: 'docs://big', text: 'x'.repeat(9 * 1024 * 1024) }] })
+      await expect(provider.request({ method: 'resources/read', uri: 'docs://big' }, exec))
+        .rejects.toMatchObject({ code: 'MCP_RESOURCE_TOO_LARGE', message: expect.stringContaining('docs://big') })
+    })
+
+    it('rejects an oversized base64 blob, counting every content item', async () => {
+      const provider = await connectProvider()
+      const half = 'A'.repeat(5 * 1024 * 1024)
+      mockReadResource.mockResolvedValue({ contents: [{ uri: 'docs://bin', blob: half }, { uri: 'docs://bin', blob: half }] })
+      await expect(provider.request({ method: 'resources/read', uri: 'docs://bin' }, exec))
+        .rejects.toMatchObject({ code: 'MCP_RESOURCE_TOO_LARGE' })
+    })
   })
 
   it('keeps the previous generation when a re-sync fails', async () => {

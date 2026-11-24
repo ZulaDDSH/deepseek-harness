@@ -5,6 +5,7 @@
  * no working tree is created, so no checkout filter, LFS download, or symbolic link takes effect.
  */
 import { createHash, getHashes } from 'node:crypto'
+import { gunzipSync } from 'node:zlib'
 import { execFile } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -24,7 +25,10 @@ export interface FetchLimits {
   readonly timeoutMs: number
   /** Largest npm tarball accepted, in bytes, both compressed and unpacked. */
   readonly maxTarballBytes: number
+  readonly maxMetadataBytes?: number
 }
+
+const DEFAULT_MAX_METADATA_BYTES = 64 * 1024 * 1024
 
 /** The registry document of one npm package; only the fields the generator reads are typed. */
 export interface Packument {
@@ -52,7 +56,24 @@ export function cacheKey(value: string): string {
 export async function npmPackument(registry: string, name: string, limits: FetchLimits): Promise<Packument> {
   const response = await fetch(new URL(name.replace('/', '%2f'), registry), { signal: AbortSignal.timeout(limits.timeoutMs) })
   if (!response.ok) throw new Error(`${name}: registry answered HTTP ${response.status}`)
-  return await response.json() as Packument
+  return await readJsonBounded(response, name, limits.maxMetadataBytes ?? DEFAULT_MAX_METADATA_BYTES) as Packument
+}
+
+export async function readJsonBounded(response: Response, label: string, maxBytes: number): Promise<unknown> {
+  const tooLarge = () => new Error(`${label}: response exceeds ${maxBytes} bytes`)
+  if (Number(response.headers.get('content-length')) > maxBytes) {
+    await response.body?.cancel()
+    throw tooLarge()
+  }
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for await (const chunk of (response.body ?? []) as AsyncIterable<Uint8Array>) {
+    total += chunk.length
+    if (total > maxBytes) throw tooLarge()
+    chunks.push(chunk)
+  }
+  const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  return parsed
 }
 
 /** Whether `bytes` match one supported hash of a subresource-integrity string. */
@@ -69,6 +90,13 @@ function unpack(bytes: Uint8Array, label: string, maxBytes: number): Promise<Pac
     const files = new Map<string, FileEntry>()
     let total = 0
     const parser = new Parser({ strict: true })
+    let tar: Buffer
+    try {
+      tar = gunzipSync(bytes, { maxOutputLength: maxBytes })
+    } catch (error) {
+      reject(new Error(`${label}: ${(error as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE' ? `unpacked tarball exceeds ${maxBytes} bytes` : (error as Error).message}`))
+      return
+    }
     parser.on('entry', (entry: ReadEntry) => {
       const path = PackageFiles.resolve('', entry.path.split('/').slice(1).join('/'))
       if (entry.type !== 'File' || path === undefined || path === '' || path.split('/').includes('node_modules')) {
@@ -88,7 +116,7 @@ function unpack(bytes: Uint8Array, label: string, maxBytes: number): Promise<Pac
     })
     parser.on('error', (error: Error) => { reject(new Error(`${label}: ${error.message}`)) })
     parser.on('end', () => { resolve(new PackageFiles(files)) })
-    parser.end(Buffer.from(bytes))
+    parser.end(tar)
   })
 }
 

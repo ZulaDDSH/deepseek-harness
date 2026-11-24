@@ -19,7 +19,7 @@ export class SessionControlController {
 
   /** @param ctx - Host context carrying live Agent and projection services. */
   constructor(private readonly ctx: Context) {
-    ctx.sessionProjections.onEventChanged((session, changes, seq) => {
+    ctx.sessionProjections.onAppendEventChanged((session, changes, seq) => {
       this.broadcast({
         type: 'projection',
         sessionId: session.id,

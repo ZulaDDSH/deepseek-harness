@@ -637,6 +637,43 @@ describe('endpoint interrogation', () => {
     })
   })
 
+  it('drops a discovery answer for an endpoint the form no longer shows', async () => {
+    let release: (value: ReturnType<typeof ok>) => void = () => undefined
+    const discover = vi.fn((_ns: string, _request: unknown, _signal?: AbortSignal) => new Promise<ReturnType<typeof ok>>((resolve) => { release = resolve }))
+    await mountSection({ discover })
+    openEditor('openai')
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://a.example/v1' } })
+    fireEvent.click(screen.getByText(en.fetchModels))
+    await waitFor(() => { expect(discover).toHaveBeenCalled() })
+    const signal = discover.mock.calls.at(-1)?.[2]
+
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://b.example/v1' } })
+    await act(async () => { release(ok([{ id: 'gateway-a-model' }])) })
+
+    expect(signal?.aborted).toBe(true)
+    expect(screen.queryByText('gateway-a-model')).toBeNull()
+  })
+
+  it('gives a discovery request a deadline and aborts it when the form unmounts', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    const discover = vi.fn((_ns: string, _request: unknown, _signal?: AbortSignal) => new Promise<never>(() => undefined))
+    try {
+      await mountSection({ discover })
+      openEditor('openai')
+      fireEvent.click(screen.getByText(en.fetchModels))
+      await waitFor(() => { expect(discover).toHaveBeenCalled() })
+      const signal = discover.mock.calls.at(-1)?.[2]
+      expect(timeout).toHaveBeenCalledWith(60_000)
+      expect(signal?.aborted).toBe(false)
+
+      cleanup()
+
+      expect(signal?.aborted).toBe(true)
+    } finally {
+      timeout.mockRestore()
+    }
+  })
+
   it('opens on the configured models and appends a newly checked one, keeping a row the user already tuned', async () => {
     const discover = vi.fn(() => Promise.resolve(ok([
       { id: 'kept', contextWindow: 999, inputModalities: ['text', 'image'] },

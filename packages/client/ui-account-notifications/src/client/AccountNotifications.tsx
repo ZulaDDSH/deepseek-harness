@@ -160,7 +160,10 @@ function NoticeCard({ notice, depth, closeLabel, onShown, onCtaClicked, onDismis
         return <Button key={`${target}:${occurrence}`} size="sm" className={css.action}
           variant={action.style === 'primary' ? 'primary' : 'outline'} tabIndex={foreground ? undefined : -1}
           onClick={(event) => {
-            if (action.target.type !== 'dismiss') onCtaClicked(notice.id)
+            if (action.target.type !== 'dismiss') {
+              if (!live(notice.displayUntil)) return
+              onCtaClicked(notice.id)
+            }
             switch (action.target.type) {
               case 'app_route': onOpenAccount(); break
               case 'dismiss': dismissNotice(event.currentTarget.closest('aside') as HTMLElement, () => { onDismiss(notice.id) }); break

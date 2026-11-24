@@ -1154,14 +1154,42 @@ type RemoteEventWireFrame =
   | RemoteEventInvocationFrame
   | RemoteEventCancellationFrame
 
+const MAX_REMOTE_EVENT_QUEUE_FRAMES = 4096
+const MAX_REMOTE_EVENT_QUEUE_BYTES = 8 * 1024 * 1024
+const remoteEventFrameSizes = new WeakMap<RemoteEventWireFrame, number>()
+
+function remoteEventFrameBytes(frame: RemoteEventWireFrame): number {
+  let size = remoteEventFrameSizes.get(frame)
+  if (size === undefined) {
+    size = JSON.stringify(frame).length
+    remoteEventFrameSizes.set(frame, size)
+  }
+  return size
+}
+
 /** Pull-driven queue owned by one connected Client event generation. */
 class RemoteEventQueue {
   private readonly frames = new Deque<RemoteEventWireFrame>()
   private waiter: (() => void) | undefined
   private closed = false
+  private bytes = 0
+  private failure: TypertGatewayError | undefined
 
   push(frame: RemoteEventWireFrame): void {
     if (this.closed) return
+    const size = remoteEventFrameBytes(frame)
+    if (this.frames.size > 0 && (this.frames.size >= MAX_REMOTE_EVENT_QUEUE_FRAMES || this.bytes + size > MAX_REMOTE_EVENT_QUEUE_BYTES)) {
+      this.frames.clear()
+      this.bytes = 0
+      this.failure = new TypertGatewayError(
+        'gateway/event-backlog',
+        REMOTE_EVENT_STREAM_ENDPOINT,
+        'the Remote event consumer fell too far behind; reconnect to resynchronize',
+      )
+      this.end()
+      return
+    }
+    this.bytes += size
     this.frames.pushBack(frame)
     this.waiter?.()
   }
@@ -1183,7 +1211,12 @@ class RemoteEventQueue {
     signal.addEventListener('abort', abort, { once: true })
     try {
       while (true) {
-        while (this.frames.size > 0 && !signal.aborted) yield this.frames.popFront() as RemoteEventWireFrame
+        while (this.frames.size > 0 && !signal.aborted) {
+          const frame = this.frames.popFront() as RemoteEventWireFrame
+          this.bytes -= remoteEventFrameBytes(frame)
+          yield frame
+        }
+        if (this.failure !== undefined && !signal.aborted) throw this.failure
         if (this.closed || signal.aborted) return
         await new Promise<void>((resolve) => { this.waiter = resolve })
         this.waiter = undefined

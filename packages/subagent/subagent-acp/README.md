@@ -27,7 +27,7 @@ Mount this provider when a composition needs a fully isolated, out-of-process ch
 
 ### When to choose it
 
-Choose this backend when the child must run with its own runtime, model, and tools in a separate process — for example an ACP agent from another project — or when you want delegation that cannot touch the parent harness. Choose an in-process backend when the child must share the parent's composition or honor parent-enforced capabilities: this provider advertises no optional start-time capabilities, so the seam rejects requests for `agentPreset`, `agentOptions`, structured output, or depth caps rather than silently omitting them.
+Choose this backend when the child must run with its own runtime, model, and tools in a separate process — for example an ACP agent from another project — or when you want a child that does not share the parent harness process. The child runs with the host account's ordinary authority and no operating-system isolation, so it starts only from a `danger-full-access` parent session (or with `allowRestrictedParent`, when the command is contained externally). Choose an in-process backend when the child must share the parent's composition or honor parent-enforced capabilities: this provider advertises no optional start-time capabilities, so the seam rejects requests for `agentPreset`, `agentOptions`, structured output, or depth caps rather than silently omitting them.
 
 ### Configuration
 
@@ -38,6 +38,7 @@ Choose this backend when the child must run with its own runtime, model, and too
 | `args` | `[]` | Command arguments |
 | `permission` | `reject` | Auto-answer permission requests by rejecting, or choosing the first `allow_once` or `allow_always` option (`allow`) |
 | `env` | `{}` | Explicit child environment layered over the credential-scrubbed parent environment |
+| `allowRestrictedParent` | `false` | Permit delegation from a read-only or workspace-write parent session; leave off unless the command is contained by an external boundary |
 | `disposeEofGraceMs` | `6000` | Grace after stdin EOF before platform termination |
 | `disposeGraceMs` | `3000` | Bound for observing structured process facts after failure and, on POSIX, the SIGTERM-to-SIGKILL grace |
 

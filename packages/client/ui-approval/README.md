@@ -16,6 +16,8 @@ Browser approval presentation over the Agent-scoped Remote Event waterfall. The 
 
 -----
 
+When the correlated operation detail is unavailable for a tool approval (no call ID, no detail provider, or no started call in the Chat view), the card shows a notice saying so. Approval stays possible because a call can legitimately be absent from this Session's Chat, such as a subagent's, and rejection is always available. A call with no arguments counts as available.
+
 Focus the approval detail region to approve with Enter or reject with Escape. The mounted plugin reserves both keys against editable shortcuts. Enter on the focused Reject button retains its native reject action. Input controls and IME candidates keep their own keys. Keyboard and pointer actions share one pending-request lock; a withdrawn or replaced request cannot accept another answer, and an earlier failed answer cannot unlock its replacement.
 
 When offered, **Always allow** is the highlighted primary button. Otherwise, the current-request allow action is primary. Enter in the detail region always grants the limited scope: once for a tool approval, or the current session for CUA. Persistent access requires explicitly activating Always allow. The shortcut reference uses Allow because the caller supplies that scope.

@@ -13,7 +13,7 @@ export type ListingFailure = 'fetch' | 'invalid' | 'changed'
 
 /** Why the last source change was refused. */
 export type SourceFailure =
-  | { readonly kind: 'invalid' | 'duplicate' | 'unavailable' }
+  | { readonly kind: 'invalid' | 'duplicate' | 'unavailable' | 'changed' }
   | { readonly kind: 'other'; readonly reason: string }
 
 /** Plugins loaded before "Show more", and loaded again by each press. */
@@ -136,6 +136,7 @@ const INITIAL: DiscoverState = {
 function sourceFailure(failure: RemoteFailure): SourceFailure {
   if (failure.code === 'plugin-market/invalid-index-url') return { kind: failure.details.reason === 'duplicate' ? 'duplicate' : 'invalid' }
   if (failure.code === 'plugin-market/settings-unavailable') return { kind: 'unavailable' }
+  if (failure.code === 'plugin-market/index-conflict') return { kind: 'changed' }
   return { kind: 'other', reason: failure.message }
 }
 
@@ -402,11 +403,12 @@ export class DiscoverController {
 
   private async saveSources(urls: string[], adding: boolean): Promise<void> {
     this.patch({ saving: true, sourceFailure: null })
-    const answer = await this.ctx.remote.pluginMarket.setIndexes(urls)
+    const answer = await this.ctx.remote.pluginMarket.setIndexes(urls, this.state().indexes.map(index => index.url))
     if (this.disposed) return
     if (!answer.ok) {
       this.selectAdded = false
       this.patch({ saving: false, sourceFailure: sourceFailure(answer.error) })
+      if (answer.error.code === 'plugin-market/index-conflict') await this.loadIndexes()
       return
     }
     this.patch({ saving: false, ...adding ? { draft: '' } : {} })

@@ -17,7 +17,7 @@ import type { FileSystem, FsTarget } from '@deepseek-ai/dsh-fs'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import { createUserMessage, type ToolCallId } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import type { WorkingDirectoryService } from '@deepseek-ai/dsh-working-directory'
 import type {} from '@deepseek-ai/dsh-token-meter'
@@ -37,6 +37,12 @@ import type {
   CommandInfo, CommandRunInput, CommandRunResult, FsEntry, FsStat, HttpResponse, ProcessRunResult, SessionMessage,
   SessionUsage, SessionVersion, ToolCallResult, ToolInfo,
 } from './types.ts'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'claude-code-mod': { readonly kind: 'claude-code-mod'; readonly mod?: string }
+  }
+}
 
 /** The binding every event of this bridge carries: the agent it belongs to, when one does. */
 export interface AgentBinding {
@@ -395,8 +401,8 @@ export function createHostOps(options: HostOpsOptions): OpTable<AgentBinding> {
       const { text, asUser } = record(input)
       const body = requireString(text, '$.prompt.submit text')
       const framed = asUser === true ? body : `Message from the "${context.mod.name}" mod:\n${body}`
-      // Claude Code submits the prompt as the user's own; the framing names the mod unless `asUser` is set.
-      const message = createUserMessage({ content: [{ type: 'text', text: framed }], source: { kind: 'user' } })
+      const source: MessageSource = asUser === true ? { kind: 'user' } : { kind: 'claude-code-mod', mod: context.mod.name }
+      const message = createUserMessage({ content: [{ type: 'text', text: framed }], source })
       options.submitted?.(message.id, context.mod.name)
       agent.followup(message)
       return { text: framed }

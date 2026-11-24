@@ -179,6 +179,9 @@ export class PtcWorkflowRun implements WorkflowRun {
   private started = 0
   private terminal = false
   private cancelReason: string | undefined
+  private deadlineError: string | undefined
+  private deadlineTimer: NodeJS.Timeout | undefined
+  private readonly cleanupFailures: string[] = []
   private disposed: Promise<void> | undefined
   private readonly externalAbort: () => void
   private readonly cwd: Promise<string>
@@ -195,12 +198,21 @@ export class PtcWorkflowRun implements WorkflowRun {
     private readonly claudeCliProvider: string,
     private readonly policy: SandboxExecutionPolicy,
     private readonly observer: ExecutionObserver,
+    maxDurationMs: number,
     private readonly signal?: AbortSignal,
   ) {
     this.externalAbort = () => { this.cancel('workflow signal aborted') }
     if (signal?.aborted) this.externalAbort()
     else signal?.addEventListener('abort', this.externalAbort, { once: true })
     this.cwd = ctx.workingDirectory.ensure(parent, this.controller.signal)
+    if (maxDurationMs > 0) {
+      this.deadlineTimer = setTimeout(() => {
+        if (this.terminal || this.cancelReason !== undefined) return
+        this.deadlineError = `workflow run exceeded its overall deadline of ${maxDurationMs} ms`
+        this.cancel(this.deadlineError)
+      }, maxDurationMs)
+      this.deadlineTimer.unref()
+    }
     // Consumers attach durable run recording after start() returns.
     this.result = Promise.resolve().then(() => this.drive())
   }
@@ -307,8 +319,10 @@ export class PtcWorkflowRun implements WorkflowRun {
   }
 
   private disposeChild(record: ChildRecord): Promise<void> {
-    record.disposal ??= Promise.resolve().then(() => record.run.dispose()).catch((error: unknown) => {
-      this.ctx.logger.warn(`workflow-ptc: child dispose failed: ${renderThrown(error)}`)
+    record.disposal ??= (async () => { await record.run.dispose() })().catch((error: unknown) => {
+      const failure = renderThrown(error)
+      this.cleanupFailures.push(`child ${record.run.childId} (call ${record.callId}): ${failure}`)
+      this.ctx.logger.warn(`workflow-ptc: child dispose failed: ${failure}`)
     }).finally(() => {
       this.children.delete(record.callId)
     })
@@ -336,6 +350,7 @@ export class PtcWorkflowRun implements WorkflowRun {
   }
 
   private cancelled(): WorkflowResult {
+    if (this.deadlineError !== undefined) return { value: null, stopReason: 'error', error: this.deadlineError, errorCode: 'RUN_FAILED', agentsStarted: this.started }
     return { value: null, stopReason: 'cancelled', error: `workflow run cancelled: ${this.cancelReason}`, agentsStarted: this.started }
   }
 
@@ -371,6 +386,7 @@ export class PtcWorkflowRun implements WorkflowRun {
         : this.cancelled()
     } finally {
       this.terminal = true
+      clearTimeout(this.deadlineTimer)
       this.signal?.removeEventListener('abort', this.externalAbort)
       this.controller.abort('workflow settled')
       // Disposing published children releases binding waits; pending starts may publish more.
@@ -380,6 +396,6 @@ export class PtcWorkflowRun implements WorkflowRun {
       this.children.clear()
       for (const info of this.liveAgents.values()) this.endAgent({ ...info, outcome: 'cancelled' })
     }
-    return result
+    return this.cleanupFailures.length > 0 ? { ...result, cleanupFailures: [...this.cleanupFailures] } : result
   }
 }

@@ -350,7 +350,7 @@ describe('config validation', () => {
 describe('command construction (plain argv)', () => {
   it('glob: fixed rg --files argv with the pattern and paired VCS excludes', () => {
     expect(buildGlobCommand({ pattern: '**/*.ts' })).toEqual([
-      '--files', '--type-add=dshglob:*.ts', '--type=dshglob', '--sort=modified',
+      '--files', '--type-add=dshglob:*.ts', '--type=dshglob', '--sort=modified', '--null',
       '--hidden', '--glob=!**/node_modules',
       '--glob=!**/.git', '--glob=!**/.git/**',
       '--glob=!**/.svn', '--glob=!**/.svn/**',
@@ -359,12 +359,12 @@ describe('command construction (plain argv)', () => {
       '--glob=!**/.jj', '--glob=!**/.jj/**',
       '--glob=!**/.sl', '--glob=!**/.sl/**',
     ])
-    expect(buildGlobCommand({ pattern: '*', includeIgnored: true }).slice(4, 6)).toEqual(['--hidden', '--no-ignore'])
+    expect(buildGlobCommand({ pattern: '*', includeIgnored: true }).slice(5, 7)).toEqual(['--hidden', '--no-ignore'])
     expect(['src/**/*.ts', '**/', 'a:b', '!x'].map(pattern => buildGlobCommand({ pattern })[1])).toEqual(['--glob=src/**/*.ts', '--glob=**/', '--glob=a:b', '--glob=!x'])
   })
 
   it('glob: the search root rides behind -- as a plain element', () => {
-    expect(buildGlobCommand({ pattern: '*.md', path: 'docs dir' })).toEqual(['--files', '--type-add=dshglob:*.md', '--type=dshglob', '--sort=modified', '--hidden', '--glob=!**/node_modules',
+    expect(buildGlobCommand({ pattern: '*.md', path: 'docs dir' })).toEqual(['--files', '--type-add=dshglob:*.md', '--type=dshglob', '--sort=modified', '--null', '--hidden', '--glob=!**/node_modules',
       '--glob=!**/.git', '--glob=!**/.git/**',
       '--glob=!**/.svn', '--glob=!**/.svn/**',
       '--glob=!**/.hg', '--glob=!**/.hg/**',
@@ -402,14 +402,14 @@ describe('command construction (plain argv)', () => {
 describe('workdir derivation and signal forwarding', () => {
   it('forwards the session cwd as the spawn cwd', async () => {
     const { ctx, subprocess } = await setup()
-    subprocess.handler = () => runResult('a.ts\n')
+    subprocess.handler = () => runResult('a.ts\0')
     await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/sessions/s1') })
     expect(subprocess.spawns[0]?.cwd).toBe('/sessions/s1')
   })
 
   it('defaults the spawn cwd to process.cwd() without a session cwd', async () => {
     const { ctx, subprocess } = await setup()
-    subprocess.handler = () => runResult('a.ts\n')
+    subprocess.handler = () => runResult('a.ts\0')
     await call(ctx, 'glob', { pattern: '*' }, { agent: agent() })
     expect(subprocess.spawns[0]?.cwd).toBe(process.cwd())
     // A non-agent caller takes the same default.
@@ -755,7 +755,7 @@ describe('cross-directory sampling', () => {
 describe('glob results', () => {
   it('lists workdir-relative paths (absolute output under the workdir is relativized)', async () => {
     const { ctx, subprocess } = await setup()
-    subprocess.handler = () => runResult('/sessions/s1/src/a.ts\n/elsewhere/b.ts\nrel/c.ts\n')
+    subprocess.handler = () => runResult('/sessions/s1/src/a.ts\0/elsewhere/b.ts\0rel/c.ts\0')
     const result = await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/sessions/s1') })
     if (result.isError) throw new Error('expected glob success')
     expect(result.value).toEqual({ root: '.', paths: [join('src', 'a.ts'), '/elsewhere/b.ts', 'rel/c.ts'] })
@@ -776,10 +776,10 @@ describe('glob results', () => {
 
   it('threads a valid path through to the spawn as the plain search root element', async () => {
     const { ctx, subprocess } = await setup()
-    subprocess.handler = () => runResult('sub/a.ts\n')
+    subprocess.handler = () => runResult('sub/a.ts\0')
     const result = await call(ctx, 'glob', { pattern: '*.ts', path: 'sub' })
     expect(result.isError).toBe(false)
-    expect(subprocess.spawns[0]?.argv).toEqual([rgPath, '--no-config', '--files', '--type-add=dshglob:*.ts', '--type=dshglob', '--sort=modified', '--hidden', '--glob=!**/node_modules',
+    expect(subprocess.spawns[0]?.argv).toEqual([rgPath, '--no-config', '--files', '--type-add=dshglob:*.ts', '--type=dshglob', '--sort=modified', '--null', '--hidden', '--glob=!**/node_modules',
       '--glob=!**/.git', '--glob=!**/.git/**',
       '--glob=!**/.svn', '--glob=!**/.svn/**',
       '--glob=!**/.hg', '--glob=!**/.hg/**',
@@ -787,6 +787,25 @@ describe('glob results', () => {
       '--glob=!**/.jj', '--glob=!**/.jj/**',
       '--glob=!**/.sl', '--glob=!**/.sl/**',
       '--', 'sub'])
+  })
+
+  it('keeps a file name with a line break as one path and renders it as a JSON string, inline and in the spill', async () => {
+    const odd = 'dir/we\nird\r.ts'
+    const quoted = JSON.stringify(odd)
+    const small = await setup()
+    small.subprocess.handler = () => runResult(`a.ts\0${odd}\0`)
+    const inline = await call(small.ctx, 'glob', { pattern: '*.ts' }, { agent: agent('/w') })
+    if (inline.isError) throw new Error('expected glob success')
+    expect(inline.value).toEqual({ root: '.', paths: ['a.ts', odd] })
+    expect(text(inline)).toBe(`a.ts\n${quoted}`)
+
+    const { ctx, subprocess, spill } = await setup({ config: { globMaxResults: 1 }, spill: true })
+    subprocess.handler = () => runResult(`${odd}\0b.ts\0`)
+    const capped = await call(ctx, 'glob', { pattern: '*.ts' }, { agent: agent('/w') })
+    if (capped.isError) throw new Error('expected glob success')
+    expect(capped.value).toEqual({ root: '.', paths: [odd, 'b.ts'] })
+    expect(text(capped)).toContain(`${quoted}\n\n(Showing 1 of 2 paths`)
+    expect(spill?.saves[0]).toMatchObject({ content: `${quoted}\nb.ts` })
   })
 
   it('caps at globMaxResults and saves the FULL sorted list through spillStore', async () => {
@@ -797,7 +816,7 @@ describe('glob results', () => {
         content: [{ type: 'text', text: 'glob context' }], source: { kind: 'test' },
       })],
     }))
-    subprocess.handler = () => runResult('a.ts\nb.ts\nc.ts\nd.ts\n')
+    subprocess.handler = () => runResult('a.ts\0b.ts\0c.ts\0d.ts\0')
     const result = await call(ctx, 'glob', { pattern: '*.ts' }, { agent: agent('/w') })
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected glob success')
@@ -820,7 +839,7 @@ describe('glob results', () => {
     // freshly-unpacked subtree first, and a head-of-3 reads like the entire
     // workspace. The sample reaches every top-level entry instead.
     const { ctx, subprocess } = await setup({ config: { globMaxResults: 3 } })
-    subprocess.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts', 'guide/e.md', 'top.txt'].map(w).join('\n'))
+    subprocess.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts', 'guide/e.md', 'top.txt'].map(w).join('\0'))
     const result = await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })
     expect(text(result)).toBe(['vendor/a.ts', 'src/d.ts', 'guide/e.md'].map(w).join('\n') + '\n\n'
       + '(Showing 3 of 6 paths, sampled across 3 of the 4 top-level entries this pattern matched '
@@ -832,7 +851,7 @@ describe('glob results', () => {
     const { ctx, subprocess } = await setup({
       config: { globMaxResults: 3, sampleOverCapGlobResults: false },
     })
-    subprocess.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts', 'guide/e.md'].join('\n'))
+    subprocess.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts', 'guide/e.md'].join('\0'))
     expect(text(await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })))
       .toBe('vendor/a.ts\nvendor/b.ts\nvendor/c.ts\n\n'
         + '(Showing 3 of 5 paths. The complete result could not be saved; narrow pattern or path to see more.)')
@@ -845,7 +864,7 @@ describe('glob results', () => {
       'workspace/vendor/b.ts',
       'workspace/source/c.ts',
       'workspace/guides/d.md',
-    ].map(w).join('\n'))
+    ].map(w).join('\0'))
     const result = await call(ctx, 'glob', { pattern: '*', path: w('workspace') }, { agent: agent('/w') })
     expect(text(result)).toContain(['workspace/vendor/a.ts', 'workspace/source/c.ts', 'workspace/guides/d.md'].map(w).join('\n'))
     expect(text(result)).toContain('sampled across 3 of the 3 top-level entries')
@@ -858,7 +877,7 @@ describe('glob results', () => {
       '/w/workspace/vendor/b.ts',
       '/w/workspace/source/c.ts',
       '/w/workspace/guides/d.md',
-    ].map(w).join('\n'))
+    ].map(w).join('\0'))
     const result = await call(ctx, 'glob', { pattern: '*', path: w('/w/workspace') }, { agent: agent(w('/w')) })
     expect(text(result)).toContain(['workspace/vendor/a.ts', 'workspace/source/c.ts', 'workspace/guides/d.md'].map(w).join('\n'))
     expect(text(result)).toContain('sampled across 3 of the 3 top-level entries')
@@ -866,7 +885,7 @@ describe('glob results', () => {
 
   it('drops the narrowing hint when the sample reaches every top-level entry', async () => {
     const { ctx, subprocess } = await setup({ config: { globMaxResults: 3 } })
-    subprocess.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts'].map(w).join('\n'))
+    subprocess.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts'].map(w).join('\0'))
     expect(text(await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })))
       .toBe(['vendor/a.ts', 'vendor/b.ts', 'src/d.ts'].map(w).join('\n') + '\n\n'
         + '(Showing 3 of 4 paths, sampled across 2 of the 2 top-level entries this pattern matched '
@@ -876,21 +895,21 @@ describe('glob results', () => {
 
   it('keeps modification-time order untouched when the whole result fits', async () => {
     const { ctx, subprocess } = await setup({ config: { globMaxResults: 4 } })
-    subprocess.handler = () => runResult('vendor/a.ts\nvendor/b.ts\nsrc/c.ts\n')
+    subprocess.handler = () => runResult('vendor/a.ts\0vendor/b.ts\0src/c.ts\0')
     expect(text(await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })))
       .toBe('vendor/a.ts\nvendor/b.ts\nsrc/c.ts')
   })
 
   it('keeps the plain footer for a flat result, where the sample is the modification-time head', async () => {
     const { ctx, subprocess } = await setup({ config: { globMaxResults: 2 } })
-    subprocess.handler = () => runResult('a.ts\nb.ts\nc.ts\n')
+    subprocess.handler = () => runResult('a.ts\0b.ts\0c.ts\0')
     expect(text(await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })))
       .toBe('a.ts\nb.ts\n\n(Showing 2 of 3 paths. The complete result could not be saved; narrow pattern or path to see more.)')
   })
 
   it('does not create a spill file when the result fits inline', async () => {
     const { ctx, subprocess, spill } = await setup({ spill: true })
-    subprocess.handler = () => runResult('a.ts\nb.ts\n')
+    subprocess.handler = () => runResult('a.ts\0b.ts\0')
     const result = await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })
     expect(text(result)).toBe('a.ts\nb.ts')
     expect(spill?.saves).toHaveLength(0)
@@ -902,7 +921,7 @@ describe('glob results', () => {
       kind: 'accept' as const,
       value: { root: '.', paths: ['replacement-a.ts', 'replacement-b.ts'] },
     }))
-    subprocess.handler = () => runResult('old-a.ts\nold-b.ts\n')
+    subprocess.handler = () => runResult('old-a.ts\0old-b.ts\0')
 
     const result = await call(ctx, 'glob', { pattern: '*.ts' }, { agent: agent('/w') })
 
@@ -915,7 +934,7 @@ describe('glob results', () => {
 
   it('keeps the full nested Code value without creating a top-level spill', async () => {
     const { ctx, subprocess, spill } = await setup({ config: { globMaxResults: 2 }, spill: true })
-    subprocess.handler = () => runResult('a.ts\nb.ts\nc.ts\nd.ts\n')
+    subprocess.handler = () => runResult('a.ts\0b.ts\0c.ts\0d.ts\0')
     const result = await call(ctx, 'glob', { pattern: '*.ts' }, {
       agent: agent('/w'),
       parent: Symbol('run_code') as ToolExecutionToken,
@@ -933,10 +952,22 @@ describe('glob results', () => {
   ])('keeps the inline page and reports the unsaved remainder when %s', async (_label, mode) => {
     const { ctx, subprocess, spill } = await setup({ config: { globMaxResults: 1 }, spill: mode.spill })
     if (mode.fail && spill) spill.failWith = new Error('disk full')
-    subprocess.handler = () => runResult('a.ts\nb.ts\n')
+    subprocess.handler = () => runResult('a.ts\0b.ts\0')
     const result = await call(ctx, 'glob', { pattern: '*' }, mode.ownerless ? {} : { agent: agent('/w') })
     expect(result.isError).toBe(false) // spill unavailability never fails the search
     expect(text(result)).toBe('a.ts\n\n(Showing 1 of 2 paths. The complete result could not be saved; narrow pattern or path to see more.)')
+  })
+})
+
+describe('glob non-UTF-8 names', () => {
+  it('counts listed paths with replacement characters and says so in the result text', async () => {
+    const { ctx, subprocess } = await setup()
+    const bad = `caf${String.fromCharCode(0xfffd)}.ts`
+    subprocess.handler = () => runResult(`ok.ts\0${bad}\0`)
+    const result = await call(ctx, 'glob', { pattern: '*.ts' })
+    if (result.isError) throw new Error('expected glob success')
+    expect(result.value).toEqual({ root: '.', paths: ['ok.ts', bad], undecodable: 1 })
+    expect(text(result)).toContain(`ok.ts\n${bad}\n\n(1 listed paths are not valid UTF-8;`)
   })
 })
 
@@ -994,6 +1025,27 @@ describe('grep results', () => {
     const record = JSON.stringify({ type: 'match', data: { path: { text: 'bin.dat' }, lines: { bytes: 'AAECww==' }, line_number: 4 } })
     subprocess.handler = () => runResult(`${record}\n`)
     expect(text(await call(ctx, 'grep', { pattern: 'x' }))).toContain('Line 4: (line is not valid UTF-8)')
+  })
+
+  it('names the count of matches whose path or line is not valid UTF-8 (rg bytes form)', async () => {
+    const { ctx, subprocess } = await setup()
+    const pathBytes = JSON.stringify({ type: 'match', data: { path: { bytes: Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x2e, 0x74, 0x78, 0x74]).toString('base64') }, lines: { text: 'hit\n' }, line_number: 2 } })
+    const lineBytes = JSON.stringify({ type: 'match', data: { path: { text: 'bin.dat' }, lines: { bytes: 'AAECww==' }, line_number: 4 } })
+    subprocess.handler = () => runResult(`${pathBytes}\n${matchLine('ok.txt', 1, 'hit')}\n${lineBytes}\n`)
+    const result = await call(ctx, 'grep', { pattern: 'hit' })
+    if (result.isError) throw new Error('expected grep success')
+    expect(result.value).toMatchObject({ undecodable: 2 })
+    expect(text(result)).toContain(`caf${String.fromCharCode(0xfffd)}.txt\nLine 2: hit`)
+    expect(text(result)).toContain('(2 matches have a path or line that is not valid UTF-8;')
+  })
+
+  it('adds no undecodable note when every path and line decodes', async () => {
+    const { ctx, subprocess } = await setup()
+    subprocess.handler = () => runResult(`${matchLine('a.ts', 1, 'hit')}\n`)
+    const result = await call(ctx, 'grep', { pattern: 'hit' })
+    if (result.isError) throw new Error('expected grep success')
+    expect(result.value).toEqual({ matches: [{ path: 'a.ts', lineNumber: 1, line: 'hit' }] })
+    expect(text(result)).not.toContain('UTF-8')
   })
 
   it('strips a CRLF terminator from the matched line text', () => {
@@ -1165,7 +1217,7 @@ describe('rg --json transport failures (SEARCH_FAILED)', () => {
 describe('the no-background-job invariant', () => {
   it('settles every spawned search handle across successful and failed searches', async () => {
     const { ctx, subprocess } = await setup()
-    subprocess.handler = () => runResult('a.ts\n')
+    subprocess.handler = () => runResult('a.ts\0')
     await call(ctx, 'glob', { pattern: '*' })
     subprocess.handler = () => runResult('', { exitCode: 2, stderr: { text: 'boom' } })
     await call(ctx, 'grep', { pattern: 'x' })
@@ -1218,7 +1270,7 @@ describe('presentation', () => {
 
   it('glob projects a search card from a real execute, a flat path list with total and truncation', async () => {
     const { ctx, subprocess } = await setup({ config: { globMaxResults: 2 } })
-    subprocess.handler = () => runResult('a.ts\nb.ts\nc.ts\n')
+    subprocess.handler = () => runResult('a.ts\0b.ts\0c.ts\0')
     const result = await call(ctx, 'glob', { pattern: '*.ts' }, { agent: agent('/w') })
     if (result.isError) throw new Error('expected glob success')
     expect(result.meta).toEqual({ shape: 'paths', paths: ['a.ts', 'b.ts'], truncated: true, total: 3 })

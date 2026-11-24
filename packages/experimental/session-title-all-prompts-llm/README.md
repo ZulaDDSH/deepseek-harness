@@ -27,7 +27,7 @@ Mount this plugin beside the title service when a session should be retitled as 
 
 ### When titles are generated
 
-A new revision starts after each new eligible human prompt, including prompts in child sessions; the generation folds all eligible messages through the current revision, seeded history included. A newer revision aborts and supersedes older work, so a stale completion can never commit. An automatic failure — including input over `maxInputBytes`, which fails instead of truncating history — warns and keeps the prior title; `ctx.sessionTitle.refresh()` is the explicit retry.
+A new revision starts after each new eligible human prompt, including prompts in child sessions; the generation folds all eligible messages through the current revision, seeded history included. A newer revision aborts and supersedes older work, so a stale completion can never commit. When the history no longer fits `maxInputBytes`, the request carries only the newest contiguous messages that fit and an `omittedEarlierMessages` count, so the title keeps updating in long sessions. An automatic failure — including a newest message that alone exceeds `maxInputBytes` — warns and keeps the prior title; `ctx.sessionTitle.refresh()` is the explicit retry.
 
 Once a provider-generated title exists, each request includes it and asks the model to preserve it exactly while it still describes the main topic or task. Follow-up questions, same-topic details, acknowledgements such as “thanks”, and requests to continue do not by themselves justify rewording. The model is instructed to update the title only when a material change or expansion of the main topic or task makes it inaccurate. A fallback title still receives ordinary initial generation; every eligible prompt still schedules a revision.
 
@@ -37,7 +37,7 @@ The plugin requires `targetWords` and `targetCjkCharacters` plus the shared [exe
 
 ### Failures and recovery
 
-If the final framed aggregate prompt exceeds `maxInputBytes`, the request fails instead of truncating history; automatic use warns and keeps the prior title, and only an explicit `refresh()` retries. Automatic work adds no tokens and no latency to the main agent request.
+The framed prompt is kept within `maxInputBytes` by dropping the oldest messages whole, never by cutting a message; older context then survives only through `currentTitle`. The recorded `messageSeqs` list exactly the messages sent. If the newest message plus the frame alone exceeds `maxInputBytes`, the request fails; automatic use warns and keeps the prior title, and only an explicit `refresh()` retries. Automatic work adds no tokens and no latency to the main agent request.
 
 -----
 
@@ -86,7 +86,7 @@ Read these pages when the provider contract is not enough. They move from the sh
 
 #### What the model sees
 
-The title model receives all eligible human messages through the current revision, in log order with exact seqs, including seeded history. When an accepted provider-generated title exists, this provider adds it as `currentTitle` with its own preservation instructions; fallback, user, and absent titles take its initial-generation path. Both the messages and the current title count toward `maxInputBytes`.
+The title model receives the eligible human messages through the current revision, in log order with exact seqs, including seeded history, newest-first trimmed to `maxInputBytes`; when older messages are left out the object frame adds `omittedEarlierMessages` with their count. When an accepted provider-generated title exists, this provider adds it as `currentTitle` with its own preservation instructions; fallback, user, and absent titles take its initial-generation path. Both the messages and the current title count toward `maxInputBytes`.
 
 #### Token effect
 
@@ -103,7 +103,8 @@ No main-request invalidation. Auxiliary input grows or changes after each prompt
 
 These limits define how the provider treats long and heterogeneous sessions. They are current package constraints.
 
-- **No summarization-of-summaries** — input overflow retains the prior title; this provider has no summarization-of-summaries or retention policy for very long sessions.
+- **No summarization of omitted history** — once the history exceeds `maxInputBytes` the oldest messages are dropped from the request and only `currentTitle` carries their context; there is no summary of omitted messages.
+- **Bounded collection** — the title service collects the newest eligible messages within `maxInputBytes` and only counts older ones, so message text work is bounded by the budget; the service still walks the session log once per revision (a pointer walk over events), which grows with history length.
 - **Messages are treated equally** — it includes every eligible human message without configurable weighting or filtering.
 - **Model-dependent stability** — title preservation is a model instruction, not a deterministic semantic check; the model may still change an adequate title.
 

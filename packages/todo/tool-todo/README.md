@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-`dsh-tool-todo` gives the agent a structured task list to plan with: break multi-step work into concrete tasks, mark the task you are working on, and check tasks off as they finish. The list survives across turns and reopened sessions, so the agent and the UI always see the latest plan. One configuration flag decides whether several tasks may be in progress at once, for agents that run work in parallel. Use it wherever an agent should keep a visible task list; each update replaces the whole list, and only the owning agent session can change it.
+`dsh-tool-todo` gives the agent a structured task list to plan with: break multi-step work into concrete tasks, mark the task in progress, and check tasks off as they finish. Every list is recorded in the session log and survives reopened sessions, but the displayed list clears when the next turn starts. One configuration flag decides whether several tasks may be in progress at once. Use it wherever an agent should keep a visible task list; each update replaces the whole list, and only the owning agent session can change it.
 
 ## Table of Contents
 
@@ -92,7 +92,7 @@ When the composition mounts `ctx.sessionProjections` ([`@deepseek-ai/dsh-session
 
 ### Call mechanics
 
-Each call validates the submitted list against the schema, rejects incoherent input, and on success appends the full snapshot as a `todo/write` session event and returns the new counts; the current list is always the most recent `todo/write` in the log (last-write-wins on replay). See [src/index.ts](src/index.ts) for the exact validation and append steps.
+Each call validates the submitted list against the schema, rejects incoherent input, and on success appends the full snapshot as a `todo/write` session event and returns the new counts; the most recent `todo/write` in the log is the latest historical snapshot (last-write-wins on replay), while the current-list projection resets to `null` at every new `turn/start` until another write. See [src/index.ts](src/index.ts) for the exact validation and append steps.
 
 </details>
 

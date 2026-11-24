@@ -1472,10 +1472,9 @@ describe('cancellation and integration teardown', () => {
     await auto.restart()
 
     expect(ctx[Context.root].fiber.state).toBe(FiberState.ACTIVE)
-    expect(ctx.permissionPresets.current(session)).toBe('danger-full-access')
+    expect(ctx.permissionPresets.current(session)).toBe('workspace-write')
     expect(ctx.permissionPresets.names).toContain(AUTO_PRESET)
-    expect(session.snapshotEvents().filter(event => event.type === 'approval/policy').at(-1)?.data)
-      .toEqual({ policy: 'never' })
+    expect(session.snapshotEvents().filter(event => event.type === 'approval/policy' && event.data.policy === 'never')).toEqual([])
   })
 
   it.each(['allow', 'deny', 'failure'] as const)(
@@ -1593,7 +1592,7 @@ describe('cancellation and integration teardown', () => {
   })
 
   it.each(['allow', 'deny', 'failure'] as const)(
-    'migrates live sessions to Full access and cancels a late lifecycle %s before removal',
+    'migrates live sessions to Workspace write and cancels a late lifecycle %s before removal',
     async (outcome) => {
       const entered = Promise.withResolvers<undefined>()
       const release = Promise.withResolvers<undefined>()
@@ -1617,7 +1616,7 @@ describe('cancellation and integration teardown', () => {
 
       const disposal = auto.dispose()
       await until(() => adapter.requests[0]?.signal?.aborted === true)
-      expect(ctx.permissionPresets.current(session)).toBe('danger-full-access')
+      expect(ctx.permissionPresets.current(session)).toBe('workspace-write')
       expect(ctx.permissionPresets.names).toContain(AUTO_PRESET)
 
       const afterClose = await executeToolFixture(ctx, {
@@ -1658,7 +1657,7 @@ describe('cancellation and integration teardown', () => {
     let competingCall: ReturnType<typeof executeToolFixture> | undefined
     ctx.on('session/event', (session, event) => {
       if (session !== first.session || event.type !== 'permission/preset'
-        || event.data.preset !== 'danger-full-access') return
+        || event.data.preset !== 'workspace-write') return
       observedPreset = ctx.permissionPresets.current(second.session)
       try {
         ctx.permissionPresets.set(second.session, AUTO_PRESET)
@@ -1684,8 +1683,8 @@ describe('cancellation and integration teardown', () => {
     })
     expect(adapter.requests).toHaveLength(0)
     expect(probe.runs()).toBe(0)
-    expect(ctx.permissionPresets.current(first.session)).toBe('danger-full-access')
-    expect(ctx.permissionPresets.current(second.session)).toBe('danger-full-access')
+    expect(ctx.permissionPresets.current(first.session)).toBe('workspace-write')
+    expect(ctx.permissionPresets.current(second.session)).toBe('workspace-write')
     expect(ctx.permissionPresets.names).not.toContain(AUTO_PRESET)
   })
 
@@ -1713,8 +1712,8 @@ describe('cancellation and integration teardown', () => {
     await downstreamEntered.promise
 
     const disposal = auto.dispose()
-    await until(() => ctx.permissionPresets.current(session) === 'danger-full-access')
-    expect(ctx.permissionPresets.current(session)).toBe('danger-full-access')
+    await until(() => ctx.permissionPresets.current(session) === 'workspace-write')
+    expect(ctx.permissionPresets.current(session)).toBe('workspace-write')
     releaseDownstream.resolve(undefined)
 
     await expect(pending).resolves.toMatchObject({
@@ -1757,12 +1756,12 @@ describe('cancellation and integration teardown', () => {
     const { session } = autoSession(ctx, 'reinstall-after-dispose')
 
     await auto.dispose()
-    expect(ctx.permissionPresets.current(session)).toBe('danger-full-access')
+    expect(ctx.permissionPresets.current(session)).toBe('workspace-write')
     expect(ctx.permissionPresets.names).not.toContain(AUTO_PRESET)
 
     const reinstalled = await ctx.plugin(AutoReview)
     expect(ctx.permissionPresets.names).toContain(AUTO_PRESET)
-    expect(ctx.permissionPresets.current(session)).toBe('danger-full-access')
+    expect(ctx.permissionPresets.current(session)).toBe('workspace-write')
     await reinstalled.dispose()
   })
 

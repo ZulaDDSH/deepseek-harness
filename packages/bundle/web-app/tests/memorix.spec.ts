@@ -84,7 +84,7 @@ describe('Existing database backup', () => {
     expect(existsSync(join(directory, `memorix.db${BACKUP_SUFFIX}`))).toBe(false)
   })
 
-  it('follows MEMORIX_DATA_DIR and logs a failed copy without blocking the launch recipe', () => {
+  it('follows MEMORIX_DATA_DIR and withholds the launch recipe after a failed copy', () => {
     const directory = dataDirectory()
     mkdirSync(join(directory, 'memorix.db'))
     vi.stubEnv('MEMORIX_DATA_DIR', directory)
@@ -92,7 +92,19 @@ describe('Existing database backup', () => {
     const warn = vi.spyOn(ctx.logger, 'warn')
     apply(ctx)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not back up the existing Memorix database'))
-    expect(Reflect.get(ctx, MEMORIX_LAUNCH_SERVICE)).toEqual(memorixLaunch())
+    expect(Reflect.get(ctx, MEMORIX_LAUNCH_SERVICE)).toBeUndefined()
+  })
+
+  it('withholds the launch recipe when the existing backup is empty or not a file', () => {
+    for (const make of [(path: string) => writeFileSync(path, ''), (path: string) => mkdirSync(path)]) {
+      const directory = dataDirectory()
+      writeFileSync(join(directory, 'memorix.db'), 'one')
+      make(join(directory, `memorix.db${BACKUP_SUFFIX}`))
+      vi.stubEnv('MEMORIX_DATA_DIR', directory)
+      const ctx = new Context()
+      apply(ctx)
+      expect(Reflect.get(ctx, MEMORIX_LAUNCH_SERVICE)).toBeUndefined()
+    }
   })
 
   it('logs the kept copy at info level', () => {

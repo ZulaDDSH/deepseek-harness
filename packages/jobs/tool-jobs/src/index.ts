@@ -258,13 +258,7 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error(`tool-jobs: maxConsecutiveWakes (${wakeBudget}) must be a whole number of turns`)
   }
 
-  // Each completion notice until the model receives its output. A notice
-  // whose job wrote at most `inlineOutputBytes` took the consuming read at
-  // settlement. When the complete notice fits, it carries that read until it
-  // is logged as a `user/message`; a notice claimed by a step that is then
-  // rejected or cancelled leaves the read for `job_output`. Otherwise
-  // `job_output` returns the held read. `job_output` also withdraws a notice
-  // still pending, which would only repeat its result.
+  // Invariant: a notice takes the consuming read only when it carries it.
   const pending = new Map<JobId, PendingNotice>()
 
   if (delivery === 'wakeup' && wakeBudget !== undefined) {
@@ -278,8 +272,7 @@ export function apply(ctx: Context, config: Config): void {
     if (event.type !== 'user/message' || event.data.source.kind !== 'tool-jobs') return
     for (const [id, notice] of pending) {
       if (notice.messageId !== event.data.id || notice.owner !== session.id) continue
-      // A logged notice keeps only a read it did not carry, for `job_output`.
-      if (notice.inline || notice.held === undefined) pending.delete(id)
+      pending.delete(id)
     }
   })
 
@@ -375,13 +368,11 @@ export function apply(ctx: Context, config: Config): void {
     // absent here when it left before settlement — and then no inbox is left.
     const owner = ctx.get('agents')?.get(event.job.owner)
     if (owner === undefined) return
-    // A stream longer than the bound cannot fit, so the read stays in the
-    // registry. A read whose result makes the notice too long is held for
-    // `job_output`, whose result the tool pipeline bounds and spills.
-    const held = inlineBytes > 0 && event.job.output.total <= inlineBytes
-      ? readBody(ctx.jobs.read(event.job.id, event.job.owner)).text
+    const candidate = inlineBytes > 0 && event.job.output.total <= inlineBytes
+      ? readBody(ctx.jobs.peek(event.job.id, event.job.owner)).text
       : undefined
-    const inline = held === undefined ? undefined : inlineCompletionNotice(event.job, held, inlineBytes)
+    const inline = candidate === undefined ? undefined : inlineCompletionNotice(event.job, candidate, inlineBytes)
+    const held = inline === undefined ? undefined : readBody(ctx.jobs.read(event.job.id, event.job.owner)).text
     const message = createUserMessage({
       content: [{
         type: 'text',

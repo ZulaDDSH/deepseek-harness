@@ -6,6 +6,7 @@
  */
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { WebError } from '@deepseek-ai/dsh-web'
+import { readBoundedJson, redactEndpoint } from '@deepseek-ai/dsh-web/safety'
 
 const USER_AGENT = 'deepseek-harness/0.0.1'
 
@@ -219,7 +220,7 @@ export async function dispatchDeepSeekWeb<T>(
     let message = `DeepSeek API error (HTTP ${status})`
     let aborted: WebError | undefined
     try {
-      const parsed: unknown = await response.json()
+      const parsed = await readBoundedJson(response, signal)
       if (isRecord(parsed)) {
         const detail = typeof parsed.error === 'string' ? parsed.error
           : isRecord(parsed.error) ? parsed.error.message : parsed.message
@@ -249,7 +250,7 @@ export async function dispatchDeepSeekWeb<T>(
   /* jscpd:ignore-end */
 
   try {
-    const payload: unknown = await response.json()
+    const payload = await readBoundedJson(response, signal)
     throwIfSearchAborted(signal)
     return decode(payload)
   } catch (error: unknown) {
@@ -291,7 +292,7 @@ function searchEndpointError(
       + ' endpoint is not intended, guide the user to check that provider\'s base URL on the Models page, or to set'
       + ` ${baseURLField} to a trusted DeepSeek endpoint and ${apiKeyEnvField} to the credential reference of its API key.`
   return new WebError(
-    `${message}\n\nThe web request used endpoint ${JSON.stringify(endpoint)}. ${recovery} Only the user should choose or`
+    `${message}\n\nThe web request used endpoint ${JSON.stringify(redactEndpoint(endpoint))}. ${recovery} Only the user should choose or`
     + ' change the endpoint.',
     'WEB_PROVIDER_ERROR',
     cause === undefined ? undefined : { cause },

@@ -162,7 +162,7 @@ export const ru = {
 
 /** Portuguese dictionary, checked against the English keys. */
 export const pt = {
-  provider: 'Serviço de tradução', google: 'Google', bing: 'Google',
+  provider: 'Serviço de tradução', google: 'Google', bing: 'Bing',
   deepseekAccount: 'DeepSeek Flash — conta (paga)', deepseekOfficial: 'DeepSeek Flash — oficial API (pago)',
   providerUnavailableOption: '{provider} — indisponível',
   providerUnavailable: 'Este provedor não está disponível. Configure sua conta DeepSeek ou provedor API oficial ou escolha um serviço disponível.',

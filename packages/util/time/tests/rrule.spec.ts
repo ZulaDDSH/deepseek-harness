@@ -1,6 +1,6 @@
 /** RRULE syntax and bounded calendar arithmetic, independent of Schedule task policy. */
 import { describe, expect, it } from 'vitest'
-import { RRule } from '../src/index.ts'
+import { RRule, RRULE_MAX_LENGTH } from '../src/index.ts'
 
 /** Join a DTSTART line and an RRULE body. */
 function rule(body: string, start = 'DTSTART:20260916T010000Z'): string {
@@ -50,6 +50,24 @@ function occurrences(rrule: string, instant: string, limit: number): string[] {
   }
   return result
 }
+
+describe('RRULE text bound and numeric canonicalization', () => {
+  it('writes padded numeric parts once in canonical form', () => {
+    expect(normalized(rule(`FREQ=MONTHLY;COUNT=${'0'.repeat(3_000)}2;INTERVAL=007;BYHOUR=09,5;BYMONTHDAY=+05,-05`)))
+      .toBe(rule('FREQ=MONTHLY;COUNT=2;INTERVAL=7;BYHOUR=9,5;BYMONTHDAY=5,-5'))
+    expect(normalized(rule('FREQ=MONTHLY;BYDAY=+2TU;WKST=MO'))).toBe(rule('FREQ=MONTHLY;BYDAY=+2TU;WKST=MO'))
+  })
+
+  it('refuses text over the bound before parsing and keeps a long legitimate list', () => {
+    const padded = rule(`FREQ=DAILY;COUNT=${'0'.repeat(RRULE_MAX_LENGTH)}2`)
+    const result = RRule.parse(padded)
+    expect(result).toMatchObject({ kind: 'rejected', reason: 'syntax' })
+    expect(result).toHaveProperty('detail', expect.stringContaining(`${RRULE_MAX_LENGTH} characters`))
+    const yearDays = rule(`FREQ=YEARLY;BYYEARDAY=${numbers(1, 367)}`)
+    expect(yearDays.length).toBeLessThan(RRULE_MAX_LENGTH)
+    expect(normalized(yearDays)).toBe(yearDays)
+  })
+})
 
 describe('RRULE validation', () => {
   it('keeps the trimmed DTSTART and RRULE lines and the TZID as written', () => {

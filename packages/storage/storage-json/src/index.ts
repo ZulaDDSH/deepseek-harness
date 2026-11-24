@@ -7,10 +7,12 @@
  */
 
 import { mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { StorageError, UNIT_NAME_RE, storageBackendServiceKey } from '@deepseek-ai/dsh-storage'
 import type { KvFacet, KvUnit, KvUnitDescriptor, StorageBackend } from '@deepseek-ai/dsh-storage'
+import { acquireUnitLock } from './lock.ts'
 import { openSingleUnit } from './single-unit.ts'
 import { openPerRecordUnit } from './per-record-unit.ts'
 
@@ -68,7 +70,7 @@ export class JsonStorageBackend implements StorageBackend {
     const onClose = () => this.open.delete(descriptor.name)
     const unit = descriptor.layout === 'per-record'
       ? await openPerRecordUnit(descriptor, this.root, onClose)
-      : await openSingleUnit(descriptor, this.root, onClose)
+      : await this.openLockedSingleUnit(descriptor, onClose)
     if (this.closed) {
       // The backend closed while this open was in flight: do not hand out a
       // live unit past close().
@@ -77,6 +79,16 @@ export class JsonStorageBackend implements StorageBackend {
     }
     this.open.set(descriptor.name, unit)
     return unit
+  }
+
+  private async openLockedSingleUnit(descriptor: KvUnitDescriptor, onClose: () => void): Promise<KvUnit> {
+    const releaseLock = await acquireUnitLock(join(this.root, `${descriptor.name}.json`), descriptor.name)
+    try {
+      return await openSingleUnit(descriptor, this.root, onClose, releaseLock)
+    } catch (error) {
+      await releaseLock()
+      throw error
+    }
   }
 
   async close(): Promise<void> {

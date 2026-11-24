@@ -67,6 +67,16 @@ describe('forgeChangeRequests projection', () => {
     ])
   })
 
+  it('binds only the URLs a create result prints alone, and nothing for a quoted create mention', () => {
+    const session = Session.create(brandString<SessionId>('create-scope'))
+    shellTurn(session, [
+      { callId: 'create', command: 'gh pr create --fill && echo done', output: `${pullUrl(1)}\nsee ${pullUrl(2)}\nurl: ${pullUrl(4)}` },
+      { callId: 'grep', command: 'grep -rn "gh pr create" docs', output: pullUrl(3) },
+    ])
+
+    expect(fold(session).bindings).toEqual([{ url: pullUrl(1), origin: 'created', dismissed: false }])
+  })
+
   it('binds from pwsh calls and from results with a nonzero exit marker', () => {
     const session = Session.create(brandString<SessionId>('pwsh'))
     shellTurn(session, [{

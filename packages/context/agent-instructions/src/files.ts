@@ -17,6 +17,7 @@ import {
   decodeScopeKey,
   escapeProjectDisplayPath,
   instructionCandidateGroup,
+  isUserGlobalDirectory,
   renderAgentInstructionSet,
   scopeForDisplayPath,
   type RenderedAgentInstructions,
@@ -24,6 +25,8 @@ import {
   USER_GLOBAL_DIRECTORIES,
   USER_GLOBAL_FILE,
 } from './render.ts'
+
+const AGGREGATE_READ_FACTOR = 4
 
 /** An instruction candidate identified by absolute and model-facing paths. */
 export interface InstructionFile {
@@ -391,9 +394,6 @@ async function readBounded(
   fileSystem?: FileSystem,
   signal?: AbortSignal,
 ): Promise<string | undefined> {
-  // TODO(total-instruction-read-bound): enforce an aggregate source budget
-  // across a complete baseline or reconciliation batch; the render budget is
-  // applied only after every accepted file has been read under this per-file cap.
   signal?.throwIfAborted()
   if (file.size !== undefined && file.size > maxSourceBytes) return undefined
   try {
@@ -475,18 +475,39 @@ export async function loadBaselineInstructionSet(
   if (config.maxBytes <= 0 || !Number.isFinite(config.maxBytes)) return undefined
   if (config.maxSourceBytes <= 0 || !Number.isFinite(config.maxSourceBytes)) return undefined
   const discovered = await discoverInstructionFiles(options, fileSystem)
-  const loaded: LoadedInstructionFile[] = []
-  for (const file of discovered) {
-    const content = await readBounded(file, config.maxSourceBytes, fileSystem, options.signal)
-    if (content !== undefined) {
-      loaded.push({
-        absolutePath: file.absolutePath,
-        displayPath: file.displayPath,
-        content,
-        ...file.version === undefined ? {} : { version: file.version },
-      })
+  const readBudget = AGGREGATE_READ_FACTOR * config.maxBytes
+  const readByPath = new Map<string, LoadedInstructionFile>()
+  const unreadPaths = new Set<string>()
+  for (const userGlobal of [true, false]) {
+    let bytesRead = 0
+    const groups = Map.groupBy(
+      discovered.filter(file => isUserGlobalDirectory(scopeForDisplayPath(file.displayPath)) === userGlobal),
+      file => instructionCandidateGroup(scopeForDisplayPath(file.displayPath)),
+    )
+    for (const group of [...groups.values()].toReversed()) {
+      if (bytesRead >= readBudget) {
+        for (const file of group) unreadPaths.add(file.absolutePath)
+        continue
+      }
+      for (const file of group) {
+        const content = await readBounded(file, config.maxSourceBytes, fileSystem, options.signal)
+        if (content === undefined) continue
+        bytesRead += Buffer.byteLength(content, 'utf8')
+        readByPath.set(file.absolutePath, {
+          absolutePath: file.absolutePath,
+          displayPath: file.displayPath,
+          content,
+          ...file.version === undefined ? {} : { version: file.version },
+        })
+      }
     }
   }
+  const loaded = discovered.flatMap(file => readByPath.get(file.absolutePath) ?? [])
+  const unread = discovered
+    .filter(file => unreadPaths.has(file.absolutePath))
+    .map(({ absolutePath, displayPath }) => ({ absolutePath, displayPath }))
+  const withUnread = (rendered: RenderedAgentInstructions): RenderedAgentInstructions =>
+    ({ ...rendered, omitted: [...rendered.omitted, ...unread] })
   const kept = dedupInstructionFilesByCandidateGroup(loaded)
   if (kept.length === 0) {
     if (options.replacePreviousBaseline !== true && !config.endOfTurnRule) return undefined
@@ -496,7 +517,7 @@ export async function loadBaselineInstructionSet(
       ...options.replacePreviousBaseline === true ? { replacePreviousBaseline: true } : {},
     })
     return {
-      rendered,
+      rendered: withUnread(rendered),
       observed: [],
       deduped: [],
       included,
@@ -511,7 +532,7 @@ export async function loadBaselineInstructionSet(
       : { replacePreviousBaseline: options.replacePreviousBaseline },
   })
   return {
-    rendered,
+    rendered: withUnread(rendered),
     observed: loaded,
     deduped: loaded.filter(file => !keptPaths.has(file.absolutePath)),
     included,

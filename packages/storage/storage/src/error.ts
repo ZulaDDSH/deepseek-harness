@@ -13,6 +13,7 @@ export type StorageErrorCode =
   | 'malformed-medium'
   | 'unknown-state'
   | 'closed'
+  | 'locked'
 
 /**
  * Error thrown by the hub and by backend implementations. The `code` is the

@@ -303,7 +303,7 @@ export class ScheduleService extends TypertRemoteService {
       const tasks = domain.table('tasks')
       this.runtime = new ScheduleRuntime(ctx,
         () => [...tasks.entries()].map(([, task]) => task),
-        work => this.serialize(work),
+        work => this.serialize(work, true),
         async (task) => {
           await tasks.put(task.record.id, scheduleTaskSchema.parse(task))
           this.emitChanged()
@@ -401,7 +401,7 @@ export class ScheduleService extends TypertRemoteService {
       })
       await domain.table('tasks').put(id, task)
       this.emitChanged()
-      this.runtime?.requestDrive()
+      this.runtime?.requestDrive([id])
       this.queueNotification(task, actorSessionId, 'created')
       return this.entry(task)
     })
@@ -575,7 +575,7 @@ export class ScheduleService extends TypertRemoteService {
       if (request.action === 'delete') {
         await tasks.delete(request.id)
         this.emitChanged()
-        this.runtime?.requestDrive()
+        this.runtime?.requestDrive([])
         this.queueNotification(current, actorSessionId, 'deleted')
         return { id: request.id, deleted: true }
       }
@@ -587,7 +587,7 @@ export class ScheduleService extends TypertRemoteService {
       const task = revisedTask(current, request.patch, target, actorSessionId, Date.now())
       await tasks.put(request.id, task)
       this.emitChanged()
-      this.runtime?.requestDrive()
+      this.runtime?.requestDrive([request.id])
       this.queueNotification(task, actorSessionId, 'updated')
       return this.entry(task)
     })
@@ -789,12 +789,12 @@ export class ScheduleService extends TypertRemoteService {
     }
     // Rows enumerated in this slot are present, so a non-empty batch always removed rows.
     this.emitChanged()
-    if (rearm) this.runtime?.requestDrive()
+    if (rearm) this.runtime?.requestDrive([])
     return removed
   }
 
-  private serialize<T>(work: () => Promise<T>): Promise<T> {
-    if (this.stopping) return Promise.reject(new Error('Schedule service is stopping'))
+  private serialize<T>(work: () => Promise<T>, draining = false): Promise<T> {
+    if (this.stopping && !draining) return Promise.reject(new Error('Schedule service is stopping'))
     const pending = this.chain.then(work)
     this.chain = pending.catch(() => undefined) // Preserve FIFO progress after the caller receives the failure.
     return pending

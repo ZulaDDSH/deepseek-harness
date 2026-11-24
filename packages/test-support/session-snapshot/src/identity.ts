@@ -50,10 +50,12 @@ export function redactSessionSnapshotIds(logs: readonly string[]): string[] {
   const tokenByValue = new Map<string, string>()
   const nextByKind = new Map<IdentityKind, number>()
 
+  let reserving = true
   const claim = (value: unknown, kind: IdentityKind, always = false): void => {
     if (typeof value !== 'string' || value.length === 0 || tokenByValue.has(value)) return
     if (!always && !redactedCandidate(value)) return
     const canonical = CANONICAL_TOKEN_RE.exec(value)
+    if (canonical === null && reserving) return
     if (canonical !== null) {
       const canonicalKind = canonical[1] as IdentityKind
       const ordinal = Number(canonical[2])
@@ -64,11 +66,6 @@ export function redactSessionSnapshotIds(logs: readonly string[]): string[] {
     const next = (nextByKind.get(kind) ?? 0) + 1
     nextByKind.set(kind, next)
     tokenByValue.set(value, `{{${kind}:${next}}}`)
-  }
-
-  for (const log of parsed) {
-    const header = log.records[0]
-    if (header?.type === 'session') claim(header.id, 'session', true)
   }
 
   const collect = (value: unknown, recordType?: unknown): void => {
@@ -102,12 +99,19 @@ export function redactSessionSnapshotIds(logs: readonly string[]): string[] {
       collect(item, recordType)
     }
   }
-  for (const log of parsed) {
-    for (const record of log.records) {
-      if (record.type === 'feedback/message-put' && isRecord(record.data) && isRecord(record.data.item)) {
-        claim(record.data.item.version, 'id')
+  for (const pass of [true, false]) {
+    reserving = pass
+    for (const log of parsed) {
+      const header = log.records[0]
+      if (header?.type === 'session') claim(header.id, 'session', true)
+    }
+    for (const log of parsed) {
+      for (const record of log.records) {
+        if (record.type === 'feedback/message-put' && isRecord(record.data) && isRecord(record.data.item)) {
+          claim(record.data.item.version, 'id')
+        }
+        collect(record, record.type)
       }
-      collect(record, record.type)
     }
   }
 

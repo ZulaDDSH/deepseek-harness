@@ -45,6 +45,8 @@ Internal Web image drags do not show the full-page overlay. A foreign or expired
 
 While an external file drag is over the page, the full-viewport overlay announces the drop: illustration, title, and a limits line when drops are accepted. The overlay only shows state — the owner's document-level listeners decide accept or reject, and the drop handler reports which dropped members are directories through the entry API so the owner can cite or refuse them.
 
+When several attachment views are mounted (a conversation plus a continuable subagent chat), one drop goes to exactly one of them: the accepting view whose composer card contains the drop target, otherwise the first accepting view in document order. Internal file-drag tokens only count inside a composer card. Every mounted view still shows its own drag overlay.
+
 -----
 
 <a id="understand-the-implementation"></a>

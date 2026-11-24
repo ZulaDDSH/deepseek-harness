@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useEffect, useMemo } from 'react'
 import { useMarkdownDelegate, type MarkdownDelegateFenceInfo, type MarkdownMenuTarget } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { OutlinePage } from '../src/client/contract/outline.ts'
 import type {
   AssistantMessageNode, ChatFlowHookContext, ChatFlowOwnerProps, ChatFlowSlotProps,
   ChatNode, ChatNodeHookContext, ChatNodeOwnerProps, ChatSnapshot, UserBeforeOwnerProps,
@@ -446,6 +447,7 @@ function makeHarness(
     session.set({ loadingOlder: false, historyLoadStatus: 'pendingConsumption' })
   }
   const loadThrough = vi.fn<(seq: number) => Promise<void>>().mockResolvedValue(undefined)
+  const loadOutline = vi.fn<(seq: number) => Promise<OutlinePage | null>>().mockResolvedValue(null)
   // Mutable outline holder: tests swap the value and drive a re-render via set().
   let outlineValue: unknown
   const openView = vi.fn<(view: string, focus: string) => void>()
@@ -584,6 +586,7 @@ function makeHarness(
     loadOlder,
     consumeOlder,
     loadThrough,
+    loadOutline,
     loadImage: vi.fn(() => Promise.reject(new Error('not used'))),
     chatScroll,
     forkAt,
@@ -614,7 +617,7 @@ function makeHarness(
     setConnection: (state: ConnectionState) => { connection.set(state) },
     setAwaitingUser: (value: boolean) => { awaitingUser.set(value) },
     stop,
-    openFile, openUserFile, loadOlder, consumeOlder, prepareOlder, loadThrough, openView,
+    openFile, openUserFile, loadOlder, consumeOlder, prepareOlder, loadThrough, loadOutline, openView,
     setOutline: (value: unknown) => { outlineValue = value },
     chatScroll, forkAt, toolOwners, fenceCalls,
     setPerformanceUsage: (mode: 'compact' | 'detailed') => { performanceUsage.set(mode) },
@@ -1509,6 +1512,47 @@ describe('ChatView', () => {
     await waitFor(() => { expect(first.getAttribute('aria-busy')).toBeNull() })
     expect(h.loadThrough.mock.calls).toEqual([[0], [0]])
     expect(view.getByRole('button', { name: '跳转到第 3 轮' }).getAttribute('aria-current')).toBe('true')
+  })
+
+  it('pages older outline entries in once the loaded window reaches the oldest known turn and keeps entries that slide out of the projection', async () => {
+    const later = [userInTurn(8, 'third prompt', 3), assistant(9, 'third response', 3)]
+    const h = makeHarness({ nodes: later }, { hasMore: true })
+    h.loadOutline.mockResolvedValueOnce({
+      entries: [
+        { turn: 1, seq: 0, prompt: 'first older', response: 'first older answer' },
+        { turn: 2, seq: 4, prompt: 'second older', response: '' },
+      ],
+      hasMore: false,
+      before: 0,
+    })
+    h.setOutline([{ turn: 3, seq: 8, prompt: 'third prompt', response: 'third response' }, { turn: 4, seq: 12, prompt: 'fourth', response: '' }])
+    const view = render(<h.ChatView {...h.props} />)
+    await waitFor(() => { expect(h.loadOutline).toHaveBeenCalledExactlyOnceWith(8) })
+    const first = await view.findByRole('button', { name: '加载并跳转到第 1 轮' })
+    view.getByRole('button', { name: '加载并跳转到第 2 轮' })
+    fireEvent.focus(first)
+    expect(view.getByRole('tooltip').textContent).toContain('first older answer')
+
+    h.setOutline([{ turn: 4, seq: 12, prompt: 'fourth', response: '' }, { turn: 5, seq: 16, prompt: 'fifth', response: '' }])
+    act(() => { h.setSession({ running: true }) })
+    expect(within(view.getByRole('navigation')).getAllByRole('button').map(mark => mark.getAttribute('aria-label'))).toEqual([
+      '加载并跳转到第 1 轮', '加载并跳转到第 2 轮', '跳转到第 3 轮', '加载并跳转到第 4 轮', '加载并跳转到第 5 轮',
+    ])
+    expect(h.loadOutline).toHaveBeenCalledOnce()
+  })
+
+  it('does not request older outline entries while the loaded window is newer than the oldest known turn or fully loaded', async () => {
+    const later = [userInTurn(8, 'third prompt', 3), assistant(9, 'third response', 3)]
+    const newer = makeHarness({ nodes: later }, { hasMore: true })
+    newer.setOutline([{ turn: 1, seq: 0, prompt: 'first', response: '' }, { turn: 3, seq: 8, prompt: 'third', response: '' }])
+    const first = render(<newer.ChatView {...newer.props} />)
+    await first.findByRole('button', { name: '加载并跳转到第 1 轮' })
+    const complete = makeHarness({ nodes: later }, { hasMore: false })
+    complete.setOutline([{ turn: 3, seq: 8, prompt: 'third', response: '' }])
+    const second = render(<complete.ChatView {...complete.props} />)
+    await second.findAllByRole('button', { name: '跳转到第 3 轮' })
+    expect(newer.loadOutline).not.toHaveBeenCalled()
+    expect(complete.loadOutline).not.toHaveBeenCalled()
   })
 
   it('uses a known turn landing without hit testing or consuming rail scroll as transcript input', async () => {

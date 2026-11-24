@@ -48,6 +48,8 @@
  * - `FAKE_EXIT_BEFORE_INIT`: exit 3 immediately (spawn-then-die probe).
  * - `FAKE_STDERR`: write this line to stderr at boot (diagnostics-tail probe).
  * - `FAKE_STDERR_NO_NEWLINE`: write this to stderr WITHOUT a newline (buffer-flush probe).
+ * - `FAKE_STDERR_BULK`: `count,size,terminated`: write count stderr chunks of size characters, newline-terminated when terminated is 1.
+ * - `FAKE_OVERSIZE_STDOUT`: write 65 MiB to stdout without a newline (frame-limit probe).
  * - `FAKE_APPROVAL`: send one server approval request after initialization and echo its response as a notification.
  * - `FAKE_RECORD_INIT`: append each `initialize` params JSON to this file (handshake probe).
  */
@@ -61,6 +63,14 @@ const env = process.env
 
 if (env.FAKE_STDERR !== undefined) process.stderr.write(`${env.FAKE_STDERR}\n`)
 if (env.FAKE_STDERR_NO_NEWLINE !== undefined) process.stderr.write(env.FAKE_STDERR_NO_NEWLINE)
+if (env.FAKE_STDERR_BULK !== undefined) {
+  const [count = 0, size = 0, terminated] = env.FAKE_STDERR_BULK.split(',').map(Number)
+  for (let index = 0; index < count; index += 1) process.stderr.write(`${index}:${'a'.repeat(size)}${terminated === 1 ? '\n' : ''}`)
+}
+if (env.FAKE_OVERSIZE_STDOUT !== undefined) {
+  const chunk = 'x'.repeat(1024 * 1024)
+  for (let index = 0; index < 65; index += 1) process.stdout.write(chunk)
+}
 if (env.FAKE_EXIT_BEFORE_INIT !== undefined) process.exit(3)
 
 if (env.FAKE_IGNORE_EOF !== undefined) {

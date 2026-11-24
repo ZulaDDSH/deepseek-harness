@@ -23,7 +23,7 @@ kind: "package-library"
 <a id="use-this-package"></a>
 ## Use this package
 
-Use this list when an append-only collection needs immutable versions and JSON-compatible storage. An empty list is `undefined`; appending returns a new head without modifying existing nodes. The list shares stored values by reference, so callers must treat them as immutable.
+Use this list when an append-only collection needs immutable versions and JSON-compatible storage. An empty list is `undefined`; appending returns a new head without modifying existing nodes. The list shares stored values by reference, so callers must treat them as immutable. `chunkedListLength` counts values from the block shape without visiting them, and `chunkedListSuffix` returns the last values in order by visiting only the path to them, so a consumer can publish one appended value without iterating the list.
 
 ```ts
 import { appendChunkedList, iterateChunkedList } from '@deepseek-ai/dsh-chunked-list'
@@ -33,7 +33,7 @@ const second = appendChunkedList(first, 'second')
 console.log([...iterateChunkedList(second)])
 ```
 
-The example produces `['first', 'second']`; `first` still contains only its original value. `chunkedListSchema(valueSchema)` validates JSON checkpoints and rejects unknown fields, invalid values, and empty or oversized chunks. Use `.optional()` on the schema when the containing field also permits an empty list. See the [source contracts](src/index.ts) for the operations.
+The example produces `['first', 'second']`; `first` still contains only its original value. `chunkedListSchema(valueSchema)` validates JSON checkpoints and rejects unknown fields, invalid values, empty lists, and mis-sized or mis-ordered blocks. Use `.optional()` on the schema when the containing field also permits an empty list. See the [source contracts](src/index.ts) for the operations.
 
 -----
 
@@ -43,12 +43,12 @@ The example produces `['first', 'second']`; `first` still contains only its orig
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The newest chunk stores up to 64 values. Appends copy at most that chunk and share older nodes, taking bounded O(1) work. The capacity controls storage layout, not total list length. Iteration visits all N values in O(N) time and uses O(N / 64) scratch space to visit chunks from oldest to newest. A single capacity constant governs append rollover and recursive Zod validation.
+The newest 0 to 63 values sit in a `tail`; a full tail is sealed into a 64-value block, and 64 equal-height blocks merge into one block a level up, like a base-64 counter. Appends copy at most the tail and share every older block, taking bounded work. Nesting depends on the height (at most 9 levels, enough for 64^9 values), not on the length. Iteration visits all N values in O(N) time and uses O(log N) scratch space. The schema checks the exact 64-wide blocks, descending heights, and at most 63 blocks per height.
 
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Persistent list operations and checkpoint validation |
-| [`tests/chunked-list.spec.ts`](tests/chunked-list.spec.ts) | Version isolation, ordering, structural sharing, and checkpoint acceptance |
+| [`tests/chunked-list.spec.ts`](tests/chunked-list.spec.ts) | Version isolation, ordering, structural sharing, bounded nesting, and checkpoint acceptance |
 
 </details>
 
@@ -76,7 +76,7 @@ Nothing here enters a model request, so provider cache reuse is unaffected.
 <a id="known-limitations-and-deferred-work"></a>
 
 - **Append-only access** — callers needing removal or random access need another collection.
-- **Recursive checkpoints** — JSON serialization and schema validation remain subject to runtime nesting limits. Stored values must themselves support the caller's serialization format.
+- **Checkpoint shape** — the nesting depth is bounded by the height, so length no longer reaches runtime nesting limits. The shape is not the earlier linked chain, so a projection that stores it bumps its `stateVersion`. Stored values must themselves support the caller's serialization format.
 
 <a id="dev-note"></a>
 ### Dev Note

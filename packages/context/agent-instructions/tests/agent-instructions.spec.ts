@@ -49,6 +49,7 @@ import {
   type InstructionVersionCache,
 } from '../src/state.ts'
 import { resolveConfig } from '../src/config.ts'
+import { loadBaselineInstructionSet } from '../src/files.ts'
 import {
   AGENTS_GLOBAL_DIRECTORY,
   candidateScopeKey,
@@ -466,6 +467,33 @@ describe('workspace context instruction discovery', () => {
         join('packages', 'app', 'AGENTS.md'),
       ])
       expect(files.map(file => file.absolutePath)).toContain(join(root, 'CLAUDE.md'))
+    } finally {
+      vi.unstubAllEnvs()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('stops reading broader candidates once the aggregate read budget is spent and reports them as omitted', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      const dirs = ['', 'a', 'a/b', 'a/b/c', 'a/b/c/d']
+      for (const [index, dir] of dirs.entries()) await write(join(root, dir, 'AGENTS.md'), String(index).repeat(300))
+      pinHarnessHome(home)
+
+      const set = await loadBaselineInstructionSet({ cwd: join(root, 'a/b/c/d'), maxBytes: 150 })
+
+      expect(set?.observed.map(file => file.displayPath)).toEqual([
+        join('a', 'b', 'c', 'AGENTS.md'),
+        join('a', 'b', 'c', 'd', 'AGENTS.md'),
+      ])
+      expect(set?.rendered.omitted.map(file => file.displayPath)).toEqual(expect.arrayContaining([
+        'AGENTS.md',
+        join('a', 'AGENTS.md'),
+        join('a', 'b', 'AGENTS.md'),
+      ]))
     } finally {
       vi.unstubAllEnvs()
       await rm(root, { recursive: true, force: true })
@@ -2745,6 +2773,35 @@ describe('workspace context request injection', () => {
       expect(decision.messages[1]?.source).toMatchObject({ kind: 'agent-instructions', baseline: true })
       expect(blocksText(decision.messages[1]?.content)).toContain('Instructions from: AGENTS.md')
       expect(agent.inbox.nextStep).toHaveLength(0)
+    } finally {
+      vi.unstubAllEnvs()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('reports an externally edited project instruction at the next pre-step without a filesystem touch', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      provideWorkingDirectoryFixture(ctx)
+      pinHarnessHome(home)
+      await mountFileToolsAndAgentInstructions(ctx, { maxBytes: 65536 })
+      const agent = await stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+
+      await write(join(root, 'AGENTS.md'), 'tightened repo rule')
+      await syncAgentInstructions(ctx, agent)
+
+      const pending = await agentInstructionsOf(agent)
+      expect(pending?.source).toMatchObject({
+        kind: 'agent-instructions',
+        changes: [{ action: 'replace', scope: sk('.', 'AGENTS.md') }],
+      })
+      expect(blocksText(pending?.content)).toContain('tightened repo rule')
     } finally {
       vi.unstubAllEnvs()
       await rm(root, { recursive: true, force: true })

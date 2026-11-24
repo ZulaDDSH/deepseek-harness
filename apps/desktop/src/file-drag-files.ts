@@ -5,12 +5,12 @@ import { join } from 'node:path'
 import { resolveDragFileName, type DragFileName, type FileDragHandle } from '@deepseek-ai/dsh-util-file-drag'
 
 // Aggregate temporary bytes, including incomplete writes and failed removals.
-const MAX_TOTAL_DRAG_FILE_BYTES = 64 * 1024 * 1024
+export const MAX_TOTAL_DRAG_FILE_BYTES = 64 * 1024 * 1024
 // Native receivers may open the path after startDrag returns.
 const DELIVERED_FILE_RETENTION_MS = 60_000
 
 interface DragFile {
-  readonly directory?: string
+  readonly directory: string
   readonly path: string
   readonly bytes: number
   ready: boolean
@@ -18,7 +18,6 @@ interface DragFile {
   timer?: ReturnType<typeof setTimeout>
 }
 
-/** Borrowed files are never deleted; temporary exports retain cleanup ownership until removal succeeds. */
 export class DragFiles {
   private readonly files = new Map<FileDragHandle, DragFile>()
   private readonly pending = new Set<Promise<FileDragHandle>>()
@@ -59,18 +58,6 @@ export class DragFiles {
     }
   }
 
-  /**
-   * Register an authorized source without owning its content.
-   * @param path - verified local source.
-   * @returns borrowed handle.
-   */
-  borrow(path: string): FileDragHandle {
-    if (this.disposed) throw new Error('File transfer closed')
-    const handle = randomUUID() as FileDragHandle
-    this.files.set(handle, { path, bytes: 0, used: false, ready: true })
-    return handle
-  }
-
   /** @param handle - preparation identity. @param retain - whether the OS accepted this file. @returns path only while ready and owned. */
   take(handle: unknown, retain = true): string | undefined {
     if (typeof handle !== 'string') return undefined
@@ -101,7 +88,7 @@ export class DragFiles {
     if (existing !== undefined) return existing
     clearTimeout(file.timer)
     file.ready = false
-    const operation = (file.directory === undefined ? Promise.resolve() : rm(file.directory, { recursive: true, force: true })).then(() => {
+    const operation = rm(file.directory, { recursive: true, force: true }).then(() => {
       this.files.delete(handle)
       this.stagedBytes -= file.bytes
     }).finally(() => { this.releasing.delete(handle) })

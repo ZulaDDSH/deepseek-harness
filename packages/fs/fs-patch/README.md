@@ -35,7 +35,7 @@ if (operation?.kind === 'update') {
 
 Malformed input throws `PatchParseError` with a one-based `lineNumber` and a corrective `reason`. Locations count leading blank lines and heredoc wrappers in the original input.
 
-`applyHunks` returns `{ ok: true, after }` or `{ ok: false, failure }` without mutating its inputs. A match failure reports the hunk's patch line, the `context` or `oldLines` stage, the sequential search cursor, and the original unmatched pattern; a trailing-empty-line retry still reports the original pattern. Returning rather than throwing lets callers collect match failures across file operations.
+`applyHunks` returns `{ ok: true, after }` or `{ ok: false, failure }` without mutating its inputs. A match failure reports the hunk's patch line, the `context`, `oldLines`, `overlap`, `insertion`, or `budget` stage, the sequential search cursor, and the original unmatched pattern; a trailing-empty-line retry still reports the original pattern. Returning rather than throwing lets callers collect match failures across file operations.
 
 <a id="compatibility"></a>
 ## Compatibility
@@ -68,11 +68,13 @@ EOF before any hunk has no effect, matching the reference; an update still requi
 | Unicode punctuation | U+2010–2015 and U+2212 map to `-`; U+2018–201B to single quotes; U+201C–201F to double quotes; U+00A0, U+2002–200A, U+202F, U+205F, and U+3000 to space. No NFC/NFKC normalization. |
 | `@@ text` and repeated content | Find the first matching anchor from the cursor, then search after it. Old lines use the first match from that cursor, which advances to the match end. All searches use the original text. |
 | EOF hunk | Search only at `lineCount - patternLength`, even before the cursor. The pinned implementation does not fall back to earlier matches, despite its search-function comment. |
-| Empty old lines | Insert at the original file's end, before its final empty source line when present. The insertion does not advance the cursor; an anchor must still match. Same-position insertions retain patch order. |
+| Overlapping hunks | Intentional difference from Codex: when the matched spans of two hunks intersect (for example two EOF hunks on the same last line), `applyHunks` fails the later hunk with stage `overlap` instead of letting one replacement silently overwrite the other. Touching spans are accepted. |
+| Empty old lines | Insert after the last content line of the original file. The insertion does not advance the cursor. Same-position insertions retain patch order. An insertion with an `@@` anchor and no `*** End of File` marker fails with stage `insertion` (Codex appended it at the file end); mark it `*** End of File` to append deliberately, or add surrounding lines. |
 | Unmatched pattern ending in an empty line | Retry without that last line; also remove the last new line if it is empty. An empty retry pattern matches the cursor. |
-| Reconstruction | Remove one terminal empty split element before matching; apply stably sorted replacements in reverse order. Add a terminal empty element unless one exists, then join with LF. Empty output stays empty; nonempty output ends in LF. |
-| Context lines | Replace the complete matched region from patch text, including tolerated context differences. |
-| No hunks | Still perform the same reconstruction, so a missing terminal LF is added and one terminal empty line can be consumed. |
+| Reconstruction | Remove one terminal empty split element before matching; apply stably sorted replacements in reverse order, then join with LF. Intentional difference from Codex: the final-newline state of the input is kept, so an unterminated file stays unterminated, extra trailing blank lines are content that edits and appends leave alone, and an empty file that receives lines ends in LF. Empty output stays empty. |
+| Context lines | Written from the file, not the patch: only added lines come from the patch, so a context line that matched after whitespace or punctuation normalization keeps its original bytes. Removed lines are replaced even when they matched fuzzily. A hunk built without `marks` falls back to writing the patch's new lines for the whole region. |
+| No hunks | Returns the input unchanged. |
+| Search budget | Every line comparison draws from one budget of 10,000,000 per `applyHunks` call; each normalization pass over the file is computed once and reused by all hunks. An exhausted budget fails the hunk being searched with stage `budget`. The function is synchronous and takes no cancellation signal, so the budget is what bounds how long a pathological patch can block the caller. |
 
 The intentional differences from Codex are ownership and result reporting: the DSH provider preserves line-ending style, so the matcher sees only LF-normalized text and `PreserveLineEndings` is not implemented. CR is an ordinary character: callers must normalize CRLF first and restore the chosen style afterward. Match failures return structured data rather than Codex's path-bearing errors, so the caller owns file identification and user-facing diagnostics.
 
@@ -97,6 +99,7 @@ The [parser](src/parse.ts) builds syntax records without a Session or provider d
 <a id="known-limitations-and-deferred-work"></a>
 
 - Text updates implement only `NormalizeToLf`; callers own line-ending conversion.
+- Matching is synchronous and not cancellable; the comparison budget bounds the blocking time, and a patch that needs more than the budget must be split.
 - The public API accepts complete strings, not streaming deltas.
 
 <a id="dev-note"></a>

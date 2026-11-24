@@ -184,9 +184,11 @@ describe('Memory workspace', () => {
     await writeFile(join(directory, 'graph.html'), html)
     const graph = await graphCtx.memoryWorkspace.graph()
     expect(graph.html).toBe(html)
+    expect(graph.skipped).toBeUndefined()
     expect(graph.path).toBe(graphPath)
     expect(runNativeCommand).toHaveBeenLastCalledWith('graphify', [
       'memorix', '--database', join(directory, 'memorix.db'), '--graph', graphPath,
+      '--max-documents', '500', '--max-source-bytes', String(64 * 1024 * 1024),
     ], expect.any(AbortSignal), 'hidden')
     await writeFile(graphPath, 'x'.repeat(513))
     await expect(graphCtx.memoryWorkspace.graph()).rejects.toThrow('configured byte limit')
@@ -294,6 +296,96 @@ describe('Memory workspace provider access', () => {
     vi.mocked(runNativeCommand).mockClear()
     expect(await ctx.memoryWorkspace.graph()).toEqual({ path: resolve(directory, 'imports', 'graphify-out', 'graph.json'), html: '', documents: 0 })
     expect(runNativeCommand).not.toHaveBeenCalled()
+  })
+
+  it('passes the configured document limits and returns the chunks the adapter skipped', async () => {
+    const directory = await temporary()
+    createDatabase(directory).close()
+    addDocument(directory)
+    const graphPath = join(directory, 'graph.json')
+    await writeFile(graphPath, '{}')
+    await writeFile(join(directory, 'graph.html'), '<html></html>')
+    const ctx = await connect({ graphPath, maxGraphDocuments: 7, maxGraphSourceBytes: 4096 }, localProvider(directory))
+    vi.mocked(runNativeCommand).mockClear()
+    vi.mocked(runNativeCommand).mockResolvedValueOnce({ stdout: '', stderr: 'noise\ngraphify-native skipped: observation 4 (document:x): bad title\r\ngraphify-native skipped: 3 more damaged chunks\n' })
+    const graph = await ctx.memoryWorkspace.graph()
+    expect(graph.skipped).toEqual(['observation 4 (document:x): bad title', '3 more damaged chunks'])
+    expect(vi.mocked(runNativeCommand).mock.calls[0]?.[1].slice(-4)).toEqual(['--max-documents', '7', '--max-source-bytes', '4096'])
+  })
+
+  it('stops a stalled Graphify run at its deadline and skips rebuilds whose caller is gone', async () => {
+    const directory = await temporary()
+    createDatabase(directory).close()
+    addDocument(directory)
+    const ctx = await connect({ graphifyCommand: 'graphify-stalled', graphTimeoutMs: 80, importDirectory: join(directory, 'imports') }, localProvider(directory))
+    vi.mocked(runNativeCommand).mockClear()
+    const stalled = (_command: string, _args: readonly string[], signal: AbortSignal): Promise<{ stdout: string; stderr: string }> =>
+      new Promise((_resolve, reject) => { signal.addEventListener('abort', () => { reject(new Error('killed')) }, { once: true }) })
+    vi.mocked(runNativeCommand).mockImplementation(stalled)
+    const gone = new AbortController()
+    const first = ctx.memoryWorkspace.graph()
+    const second = ctx.memoryWorkspace.graph(gone.signal)
+    const third = ctx.memoryWorkspace.graph(gone.signal)
+    gone.abort()
+    await expect(first).rejects.toThrow('did not finish within 0.08 s')
+    await expect(second).rejects.toThrow()
+    await expect(third).rejects.toThrow()
+    expect(runNativeCommand).toHaveBeenCalledTimes(1)
+    vi.mocked(runNativeCommand).mockImplementation(async () => ({ stdout: '', stderr: '' }))
+  })
+})
+
+describe('Memory workspace re-import', () => {
+  const text = 'abcdefghij'
+  const hash = createHash('sha256').update(text).digest('hex')
+  async function store(archives: boolean): Promise<{ directory: string; db: DatabaseSync; provider: McpHumanOperations; resolved: unknown[] }> {
+    const directory = await temporary()
+    const db = createDatabase(directory)
+    db.exec("ALTER TABLE observations ADD COLUMN status TEXT DEFAULT 'active'")
+    db.prepare('INSERT INTO observations(title, narrative, topicKey) VALUES (?, ?, ?)').run('other.md (3/4)', 'keep', `document:${'f'.repeat(64)}:part:3`)
+    const resolved: unknown[] = []
+    const provider = localProvider(directory, async (name, args) => {
+      if (name === 'memorix_session_start') return BOUND
+      if (name === 'memorix_resolve') {
+        resolved.push(args)
+        if (archives) for (const id of z.array(z.number()).parse(args.ids)) db.prepare("UPDATE observations SET status = 'archived' WHERE id = ?").run(id)
+        return { content: [{ type: 'text', text: '[OK] Resolved' }] }
+      }
+      const topic = z.string().parse(args.topicKey)
+      db.prepare('INSERT INTO observations(title, narrative, topicKey) VALUES (?, ?, ?) ON CONFLICT(topicKey) DO UPDATE SET title=excluded.title, narrative=excluded.narrative').run(
+        z.string().parse(args.title), z.string().parse(args.narrative), topic)
+      const stored = db.prepare('SELECT id FROM observations WHERE topicKey = ?').get(topic)
+      return { content: [{ type: 'text', text: `[OK] Stored observation #${stored?.id} "title" (~1 tokens)
+Entity: document | Type: discovery | Project: fixture | Topic: ${topic}` }] }
+    })
+    return { directory, db, provider, resolved }
+  }
+  const active = (db: DatabaseSync): string[] => db.prepare("SELECT topicKey FROM observations WHERE status = 'active' AND topicKey LIKE ? ORDER BY topicKey").all(`document:${hash}:%`).map(row => String(row.topicKey))
+
+  it('archives the old higher-numbered parts after a re-import with larger chunks and leaves other documents alone', async () => {
+    const { directory, db, provider, resolved } = await store(true)
+    const first = await connect({ chunkCharacters: 2, importDirectory: join(directory, 'documents') }, provider)
+    expect(await first.memoryWorkspace.importDocument('guide.md', encode(text))).toMatchObject({ total: 5, completed: 5, error: null })
+    expect(resolved).toEqual([])
+    const second = await connect({ chunkCharacters: 5, importDirectory: join(directory, 'documents') }, provider)
+    expect(await second.memoryWorkspace.importDocument('guide.md', encode(text))).toMatchObject({ total: 2, completed: 2, error: null })
+    expect(resolved).toEqual([{ ids: expect.any(Array), status: 'archived' }])
+    expect(active(db)).toEqual([`document:${hash}:part:1`, `document:${hash}:part:2`])
+    expect(db.prepare("SELECT status FROM observations WHERE topicKey LIKE 'document:ffff%'").get()).toEqual({ status: 'active' })
+    expect(await second.memoryWorkspace.importDocument('guide.md', encode(text))).toMatchObject({ total: 2, error: null })
+    expect(resolved).toHaveLength(1)
+    db.close()
+  })
+
+  it('reports a re-import whose stale parts stay active', async () => {
+    const { directory, db, provider } = await store(false)
+    const first = await connect({ chunkCharacters: 2, importDirectory: join(directory, 'documents') }, provider)
+    await first.memoryWorkspace.importDocument('guide.md', encode(text))
+    const second = await connect({ chunkCharacters: 5, importDirectory: join(directory, 'documents') }, provider)
+    const result = await second.memoryWorkspace.importDocument('guide.md', encode(text))
+    expect(result).toMatchObject({ total: 2, completed: 2 })
+    expect(result.error).toContain('Stale document parts remain active')
+    db.close()
   })
 })
 

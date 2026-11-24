@@ -66,6 +66,7 @@ export interface SiblingNameReservation {
 /** Names claimed by in-flight creations, keyed by the exact live creator. */
 export class SiblingNameReservations {
   private readonly pending = new Map<Agent, Set<string>>()
+  private readonly hints = new WeakMap<ReadonlySet<string>, number>()
 
   /**
    * Claim a name synchronously before startup awaits, so concurrent siblings cannot share it.
@@ -80,8 +81,13 @@ export class SiblingNameReservations {
     const taken = (name: string): boolean => committed.has(name) || pending.has(name)
     let name: string
     if (requested === undefined) {
-      let ordinal = 1
-      while (taken(`agent-${ordinal}`)) ordinal++
+      let ordinal = this.hints.get(committed) ?? 1
+      let settled = true
+      while (taken(`agent-${ordinal}`)) {
+        settled &&= committed.has(`agent-${ordinal}`)
+        ordinal++
+        if (settled) this.hints.set(committed, ordinal)
+      }
       name = `agent-${ordinal}`
     } else {
       if (!isAgentName(requested)) {

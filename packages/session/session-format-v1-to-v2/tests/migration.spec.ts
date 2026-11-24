@@ -858,8 +858,18 @@ describe('sessionFormatV1ToV2', () => {
     }
 
     expect(() => migrateV1ToV2(source)).toThrow(
-      /format v1 contains unknown event type "external\/info" at seq 0/,
+      /format v1 contains unknown event type "external\/info" at seq 0 marked ignorable; .*even when ignorable and leaves the v1 generation unchanged/,
     )
+  })
+
+  it('does not call a required unknown v1 event ignorable in its refusal', () => {
+    const source: SessionFormatArtifact = {
+      header: { version: 1, id: 'v1-unknown-required', createdAt: 1, isSeeded: false, delegationDepth: 0 },
+      inheritedEventCount: 0,
+      events: [event('external/info', 0, 100, { text: 'unknown' })],
+    }
+
+    expect(() => migrateV1ToV2(source)).toThrow(/at seq 0; migration refuses/)
   })
 
   it.each([undefined, []] as const)(

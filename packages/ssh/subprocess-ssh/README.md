@@ -70,7 +70,7 @@ This provider contributes no request-prefix content. Its consumers own model-vis
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- Completed spill files survive connection disposal and remain available until external temporary-file cleanup.
+- Completed spill files survive connection disposal and remain on the remote host until the helper's retention sweep removes them (older than `DSH_SUBPROCESS_SPILL_MAX_AGE_HOURS`, default 168, or over `DSH_SUBPROCESS_SPILL_MAX_TOTAL_MB`, default 1024, oldest first; evaluated by helper processes on that host using their own environment, only when a helper starts a spill, so an idle host keeps its files). Files from the last hour are never removed.
 - Callers must consume or close raw output streams. Destroying public stdout or stderr closes its matching transport, including when destruction precedes remote allocation. Independent channels allow control progress when stdout is paused, but do not remove per-stream backpressure or shared-network congestion.
 - Loss of the SSH connection leaves remote termination unconfirmed from the client; lease cleanup is a remote action, not a successful client acknowledgement.
 

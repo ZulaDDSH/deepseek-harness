@@ -108,7 +108,7 @@ A notice is one-way and never carries a secret: a message, optionally the page t
 
 ### Commit confirmation
 
-During the attempt the seam watches `credentials/record-updated` for the flow's key, then after `run()` resolves it re-reads `describeRecord` — confirming the commit happened now, because on a re-auth the record already exists and presence alone would let a stale credential pass as freshly authorized. A flow that resolves without committing, or that deleted its record instead of committing one, throws `NOT_COMMITTED`.
+During the attempt the seam watches `credentials/record-updated` for the flow's key and counts only events emitted from the attempt's own async context (the flow's run and `session.commit`, including a provider-owned store adapter the flow calls), so another actor's write or an external edit of the same key never confirms a flow that wrote nothing. An adapter that writes from a worker created before the attempt is not attributed, and a flow that deletes its record followed by an unrelated write in the same attempt is not distinguished, because the event carries only the key. After `run()` resolves it re-reads `describeRecord` — confirming the commit happened now, because on a re-auth the record already exists and presence alone would let a stale credential pass as freshly authorized. A flow that resolves without committing, or that deleted its record instead of committing one, throws `NOT_COMMITTED`.
 
 </details>
 
@@ -159,4 +159,4 @@ The limitations above name the open directions — resumable attempts, server-si
 
 </details>
 
-A flow can use session.commit(record) to refuse writes after cancellation. Once commit is admitted, cancel() leaves it running until persistence and flow settlement complete. Flows that write through their own credential adapter remain responsible for their own cancellation ordering.
+A flow can use session.commit(record) to refuse writes after cancellation. While a `session.commit` write is in flight, `cancel()` and a caller's withdrawal are retained rather than dropped, and they take effect the moment the write settles; once no write is in flight, cancellation always settles the attempt, even if the flow keeps running or hangs after committing. A withdrawn attempt whose `session.commit` was saved and whose record is still configured reports `authorized`, so a stored credential is never reported as discarded; a withdrawn attempt with no saved commit, including one whose write failed, reports `cancelled`. Flows that write through their own credential adapter remain responsible for their own cancellation ordering.

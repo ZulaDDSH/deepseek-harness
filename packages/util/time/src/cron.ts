@@ -7,6 +7,8 @@ import type { RecurrenceOccurrence, RecurrenceResult } from './recurrence.ts'
 /** Gregorian calendar repetition bounds both forward and backward searches. */
 export const CRON_SEARCH_HORIZON_YEARS = 400
 
+export const CRON_MAX_EXPRESSION_LENGTH = 1024
+
 /** Project an explicit instant into a calendar date in the rule's zone. */
 function localDate(epoch: number, timeZone: string): Temporal.PlainDate {
   return Temporal.Instant.fromEpochMilliseconds(epoch).toZonedDateTimeISO(timeZone).toPlainDate()
@@ -268,6 +270,9 @@ export interface CronFields {
 function parseCronExpression(expression: string): CronFields {
   if (typeof expression !== 'string' || expression.length === 0 || expression.trim() !== expression) {
     throw new RecurrenceInputError('syntax', 'cron.expression must be a non-empty trimmed string.')
+  }
+  if (expression.length > CRON_MAX_EXPRESSION_LENGTH) {
+    throw new RecurrenceInputError('syntax', `cron.expression must not exceed ${CRON_MAX_EXPRESSION_LENGTH} characters.`)
   }
   const fields = expression.split(/\s+/)
   if (fields.length !== 5) {

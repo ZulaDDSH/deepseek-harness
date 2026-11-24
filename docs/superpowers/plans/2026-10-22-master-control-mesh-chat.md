@@ -14,7 +14,7 @@
 ## Global Constraints
 
 - English-only docs (no `.zh.md`).
-- Code notes in `docs/code-notes/deepseek-harness.md` with `<file>:<symbol>` anchors.
+- Code notes in `Deepseek Harness/deepseek-harness.md` in ZulaDDSH/CodeNotes with `<file>:<symbol>` anchors.
 - Do not mount mesh tools on every exotic preset; `standard`, `lean`, and `master` are enough for v1.
 - Targets must still be loaded in `ctx.agents`.
 

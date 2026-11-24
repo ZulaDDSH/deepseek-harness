@@ -20,8 +20,33 @@ function droppedDirectories(dataTransfer: DataTransfer, files: readonly File[]):
   return directories
 }
 
+interface DropView {
+  readonly anchor: { readonly current: HTMLElement | null }
+  readonly accepts: boolean
+}
+
+const mountedViews = new Set<DropView>()
+const dropOwners = new WeakMap<Event, DropView | null>()
+
+function resolveDropOwner(event: globalThis.DragEvent, internalToken: boolean): DropView | null {
+  const known = dropOwners.get(event)
+  if (known !== undefined) return known
+  const targetCard = event.target instanceof Element ? event.target.closest('[data-composer-card]') : null
+  const accepting = [...mountedViews].filter(view => view.accepts && view.anchor.current !== null)
+  let owner = targetCard === null
+    ? undefined
+    : accepting.find(view => view.anchor.current?.closest('[data-composer-card]') === targetCard)
+  if (owner === undefined && !internalToken) {
+    owner = accepting.sort((a, b) => (a.anchor.current?.compareDocumentPosition(b.anchor.current as Node) ?? 0)
+      & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1)[0]
+  }
+  dropOwners.set(event, owner ?? null)
+  return owner ?? null
+}
+
 /**
  * Install one attachment view's file-drop listeners.
+ * @param anchor - an element inside this view's composer card, used to route a drop to one view.
  * @param canAcceptDrop - whether this view accepts the dropped files.
  * @param onAddFiles - attachment intake callback.
  * @param dragDepth - the view's retained nested-drag counter.
@@ -30,6 +55,7 @@ function droppedDirectories(dataTransfer: DataTransfer, files: readonly File[]):
  * @returns cleanup for exactly these listeners.
  */
 export function installDocumentDropEvents(
+  anchor: { readonly current: HTMLElement | null },
   canAcceptDrop: ComposerAttachmentsProps['canAcceptDrop'],
   onAddFiles: ComposerAttachmentsProps['onAddFiles'],
   dragDepth: { current: number },
@@ -43,6 +69,8 @@ export function installDocumentDropEvents(
       && (!(event.target instanceof Element) || event.target.closest('[data-composer-card]') === null)) return null
     return dataTransfer
   }
+  const view: DropView = { anchor, accepts: canAcceptDrop }
+  mountedViews.add(view)
   const reset = (): void => {
     dragDepth.current = 0
     setDragActive(false)
@@ -58,7 +86,7 @@ export function installDocumentDropEvents(
     const dataTransfer = fileTransfer(event)
     if (dataTransfer === null) return
     event.preventDefault()
-    dataTransfer.dropEffect = canAcceptDrop ? 'copy' : 'none'
+    dataTransfer.dropEffect = resolveDropOwner(event, dataTransfer.types.includes(FILE_DRAG_TOKEN_TYPE)) === null ? 'none' : 'copy'
   }
   const onDragLeave = (event: globalThis.DragEvent): void => {
     if (fileTransfer(event) === null) return
@@ -73,7 +101,7 @@ export function installDocumentDropEvents(
     if (dataTransfer === null) return
     event.preventDefault()
     reset()
-    if (canAcceptDrop) {
+    if (resolveDropOwner(event, dataTransfer.types.includes(FILE_DRAG_TOKEN_TYPE)) === view) {
       const image = dataTransfer.types.includes(FILE_DRAG_TOKEN_TYPE) ? readFileDrag(dataTransfer) : undefined
       const files = image === undefined ? [...dataTransfer.files] : [image]
       if (files.length > 0) onAddFiles(files, droppedDirectories(dataTransfer, files))
@@ -85,6 +113,7 @@ export function installDocumentDropEvents(
   document.addEventListener('drop', onDrop)
   window.addEventListener('dragend', reset)
   return () => {
+    mountedViews.delete(view)
     document.removeEventListener('dragenter', onDragEnter)
     document.removeEventListener('dragover', onDragOver)
     document.removeEventListener('dragleave', onDragLeave)

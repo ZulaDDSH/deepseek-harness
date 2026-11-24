@@ -173,6 +173,7 @@ These limits define when this package is a poor fit or needs special operational
 - **Raster prompt images only** — PNG, JPEG, WebP, and GIF require a durable attachment store and an exact image-capable route.
 - **MCP tools only** — MCP resources and prompts have no DSH consumer.
 - **No transcript replay or interactive extensions** — session deletion, fork, `session/load`, modes, commands, plans, terminals, client filesystem operations, and elicitation remain outside this automation surface.
+- **Bounded update delivery** — each `session/update` must be accepted by the transport within 60 seconds and at most 32 MiB of updates (estimated as JSON length) may wait per session. Past either limit the bridge closes the connection and every pending update fails at once; a prompt whose assistant update was lost is rejected with `assistant output delivery failed`, while lost tool and configuration updates are only logged.
 
 <a id="dev-note"></a>
 ### Dev Note

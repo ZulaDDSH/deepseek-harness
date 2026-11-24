@@ -70,6 +70,7 @@ export async function* observeJobOutput(
     yield { type: 'opened', job, from: cursor }
     while (!signal.aborted) {
       if (removed !== undefined) {
+        if (removed.output.total > cursor) yield { type: 'output', chunks: [], next: removed.output.total, lossy: true }
         yield { type: 'status', job: removed }
         return
       }

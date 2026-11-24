@@ -230,7 +230,8 @@ function QuestionFlow({ pending, t, useStore, useQuestionCard, actions }: Questi
     if (card.closed) actions.clear(pending.key)
   }, [actions, card.closed, pending.key])
   useEffect(() => {
-    actions.prune(pending.liveKeys())
+    const keep = pending.liveKeys()
+    if (keep !== undefined) actions.prune(keep)
   }, [actions, pending])
   const waitDisposition = useRef<'editing' | 'waiting' | undefined>(restoredWait)
   useEffect(() => {
@@ -579,11 +580,6 @@ function QuestionFlow({ pending, t, useStore, useQuestionCard, actions }: Questi
                         aria-describedby={hasDescription ? descriptionId : undefined}
                         disabled={locked}
                         onClick={() => { choose(option.label) }}
-                        onKeyDown={(event) => {
-                          if (event.key !== 'Enter') return
-                          event.preventDefault()
-                          submitDrafts(drafts)
-                        }}
                       >
                         {question.multiSelect === true
                           ? (

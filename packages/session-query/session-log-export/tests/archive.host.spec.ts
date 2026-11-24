@@ -321,11 +321,16 @@ describe('session.export download endpoint', () => {
   })
 
   it('preflights root preparation through HEAD without streaming a body', async () => {
-    const open = vi.fn(async () => readHandle(log('session-root')))
+    const handle = readHandle(log('session-root'))
+    const read = vi.fn(handle.read)
+    const close = vi.fn(handle.close)
+    const open = vi.fn(async () => ({ ...handle, read, close }) as SessionHandle)
     const api = await buildApi({}, [], { open })
     const response = await toFetchHandler(api).fetch(
       new Request('http://host/api/session.export?sessionId=session-root', { method: 'HEAD' }),
     )
+    expect(read).not.toHaveBeenCalled()
+    expect(close).toHaveBeenCalledOnce()
 
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toBe('application/zip')
@@ -387,6 +392,25 @@ describe('session.export download endpoint', () => {
     ])
     expect(strFromU8(files[subagentLogName('child-a')] as Uint8Array))
       .toBe(logText(child))
+  })
+
+  it('keeps descendants whose ids sanitize alike at distinct, case-insensitively unique paths', async () => {
+    const ids = ['child.a', 'child_a', 'CHILD_A']
+    const logs: Record<string, StoredLog> = { 'session-root': log('session-root') }
+    for (const id of ids) logs[id] = log(id, sid('session-root'), [{ ...turnStart, time: id.length * 1000 + id.charCodeAt(0) }])
+    const api = await buildApi(logs, ids.map(id => node(id)))
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root&includeDescendants=true'),
+    )
+    const files = unzipSync(await responseBytes(response))
+    const paths = Object.keys(files).filter(path => path.startsWith('subagents/'))
+    expect(paths).toHaveLength(3)
+    expect(new Set(paths.map(path => path.toLowerCase())).size).toBe(3)
+    expect(files[subagentLogName('child_a')]).toBeDefined()
+    for (const id of ids) {
+      const hit = Object.values(files).some(bytes => strFromU8(bytes) === logText(logs[id] as StoredLog))
+      expect(hit).toBe(true)
+    }
   })
 
   it('flushes each live root and descendant immediately before reading its log', async () => {

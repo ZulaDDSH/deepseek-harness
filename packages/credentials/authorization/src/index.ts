@@ -26,6 +26,7 @@
  * @module @deepseek-ai/dsh-authorization
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { CredentialKey, CredentialRecord } from '@deepseek-ai/dsh-credentials'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
@@ -172,7 +173,9 @@ export interface AuthorizationRequest {
 /** One attempt in flight, with the handle that withdraws it. */
 interface InFlight {
   readonly controller: AbortController
-  committing: boolean
+  writes: number
+  saved: boolean
+  pendingWithdraw?: { reason: unknown }
 }
 
 /**
@@ -185,6 +188,7 @@ export class AuthorizationService extends Service {
 
   private readonly flows = new Map<CredentialKey, AuthorizationFlow>()
   private readonly running = new Map<CredentialKey, InFlight>()
+  private readonly scope = new AsyncLocalStorage<InFlight>()
 
   constructor(ctx: Context) {
     super(ctx, 'authorization')
@@ -254,7 +258,12 @@ export class AuthorizationService extends Service {
    */
   cancel(key: CredentialKey): void {
     const running = this.running.get(key)
-    if (running !== undefined && !running.committing) running.controller.abort()
+    if (running !== undefined) this.withdraw(running, undefined)
+  }
+
+  private withdraw(running: InFlight, reason: unknown): void {
+    if (running.writes > 0) running.pendingWithdraw ??= { reason }
+    else running.controller.abort(reason)
   }
 
   /**
@@ -296,15 +305,15 @@ export class AuthorizationService extends Service {
     // not exist hears about it whether or not it also gave up.
     if (request.signal?.aborted === true) return { status: 'cancelled' }
     const controller = new AbortController()
+    const state: InFlight = { controller, writes: 0, saved: false }
     const withdraw = (): void => {
-      const running = this.running.get(key)
-      if (running !== undefined && !running.committing) controller.abort(request.signal?.reason)
+      if (this.running.get(key) === state) this.withdraw(state, request.signal?.reason)
     }
     request.signal?.addEventListener('abort', withdraw, { once: true })
-    this.running.set(key, { controller, committing: false })
+    this.running.set(key, state)
     let settlement: AuthorizationSettlement = 'failed'
     try {
-      const outcome = await this.attempt(flow, method, controller.signal, request.interaction)
+      const outcome = await this.attempt(flow, method, state, request.interaction)
       settlement = outcome.status
       return outcome
     } finally {
@@ -355,9 +364,10 @@ export class AuthorizationService extends Service {
   private async attempt(
     flow: AuthorizationFlow,
     method: string,
-    signal: AbortSignal,
+    state: InFlight,
     interaction: AuthorizationInteraction,
   ): Promise<AuthorizationOutcome> {
+    const signal = state.controller.signal
     // Withdrawal settles the attempt whether or not the flow reacts to it. A
     // flow is supposed to stop when its signal fires, but one that does not
     // would otherwise hold the key for the life of the process, and a wedged
@@ -378,20 +388,31 @@ export class AuthorizationService extends Service {
     // as freshly authorized.
     const observed = { declined: false, committed: false }
     const unwatch = this.ctx.on('credentials/record-updated', (key: CredentialKey) => {
-      if (key === flow.key) observed.committed = true
+      if (key === flow.key && this.scope.getStore() === state) observed.committed = true
     })
+    const cancelledOutcome = async (): Promise<AuthorizationOutcome> => {
+      if (!state.saved || !(await this.ctx.credentials.describeRecord(flow.key)).configured) return { status: 'cancelled' }
+      return { status: 'authorized' }
+    }
     try {
-      const running = flow.run({
+      const running = this.scope.run(state, () => flow.run({
         method,
         signal,
         commit: async (record) => {
           signal.throwIfAborted()
-          const attempt = this.running.get(flow.key)
-          if (attempt === undefined || attempt.controller.signal !== signal) {
+          if (this.running.get(flow.key) !== state) {
             throw new AuthorizationError('authorization attempt is no longer active', 'CANCELLED')
           }
-          attempt.committing = true
-          await this.ctx.credentials.modifyRecord(flow.key, () => Promise.resolve(record))
+          state.writes += 1
+          try {
+            await this.scope.run(state, () => this.ctx.credentials.modifyRecord(flow.key, () => Promise.resolve(record)))
+            state.saved = true
+          } finally {
+            state.writes -= 1
+            if (state.writes === 0 && state.pendingWithdraw !== undefined) {
+              state.controller.abort(state.pendingWithdraw.reason)
+            }
+          }
         },
         notify: (notice) => {
           try {
@@ -408,19 +429,20 @@ export class AuthorizationService extends Service {
           if (error instanceof AuthorizationDeclinedError) observed.declined = true
           throw error
         }),
-      })
+      }))
       try {
         if (await Promise.race([running.then(() => 'ran' as const), withdrawn]) === 'withdrawn') {
           // Nothing awaits the orphan any more, so its eventual failure has to be
           // marked handled or it would take down the process.
           void running.catch(() => { this.ctx.logger.debug('authorization: withdrawn flow failed after the fact') })
-          return { status: 'cancelled' }
+          return await cancelledOutcome()
         }
       } catch (error) {
         // A withdrawn attempt and a declined prompt are outcomes, not
         // failures: the human said no, or closed the page. Anything else is
         // the flow failing and belongs to the caller, cause chain intact.
-        if (signal.aborted || observed.declined) return { status: 'cancelled' }
+        if (signal.aborted) return await cancelledOutcome()
+        if (observed.declined) return { status: 'cancelled' }
         throw error
       }
     } finally {

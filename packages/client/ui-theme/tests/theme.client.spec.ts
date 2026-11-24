@@ -202,6 +202,25 @@ describe('ThemeRuntime', () => {
     await vi.waitFor(() => { expect(theme.getTheme().fontSizes).toEqual({ text: 14, code: 13, terminal: 15 }) })
   })
 
+  it('reverts to the held value without an unhandled rejection when the Host write rejects', async () => {
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown): void => { unhandled.push(reason) }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      const { theme, host } = make()
+      const section = { preference: 'system' as const, fontSize: 14, codeFontSize: 11, terminalFontSize: 13, textFontFamily: '', codeFontFamily: '', terminalFontFamily: '' }
+      host.publish({ status: 'ready', value: section, revision: 1, writable: true })
+      host.set.mockRejectedValue(new Error('no Connection'))
+      theme.setFontSize('code', 13)
+      expect(theme.getTheme().fontSizes.code).toBe(13)
+      await vi.waitFor(() => { expect(theme.getTheme().fontSizes.code).toBe(11) })
+      await new Promise<void>((resolve) => { setTimeout(resolve, 0) })
+      expect(unhandled).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
+
   it('adopts a section already standing at construction', () => {
     const host = stubConfigForm<ThemeSettings>()
     host.publish({ status: 'ready', value: { preference: 'dark', fontSize: 14, codeFontSize: 11, terminalFontSize: 13, textFontFamily: '', codeFontFamily: '', terminalFontFamily: '' }, revision: 1, writable: true })

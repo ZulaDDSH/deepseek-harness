@@ -148,7 +148,7 @@ isEnabled(caller: Agent): boolean
  * @param enabled - selected Team mode.
  * @param signal - cancellation checked before changing the selection.
  * @returns fulfillment after the selection flushes.
- * @throws when called by a descendant or persistence fails. An appended selection remains active;
+ * @throws when called by a descendant, or TEAM_MODE_PERSISTENCE_UNCONFIRMED when the flush fails or no listener participates. An appended selection remains active;
  * retrying the same selection flushes without a duplicate event.
  */
 @Remote async setEnabled(agent: Agent, enabled: boolean, signal?: AbortSignal): Promise<void>
@@ -187,6 +187,21 @@ listTasks(caller: Agent): TeamTaskView[]
  * @throws TEAM_TASK_PERSISTENCE_UNCONFIRMED when the task is visible but durability is unknown; read it before retrying.
  */
 async updateTask(caller: Agent, request: UpdateTeamTaskRequest, signal?: AbortSignal): Promise<TeamTaskView>
+
+/** List the historical Team messages of the caller's root Session that were sent before a restart and are not yet acknowledged.
+ * @param caller - Agent whose root Session's Team state is read.
+ * @returns The unacknowledged historical message snapshots; empty when none are pending.
+ */
+pendingHistoricalMessages(caller: Agent): TeamMessageSnapshot[]
+
+/** Resolve one pending historical Team message by replaying it or discarding it; the acknowledgement is appended only after a replayed send was accepted. Throws TEAM_LEAD_REQUIRED unless the caller is the root Session.
+ * @param caller - Agent resolving the message; must be the root Session.
+ * @param messageId - The pending historical message to resolve.
+ * @param decision - `replay` sends the message again, `discard` drops it.
+ * @param signal - Cancels the replayed send.
+ * @returns What happened: replayed, discarded, already-delivered or already-resolved.
+ */
+async recoverHistoricalMessage( caller: Agent, messageId: TeamMessageId, decision: 'replay' | 'discard', signal: AbortSignal = new AbortController().signal, ): Promise<'replayed' | 'discarded' | 'already-delivered' | 'already-resolved'>
 ```
 
 Types: [Agent](core.md)

@@ -58,6 +58,10 @@ class StubJobRegistry extends JobRegistry {
     return { chunks: [], lossy: false, job: this.view(id, caller) }
   }
 
+  peek(id: JobId, caller?: SessionId): JobRead {
+    return this.read(id, caller)
+  }
+
   readAt(_id: JobId, from: number): JobOutputRead {
     return { chunks: [], next: from, lossy: false }
   }

@@ -118,18 +118,25 @@ export class PermissionPresetSettingsController {
       draft.error = null
     })
     let response
+    let thrown: unknown
     try {
       response = await this.ctx.remote.settings.mutate(
         PERMISSION_SETTINGS_NS,
         [{ op: 'set', path: ['defaultPreset'], value: preset }],
         view.revision,
       )
+    } catch (error) {
+      thrown = error
     } finally {
       // Cleared before the fold below, whose publish reaches `derive` through
       // this row's own subscription and is skipped while a save is pending.
       this.saving = false
     }
     if (this.disposed) return
+    if (response === undefined) {
+      this.fail(thrown)
+      return
+    }
     if (!response.ok) {
       this.fail(response.error)
       return

@@ -23,6 +23,13 @@ export interface QuotaControllerInternals {
   readonly providers?: readonly QuotaProvider[]
   /** Whole-percent share of a subscription window at which the composer warns; the loader supplies it from the namespace. */
   readonly nearLimitPercent?: Volatile<number>
+  readonly timeoutMs?: number
+}
+
+interface Pending {
+  readonly target: QuotaSource | QuotaProvider
+  readonly result: Promise<QuotaResult>
+  readonly cancel: (error: string) => void
 }
 
 /** requires credential-backed provider quota Remote service. */
@@ -33,12 +40,20 @@ export class QuotaController extends TypertRemoteService {
   private readonly providers: ReadonlyMap<string, QuotaProvider>
   private readonly fetchImpl: typeof fetch
   private readonly sources = new Map<string, QuotaSource>()
-  private readonly pending = new Map<string, Promise<QuotaResult>>()
+  private readonly pending = new Map<string, Pending>()
+  private readonly timeoutMs: number
 
   constructor(ctx: Context, internals: QuotaControllerInternals = {}) {
     super(ctx, 'quotaController', { namespace: 'quota' })
     this.providers = createQuotaProviderRegistry(internals.providers)
     this.fetchImpl = internals.fetch ?? fetch
+    this.timeoutMs = internals.timeoutMs ?? 30_000
+    ctx.on('credentials/reference-updated', (ref) => {
+      this.cancelForCredential(provider => (provider.credentialRefs ?? [provider.credentialRef]).includes(ref))
+    })
+    ctx.on('credentials/record-updated', (key) => {
+      this.cancelForCredential(provider => provider.credentialKey === key)
+    })
   }
 
   /**
@@ -49,7 +64,12 @@ export class QuotaController extends TypertRemoteService {
   registerSource(source: QuotaSource): () => void {
     if (this.providers.has(source.id) || this.sources.has(source.id)) throw new Error(`Quota source already registered: ${source.id}`)
     this.sources.set(source.id, source)
-    return () => { if (this.sources.get(source.id) === source) this.sources.delete(source.id) }
+    return () => {
+      if (this.sources.get(source.id) !== source) return
+      this.sources.delete(source.id)
+      const entry = this.pending.get(source.id)
+      if (entry?.target === source) entry.cancel('Quota source changed')
+    }
   }
 
   /**
@@ -69,23 +89,58 @@ export class QuotaController extends TypertRemoteService {
    */
   @Remote
   fetch(providerId: string): Promise<QuotaResult> {
-    const existing = this.pending.get(providerId)
-    if (existing !== undefined) return existing
     const provider = this.providers.get(providerId)
     const source = this.sources.get(providerId)
-    const operation = source !== undefined ? source.fetch(this.fetchImpl) : provider === undefined
-      ? Promise.resolve({ providerId, providerName: providerId, configured: false, ok: false, error: 'Unsupported provider' })
-      : this.fetchProvider(provider)
-    this.pending.set(providerId, operation)
-    const release = (): void => { this.pending.delete(providerId) }
-    void operation.then(release, release)
-    return operation
+    const target = source ?? provider
+    if (target === undefined) {
+      return Promise.resolve({ providerId, providerName: providerId, configured: false, ok: false, error: 'Unsupported provider' })
+    }
+    const existing = this.pending.get(providerId)
+    if (existing?.target === target) return existing.result
+    return this.start(providerId, target, source !== undefined
+      ? fetchImpl => source.fetch(fetchImpl)
+      : fetchImpl => this.fetchProvider(provider as QuotaProvider, fetchImpl))
   }
 
-  private async fetchProvider(provider: QuotaProvider): Promise<QuotaResult> {
+  private start(id: string, target: QuotaSource | QuotaProvider, execute: (fetchImpl: typeof fetch) => Promise<QuotaResult>): Promise<QuotaResult> {
+    const abort = new AbortController()
+    const unavailable = (error: string): QuotaResult => ({ providerId: id, providerName: target.name, configured: true, ok: false, error })
+    let cancel = (_error: string): void => undefined
+    const result = new Promise<QuotaResult>((resolve, reject) => {
+      const timer = setTimeout(() => { cancel('Quota request timed out') }, this.timeoutMs)
+      timer.unref()
+      cancel = (error) => {
+        clearTimeout(timer)
+        abort.abort()
+        resolve(unavailable(error))
+      }
+      new Promise<QuotaResult>(run => { run(execute(this.bindSignal(abort.signal))) }).then(
+        (value) => { clearTimeout(timer); resolve(value) },
+        (error: unknown) => { clearTimeout(timer); reject(error) },
+      )
+    })
+    const entry: Pending = { target, result, cancel: error => { cancel(error) } }
+    this.pending.set(id, entry)
+    const release = (): void => { if (this.pending.get(id) === entry) this.pending.delete(id) }
+    void result.then(release, release)
+    return result
+  }
+
+  private bindSignal(signal: AbortSignal): typeof fetch {
+    return (input, init) => this.fetchImpl(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal })
+  }
+
+  private cancelForCredential(match: (provider: QuotaProvider) => boolean): void {
+    for (const provider of this.providers.values()) {
+      const entry = this.pending.get(provider.id)
+      if (entry?.target === provider && match(provider)) entry.cancel('Quota credential changed')
+    }
+  }
+
+  private async fetchProvider(provider: QuotaProvider, fetchImpl: typeof fetch): Promise<QuotaResult> {
     const credential = await this.resolveCredential(provider)
     if (credential === undefined) return { providerId: provider.id, providerName: provider.name, configured: false, ok: false, error: `Set up ${provider.name} in Settings > Models` }
-    return provider.fetch(credential, this.fetchImpl)
+    return provider.fetch(credential, fetchImpl)
   }
 
   private async resolveCredential(provider: QuotaProvider): Promise<import('@deepseek-ai/dsh-credentials').ResolvedCredential | undefined> {

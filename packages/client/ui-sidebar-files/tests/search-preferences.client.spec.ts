@@ -57,6 +57,26 @@ describe('createSearchPreferenceBook', () => {
     expect(stored()).toEqual({ '/work/app': { respectGitignore: false } })
   })
 
+  it('keeps another tab\'s changes to other roots and fields when this tab writes from an older snapshot', () => {
+    const first = persisted()
+    const second = persisted()
+    first.update('/work/app', { showHidden: true })
+    second.update('/work/lib', { respectGitignore: false })
+    first.update('/work/app', { rules: [{ path: 'out', enabled: false }] })
+    expect(stored()).toEqual({
+      '/work/app': { showHidden: true, rules: [{ path: 'out', enabled: false }] },
+      '/work/lib': { respectGitignore: false },
+    })
+    second.update('/work/app', { respectGitignore: false })
+    expect(stored()).toEqual({
+      '/work/app': { showHidden: true, rules: [{ path: 'out', enabled: false }], respectGitignore: false },
+      '/work/lib': { respectGitignore: false },
+    })
+    expect(first.source('/work/app').getSnapshot().respectGitignore).toBe(true)
+    first.refresh()
+    expect(first.source('/work/app').getSnapshot().respectGitignore).toBe(false)
+  })
+
   it('leaves the rules out of an entry whose rules the reader did not change, so the running build\'s default list applies', () => {
     persisted().update('/work/app', { showHidden: true })
     expect(stored()).toEqual({ '/work/app': { showHidden: true } })

@@ -93,22 +93,30 @@ function detailedReminder(toolName: string, count: number, canonicalArguments: s
  * bigint, cycle, or `undefined` handling exists because no input path can
  * produce them.
  */
-function sortJsonValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortJsonValue)
-  if (value !== null && typeof value === 'object') {
-    const record = value as Record<string, unknown>
-    const sorted: Record<string, unknown> = {}
-    for (const key of Object.keys(record).sort()) {
-      sorted[key] = sortJsonValue(record[key])
-    }
-    return sorted
+function sortJsonValue(value: unknown, depth: number): unknown {
+  if (value === null || typeof value !== 'object') return value
+  if (depth >= MAX_CANONICAL_DEPTH) throw new CanonicalDepthExceeded()
+  if (Array.isArray(value)) return value.map(item => sortJsonValue(item, depth + 1))
+  const record = value as Record<string, unknown>
+  const sorted: Record<string, unknown> = Object.create(null) as Record<string, unknown>
+  for (const key of Object.keys(record).sort()) {
+    Object.defineProperty(sorted, key, {
+      value: sortJsonValue(record[key], depth + 1),
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    })
   }
-  return value
+  return sorted
 }
+
+const MAX_CANONICAL_DEPTH = 64
+
+class CanonicalDepthExceeded extends Error {}
 
 /** Canonical string form of a call's arguments: deep key-sort, then stringify. */
 function canonicalize(argumentsValue: unknown): string {
-  return JSON.stringify(sortJsonValue(argumentsValue))
+  return JSON.stringify(sortJsonValue(argumentsValue, 0))
 }
 
 /** Compile one `*`-wildcard pattern to an anchored RegExp (every other regex metacharacter is matched literally). */
@@ -198,7 +206,13 @@ export function apply(ctx: Context, config: Config): void {
     // to key on; only agent-loop calls participate.
     if (!exec.agent) return undefined
     if (!tracked(exec.name)) return undefined
-    const canonical = canonicalize(exec.arguments)
+    let canonical: string
+    try {
+      canonical = canonicalize(exec.arguments)
+    } catch {
+      chains.delete(exec.agent)
+      return undefined
+    }
     const key = JSON.stringify([exec.name, canonical])
     const chain = chains.get(exec.agent)
     const count = chain !== undefined && chain.key === key ? chain.count + 1 : 1

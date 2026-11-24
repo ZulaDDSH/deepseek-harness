@@ -108,9 +108,7 @@ function stageDir(root: string, name: string): string {
   return path
 }
 
-async function nextFrame(
-  iterator: AsyncIterator<WorkspaceFollowFrame>,
-): Promise<WorkspaceFollowFrame> {
+async function nextFrame<T>(iterator: AsyncIterator<T>): Promise<T> {
   const next = await iterator.next()
   if (next.done === true) throw new Error('Workspace stream ended before the expected frame')
   return next.value
@@ -548,6 +546,54 @@ describe('WorkspaceController follow', () => {
 
     abort.abort()
     await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined })
+  })
+
+  it('replaces a non-owner baseline on an access invalidation while the registry is idle', async () => {
+    const { controller, ctx, root } = await harness()
+    const first = (await controller.create({ path: stageDir(root, 'first') })).workspace.workspaceId
+    const second = (await controller.create({ path: stageDir(root, 'second') })).workspace.workspaceId
+    const shared = new Set<string>([first])
+    ctx.remoteAccess.registerPolicy('test-guest', {
+      bindings: () => [
+        { role: FOLLOWER, resource: { kind: 'global' } },
+        ...[first, second].filter(id => shared.has(id)).map(id => ({ role: WORKSPACE_VIEWER, resource: { kind: 'workspace', id } as const })),
+      ],
+    })
+    const guest: Principal = { kind: 'test-guest', guest: 'idle' }
+    const abort = new AbortController()
+    const iterator = followerContext(ctx, guest).workspaceController.follow(abort.signal)[Symbol.asyncIterator]()
+    const ids = (frame: WorkspaceFollowFrame): string[] =>
+      frame.type === 'baseline' || frame.type === 'replace' ? frame.value.items.map(item => item.workspaceId) : []
+    const opening = await nextFrame(iterator)
+    expect(opening.type).toBe('baseline')
+    expect(ids(opening)).toEqual([first])
+
+    shared.add(second)
+    ctx.remoteAccess.invalidate(guest)
+    const granted = await nextFrame(iterator)
+    expect(granted.type).toBe('replace')
+    expect(ids(granted).sort()).toEqual([first, second].sort())
+
+    shared.delete(first)
+    ctx.remoteAccess.invalidate(guest)
+    const revoked = await nextFrame(iterator)
+    expect(revoked.type).toBe('replace')
+    expect(ids(revoked)).toEqual([second])
+
+    abort.abort()
+    await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined })
+  })
+
+  it('releases its access follower when a non-owner generation stops', async () => {
+    const { ctx } = await harness()
+    ctx.remoteAccess.registerPolicy('test-guest', { bindings: () => [{ role: FOLLOWER, resource: { kind: 'global' } }] })
+    const changes = vi.spyOn(ctx.remoteAccess, 'changes')
+    const iterator = followerContext(ctx, { kind: 'test-guest', guest: 'early' }).workspaceController.follow(new AbortController().signal)[Symbol.asyncIterator]()
+    await nextFrame(iterator)
+    expect(changes).toHaveBeenCalledTimes(1)
+    const signal = changes.mock.calls[0]?.[1]
+    await iterator.return?.()
+    expect(signal?.aborted).toBe(true)
   })
 
   it('ignores unrelated domain writes and closes active followers on disposal', async () => {

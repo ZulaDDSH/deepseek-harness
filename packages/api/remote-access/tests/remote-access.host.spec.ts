@@ -451,6 +451,37 @@ describe('first snapshots', () => {
     expect(warn).toHaveBeenCalledWith(expect.objectContaining({ message: 'condition failed' }))
   })
 
+  it('computes a snapshot and its follow diff in linear time over many distinct bound resources', async () => {
+    const { ctx, access } = await setup()
+    const policy = new GuestPolicy()
+    access.registerPolicy('test-guest', policy)
+    const reads = { count: 0 }
+    const counted = (id: string): RemoteAccessResourceOf<'test-shelf'> => {
+      const resource = { id }
+      Object.defineProperty(resource, 'kind', { enumerable: true, get: () => { reads.count += 1; return 'test-shelf' } })
+      return resource as RemoteAccessResourceOf<'test-shelf'>
+    }
+    const total = 400
+    const bind = (count: number): RemoteAccessBinding[] =>
+      Array.from({ length: count }, (_, index) => ({ role: SHELF_READER, resource: counted(`room-${index}`) }))
+    policy.hold(GUEST, ...bind(total))
+    const guest = await follow(ctx, GUEST)
+    const baseline = await guest.next()
+    expect(baseline.type === 'baseline' && baseline.owner === false && baseline.grants.map(grant => 'id' in grant.resource && grant.resource.id))
+      .toEqual(Array.from({ length: total }, (_, index) => `room-${index}`))
+    policy.hold(GUEST, ...bind(total).slice(1), { role: SHELF_WRITER, resource: counted('room-1') })
+    reads.count = 0
+    access.invalidate(GUEST)
+    const upsert = await guest.next()
+    expect(upsert).toMatchObject({ type: 'upsert', grant: { resource: { id: 'room-1' }, actions: ['notes/read', 'notes/rooms', 'notes/write'] } })
+    await expect(guest.next()).resolves.toMatchObject({ type: 'remove', resource: { id: 'room-0' } })
+    expect(reads.count).toBeLessThan(total * 20)
+    policy.hold(GUEST)
+    access.invalidate(GUEST)
+    await expect(guest.next()).resolves.toMatchObject({ type: 'remove', resource: { id: 'room-1' } })
+    await guest.stop()
+  })
+
   it('gives a principal whose bindings() throws no grant', async () => {
     const { ctx, access } = await setup()
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
@@ -615,5 +646,40 @@ describe('remoteAccess/follow', () => {
     await expect(pending).resolves.toEqual({ done: true, value: undefined })
     // A cancelled generation no longer receives invalidations.
     access.invalidate()
+  })
+})
+
+describe('RemoteAccessService changes', () => {
+  it('yields once per coalesced invalidation of its principal and ignores others', async () => {
+    const { access } = await setup()
+    const abort = new AbortController()
+    const stream = access.changes(GUEST, abort.signal)[Symbol.asyncIterator]()
+    const first = stream.next()
+    access.invalidate(OTHER)
+    access.invalidate(GUEST)
+    access.invalidate(GUEST)
+    await expect(first).resolves.toEqual({ done: false, value: undefined })
+    const second = stream.next()
+    access.invalidate()
+    await expect(second).resolves.toEqual({ done: false, value: undefined })
+    abort.abort()
+    await expect(stream.next()).resolves.toEqual({ done: true, value: undefined })
+  })
+
+  it('ends with the service, and an owner only waits for cancellation', async () => {
+    const ctx = new Context()
+    roots.push(ctx)
+    const service = ctx.plugin(RemoteAccessService)
+    await service
+    const guest = ctx.remoteAccess.changes(GUEST, NEVER)[Symbol.asyncIterator]()
+    const owner = ctx.remoteAccess.changes(OWNER, NEVER)[Symbol.asyncIterator]()
+    const guestFirst = guest.next()
+    const ownerEnd = owner.next()
+    ctx.remoteAccess.invalidate()
+    await expect(guestFirst).resolves.toEqual({ done: false, value: undefined })
+    const pending = guest.next()
+    await service.dispose()
+    await expect(pending).resolves.toEqual({ done: true, value: undefined })
+    await expect(ownerEnd).resolves.toEqual({ done: true, value: undefined })
   })
 })

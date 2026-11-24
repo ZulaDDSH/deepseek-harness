@@ -24,6 +24,8 @@ export interface Config {
   maxTimeoutMinutes?: number
   /** Consecutive failed checks that end a watch as `failed` (default 3). */
   maxConsecutiveErrors?: number
+  denyCommands?: string[]
+  allowCommands?: string[]
 }
 
 const MAX_TIMEOUT_MINUTES = 35_791
@@ -34,7 +36,19 @@ export const Config: z<Config> = z.object({
   defaultTimeoutMinutes: z.number().min(1).max(MAX_TIMEOUT_MINUTES).default(120),
   maxTimeoutMinutes: z.number().min(1).max(MAX_TIMEOUT_MINUTES).default(1440),
   maxConsecutiveErrors: z.number().min(1).default(3),
+  denyCommands: z.array(z.string()).default([]),
+  allowCommands: z.array(z.string()).default([]),
 })
+
+function compilePatterns(name: string, patterns: readonly string[]): RegExp[] {
+  return patterns.map((pattern) => {
+    try {
+      return new RegExp(pattern)
+    } catch (error: unknown) {
+      throw new Error(`tool-watch: ${name} has an invalid pattern: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  })
+}
 
 interface UntilArgs {
   exit_code?: number
@@ -92,6 +106,14 @@ export function apply(ctx: Context, config: Config): void {
   }
   if (defaultTimeoutMinutes > maxTimeoutMinutes) {
     throw new Error(`tool-watch: defaultTimeoutMinutes (${defaultTimeoutMinutes}) exceeds maxTimeoutMinutes (${maxTimeoutMinutes})`)
+  }
+  const deny = compilePatterns('denyCommands', config.denyCommands ?? [])
+  const allow = compilePatterns('allowCommands', config.allowCommands ?? [])
+  const refusal = (command: string): string | undefined => {
+    const denied = deny.find(pattern => pattern.test(command))
+    if (denied !== undefined) return `command policy refuses commands matching /${denied.source}/`
+    if (allow.length > 0 && !allow.some(pattern => pattern.test(command))) return 'command policy allows only commands matching allowCommands'
+    return undefined
   }
   if (ctx.shell.sandboxMode !== undefined && ctx.get('sandboxPolicy') === undefined) {
     throw new Error('tool-watch: the mounted shell executor confines but ctx.sandboxPolicy is missing')
@@ -156,11 +178,14 @@ export function apply(ctx: Context, config: Config): void {
       if (agent === undefined) throw new Error('watch needs an owning agent: start it from an agent turn')
       if (args.command.trim().length === 0) throw new Error('invalid command: expected a non-empty string')
       if (args.label.trim().length === 0) throw new Error('invalid label: expected a non-empty string')
+      const refused = refusal(args.command)
+      if (refused !== undefined) throw new Error(`watch refused: ${refused}`)
       const timeoutMs = checkTimeout(args.timeout_min ?? defaultTimeoutMinutes, maxTimeoutMinutes) * 60_000
       const intervalMs = checkInterval(args.interval_s ?? defaultIntervalSeconds, minIntervalSeconds) * 1000
       if (intervalMs > timeoutMs) {
         throw new Error(`invalid interval_s: ${intervalMs / 1000} s is longer than the ${timeoutMs / 60_000} min timeout, so only one check could run; lower interval_s or raise timeout_min`)
       }
+      let cleared = false
       const plan: WatchPlan = {
         agent,
         command: args.command,
@@ -168,6 +193,24 @@ export function apply(ctx: Context, config: Config): void {
         intervalMs,
         timeoutMs,
         maxConsecutiveErrors,
+        refusal,
+        preflight: async (signal) => {
+          if (cleared) return undefined
+          const visible = ['bash', 'pwsh'].filter(shell => ctx.tools.get(shell, agent) !== undefined)
+          for (const shell of visible.length > 0 ? visible : ['bash']) {
+            const decision = await ctx.tools.preflight({
+              callId: `${exec.callId}:preflight-${shell}` as typeof exec.callId,
+              rootCallId: exec.callId,
+              name: shell,
+              arguments: { command: args.command, description: args.label },
+              agent,
+              signal,
+            })
+            if (!decision.allowed) return decision.reason
+          }
+          cleared = true
+          return undefined
+        },
         dshEnv: ctx.shellEnv.collect(exec),
       }
       const jobId = ctx.jobs.start({

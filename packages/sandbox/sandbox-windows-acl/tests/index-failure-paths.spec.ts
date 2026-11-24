@@ -17,11 +17,16 @@ import { processInformationType } from '@deepseek-ai/dsh-win32-process/src/ffi.t
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import koffi from 'koffi'
 
+import { allocBytes, ptrAddress } from '../src/ffi.ts'
 import type { NativePtr, Win32Bindings } from '../src/ffi.ts'
 import { AclSandbox } from '../src/index.ts'
 import * as abi from '../src/win32-abi.ts'
 
 const PVOID = koffi.pointer('void')
+
+const EMPTY_DACL = allocBytes(8)
+koffi.encode(EMPTY_DACL, 'uint8', 2)
+koffi.encode(EMPTY_DACL, 2, 'uint16', 8)
 
 type MockFn = ReturnType<typeof vi.fn>
 
@@ -95,7 +100,7 @@ function happyStubs(): HappyStubs {
     _path: unknown, _type: unknown, _info: unknown, _owner: unknown, _group: unknown,
     dacl: NativePtr, sacl: NativePtr, descriptor: NativePtr,
   ) => {
-    koffi.encode(dacl, PVOID, 0n)
+    koffi.encode(dacl, PVOID, ptrAddress(EMPTY_DACL))
     koffi.encode(sacl, PVOID, 0n)
     koffi.encode(descriptor, PVOID, 0n)
     return 0
@@ -353,7 +358,7 @@ describe('AclSandbox init', () => {
       dacl: NativePtr, sacl: NativePtr, descriptor: NativePtr,
     ) => {
       if (inCleanup) return 2 // the cleanup's revocation read fails too
-      koffi.encode(dacl, PVOID, 0n)
+      koffi.encode(dacl, PVOID, ptrAddress(EMPTY_DACL))
       koffi.encode(sacl, PVOID, 0n)
       koffi.encode(descriptor, PVOID, 0n)
       return 0

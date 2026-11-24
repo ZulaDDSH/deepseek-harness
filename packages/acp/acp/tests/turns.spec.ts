@@ -417,7 +417,7 @@ describe('ACP prompt lifecycle', () => {
   })
 
   it('does not attribute an unrelated Agent failure during prompt admission', async () => {
-    harness = await makeBridgeHarness({ imageCapable: true, script: [textResponse('answer')] })
+    harness = await makeBridgeHarness({ imageCapable: true, script: [textResponse('retried'), textResponse('answer')] })
     const validationStarted = Promise.withResolvers<undefined>()
     const releaseValidation = Promise.withResolvers<undefined>()
     harness.attachments!.beforeValidate = () => {
@@ -446,7 +446,7 @@ describe('ACP prompt lifecycle', () => {
     releaseValidation.resolve(undefined)
 
     await expect(prompt).resolves.toEqual({ stopReason: 'end_turn' })
-    expect(messageText(harness)).toBe('answer')
+    expect(messageText(harness)).toBe('retriedanswer')
   })
 
   it('does not queue admitted content into an agent retired during storage', async () => {

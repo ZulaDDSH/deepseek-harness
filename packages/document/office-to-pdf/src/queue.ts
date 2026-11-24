@@ -217,7 +217,11 @@ export class ConversionQueue {
         while (this.aliases.size > this.config.maxSourceEntries) this.aliases.delete(this.aliases.keys().next().value as string)
       }
     }
-    for (const reader of job.readers) { this.release(reader); reader.resolve(this.copy(result)) }
+    for (const reader of job.readers) {
+      const value = this.copy(result)
+      this.release(reader)
+      reader.resolve(value)
+    }
   }
   private retain(result: OfficeToPdfResult): void {
     if (result.pdf.byteLength > this.config.maxCachedBytes) return

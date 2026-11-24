@@ -526,7 +526,11 @@ export function grantWrite(
 ): void {
   withPathLock(api, path, () => {
     const { oldAcl, labelAcl, descriptor } = readCurrentSecurity(api, path)
-    if (oldAcl !== null && labelAcl !== null
+    if (oldAcl === null) {
+      if (descriptor !== null) api.localFree(descriptor)
+      throw new Error(`grantWrite(${path}): the directory has a NULL DACL (everyone full control) that a revoke cannot restore; give it an explicit DACL first`)
+    }
+    if (labelAcl !== null
       && hasExactGrant(oldAcl, sidPtr) && hasExactDeny(oldAcl, worldSidPtr)
       && hasExactLabel(labelAcl, lowLabelSidPtr) && linkedClean(api, path)) {
       // The exact ACE, deny, and label stand: releasing the descriptor is the whole operation.

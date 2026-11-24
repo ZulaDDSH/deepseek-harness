@@ -1,6 +1,6 @@
 /**
  * CommandDirectory unit tests over the session-key axis: per-key status
- * transitions and epoch guard, key isolation across sessions, soft
+ * transitions and per-key refresh coalescing, key isolation across sessions, soft
  * invalidation (invalidateAll), the reconnect hard reset (resetConnected:
  * every entry drops its snapshot and prewarms), the warm hook's cold/failed
  * gate, and the per-key ensureReady strong-wait policy.
@@ -118,39 +118,103 @@ describe('status and resolve (per key)', () => {
   })
 })
 
-describe('epoch guard (per key)', () => {
-  it('a superseded pull cannot overwrite the newer one (old resolves after new)', async () => {
-    const { dir, pull } = bench()
+describe('refresh coalescing (per key)', () => {
+  it('a refresh during a flying pull discards that pull and publishes the single rerun', async () => {
+    const { dir, pull, countOf } = bench()
     const first = dir.refresh(S1)
     const second = dir.refresh(S1)
-    pull(S1, 1).resolve(CMDS)
-    await second
-    expect(dir.resolve(S1, 'plan')).toBeDefined()
+    expect(countOf(S1)).toBe(1)
     pull(S1, 0).resolve([{ name: 'stale', description: 'old world' }])
-    await first
+    await Promise.resolve(); await Promise.resolve()
+    expect(dir.status(S1)).toBe('pending')
+    expect(countOf(S1)).toBe(2)
+    pull(S1, 1).resolve(CMDS)
+    await Promise.all([first, second])
     expect(dir.resolve(S1, 'stale')).toBeUndefined()
     expect(dir.resolve(S1, 'plan')).toBeDefined()
   })
 
-  it('a superseded failure cannot demote the newer success', async () => {
+  it('a discarded failure cannot demote the rerun success', async () => {
     const { dir, pull } = bench()
     const first = dir.refresh(S1)
-    const second = dir.refresh(S1)
-    pull(S1, 1).resolve(CMDS)
-    await second
+    void dir.refresh(S1)
     pull(S1, 0).reject(new Error('late failure'))
+    await Promise.resolve(); await Promise.resolve()
+    pull(S1, 1).resolve(CMDS)
     await first
     expect(dir.status(S1)).toBe('ready')
     expect(dir.resolve(S1, 'plan')).toBeDefined()
   })
 
-  it('epochs are per key: one session supersede leaves another session epoch alone', async () => {
-    const { dir, pull } = bench()
+  it('a burst of invalidations over delayed fetches costs at most one pull in flight and one rerun per key', async () => {
+    const { dir, pull, countOf } = bench()
+    const a = dir.refresh(S1)
+    const b = dir.refresh(S2)
+    pull(S1, 0).resolve(CMDS)
+    pull(S2, 0).resolve(S2_CMDS)
+    await Promise.all([a, b])
+    for (let i = 0; i < 20; i++) dir.invalidateAll()
+    expect(countOf(S1)).toBe(2)
+    expect(countOf(S2)).toBe(2)
+    pull(S1, 1).resolve(CMDS)
+    pull(S2, 1).resolve(S2_CMDS)
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+    expect(countOf(S1)).toBe(3)
+    expect(countOf(S2)).toBe(3)
+    pull(S1, 2).resolve(CMDS)
+    pull(S2, 2).resolve(S2_CMDS)
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+    expect(countOf(S1)).toBe(3)
+    expect(dir.status(S1)).toBe('ready')
+  })
+
+  it('keys coalesce independently', async () => {
+    const { dir, pull, countOf } = bench()
     const one = dir.refresh(S1)
     void dir.refresh(S2)
-    void dir.refresh(S2) // supersedes the s2 pull only
+    void dir.refresh(S2)
+    expect(countOf(S1)).toBe(1)
+    expect(countOf(S2)).toBe(1)
     pull(S1, 0).resolve(CMDS)
     await one
+    expect(dir.status(S1)).toBe('ready')
+  })
+
+  it('a refresh requested right after a pull ends starts a fresh pull', async () => {
+    const { dir, pull, countOf } = bench()
+    const first = dir.refresh(S1)
+    pull(S1, 0).resolve(CMDS)
+    await first
+    void dir.refresh(S1)
+    expect(countOf(S1)).toBe(2)
+  })
+})
+
+describe('entry bound', () => {
+  const fail = async (dir: CommandDirectory, pull: ReturnType<typeof bench>['pull'], key: SessionId) => {
+    const done = dir.refresh(key)
+    pull(key, 0).reject(new Error('closed'))
+    await done
+  }
+
+  it('a long history of Sessions stays bounded and failed closed Sessions are not revisited on invalidation', async () => {
+    const { dir, pull, calls } = bench()
+    const keys = Array.from({ length: 200 }, (_, i) => sid(`closed-${i}`))
+    for (const key of keys) await fail(dir, pull, key)
+    expect(dir.status(keys[0]!)).toBe('cold')
+    expect(dir.status(keys[199]!)).toBe('failed')
+    const before = calls.length
+    dir.invalidateAll()
+    expect(calls.length).toBe(before)
+  })
+
+  it('never evicts an entry that still has a pull in flight or a waiter', async () => {
+    const { dir, pull } = bench()
+    for (let i = 0; i < 70; i++) await fail(dir, pull, sid(`old-${i}`))
+    const wait = dir.ensureReady(S1, new AbortController().signal)
+    for (let i = 0; i < 200; i++) await fail(dir, pull, sid(`other-${i}`))
+    pull(S1, 0).resolve(CMDS)
+    await expect(wait).resolves.toEqual(CMDS)
     expect(dir.status(S1)).toBe('ready')
   })
 })
@@ -333,8 +397,9 @@ describe('ensureReady (per key)', () => {
   it('keeps waiting across a superseded pull and settles on the winner', async () => {
     const { dir, pull } = bench()
     const wait = dir.ensureReady(S1, signal())
-    void dir.refresh(S1) // supersedes pull #0 with pull #1
+    void dir.refresh(S1) // reruns once pull #0 lands
     pull(S1, 0).resolve([{ name: 'stale', description: 'loser' }])
+    await Promise.resolve(); await Promise.resolve()
     pull(S1, 1).resolve(CMDS)
     await expect(wait).resolves.toEqual(CMDS)
   })

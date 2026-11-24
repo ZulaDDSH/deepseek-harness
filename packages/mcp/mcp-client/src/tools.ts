@@ -21,7 +21,7 @@ import { isImageAdmissionError } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore, ImageAttachmentRef, ImageMediaType, SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { ToolDefinition, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import { assertSupportedJsonSchema } from '@deepseek-ai/dsh-tools'
+import { assertSupportedJsonSchema, ToolArgsError } from '@deepseek-ai/dsh-tools'
 import type { JsonSchemaNode } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { describeError, McpLocalError, mcpRequestError, McpToolError } from './diagnostic.ts'
@@ -195,6 +195,8 @@ export async function syncTools(
           if (isAuthRequired(error)) opts.onAuthRequired?.(error)
           throw mcpRequestError(error, `tool "${tool.name}"`, opts.redact)
         }
+        const size = resultBytes(result, MAX_TOOL_RESULT_BYTES)
+        if (size > MAX_TOOL_RESULT_BYTES) throw invalidResult(`the result is over the ${MAX_TOOL_RESULT_BYTES} byte limit for one tool call`)
         if (result.isError !== true) {
           const failure = outputCheck === undefined ? undefined : outputCheck.check(result.structuredContent)
           if (failure !== undefined) throw invalidResult(failure)
@@ -382,11 +384,10 @@ function createExecutor(
     if (taskRequired) {
       throw new McpToolError(`Tool "${rawName}" requires task-based execution, which this bridge does not support`, 'MCP_UNSUPPORTED_TASK_EXECUTION')
     }
-    // The agent loop passes `JSON.parse(model_arguments)` which is usually an
-    // object, but can be any JSON value if the model misbehaves (outputs a bare
-    // string/number/null). Fallback to {} lets the MCP server produce a
-    // specific "missing required param" error the model can learn from.
-    const argsObj = (typeof args === 'object' && args !== null ? args : {}) as Record<string, unknown>
+    if (typeof args !== 'object' || args === null || Array.isArray(args)) {
+      throw new ToolArgsError([`arguments: expected a JSON object for MCP tool "${rawName}"`])
+    }
+    const argsObj = args as Record<string, unknown>
     const parsed = specTypeSchemas.CallToolResult['~standard'].validate(await options.call(argsObj, exec))
     if (parsed.issues !== undefined) {
       throw new McpToolError(`Tool "${rawName}" returned an invalid MCP result: ${parsed.issues.map(issue => issue.message).join('; ')}`, 'MCP_INVALID_RESULT')
@@ -414,6 +415,28 @@ function createExecutor(
     }
     return value
   }
+}
+
+const MAX_TOOL_RESULT_BYTES = 8 * 1024 * 1024
+
+// Constraint: stops walking once the total passes the limit, so an oversized result costs bounded work.
+function resultBytes(value: unknown, limit: number): number {
+  let total = 0
+  const pending: unknown[] = [value]
+  while (pending.length > 0 && total <= limit) {
+    const item = pending.pop()
+    if (typeof item === 'string') total += Buffer.byteLength(item)
+    else if (Array.isArray(item)) {
+      for (const child of item as unknown[]) pending.push(child)
+    }
+    else if (typeof item === 'object' && item !== null) {
+      for (const [key, child] of Object.entries(item)) {
+        total += key.length
+        pending.push(child)
+      }
+    } else total += 8
+  }
+  return total
 }
 
 /** Whether an untrusted MCP content array contains a declared image block. */

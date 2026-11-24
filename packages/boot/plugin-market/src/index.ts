@@ -131,6 +131,7 @@ export default class PluginMarket extends TypertRemoteService {
   private readonly entryId: string | undefined
   private readonly repositories: RepositoryCache
   private readonly details: DetailReader
+  private indexWrites: Promise<unknown> = Promise.resolve()
 
   constructor(ctx: Context, private readonly config: Config) {
     super(ctx, 'pluginMarket')
@@ -195,11 +196,23 @@ export default class PluginMarket extends TypertRemoteService {
    * `plugin-market/changed` announces the committed list. A URL already configured is kept as written, so a client can
    * add or remove sources beside one that `listIndexes` reports as unusable.
    * @param urls - index URLs in display order.
+   * @param expected - the URLs `listIndexes` returned when the caller read the list; when they are no longer the current list nothing is written.
    * @throws {RemoteError} `plugin-market/invalid-index-url` for an invalid new URL or a repeated URL;
+   * `plugin-market/index-conflict` when `expected` is stale, with the current URLs as `indexes`;
    * `plugin-market/settings-unavailable` without Settings or a profile entry.
    */
   @Remote
-  async setIndexes(urls: string[]): Promise<void> {
+  async setIndexes(urls: string[], expected?: string[]): Promise<void> {
+    const write = this.indexWrites.then(() => this.replaceIndexes(urls, expected))
+    this.indexWrites = write.catch(() => {})
+    return write
+  }
+
+  private async replaceIndexes(urls: string[], expected: string[] | undefined): Promise<void> {
+    const current = this.sources().map(source => source.url)
+    if (expected !== undefined && (expected.length !== current.length || expected.some((url, position) => url !== current[position]))) {
+      throw new RemoteError('plugin-market/index-conflict', 'The index sources changed since they were read', { indexes: current })
+    }
     const configured = new Set(this.config.indexes.get())
     const normalized = urls.map(url => configured.has(url) ? url : normalizeIndexUrl(url))
     // A kept URL compares by its canonical form when it has one, so a new spelling of it counts as a repeat.

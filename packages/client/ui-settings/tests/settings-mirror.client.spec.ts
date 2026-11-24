@@ -108,6 +108,27 @@ describe('SettingsDescribeMirror', () => {
     expect(describeCall).toHaveBeenCalledTimes(1)
   })
 
+  it('acceptView refuses a delayed lower-revision answer and re-reads the Host instead', async () => {
+    const describeCall = vi.fn()
+      .mockResolvedValueOnce(described([view('theme', 8)]))
+      .mockResolvedValueOnce(described([view('theme', 8)]))
+    const mirror = new SettingsDescribeMirror(ctxWith(describeCall))
+    await mirror.load()
+    mirror.acceptView(view('theme', 7))
+    expect(mirror.namespace('theme')?.revision).toBe(8)
+    await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledTimes(2) })
+  })
+
+  it('acceptView recovers a restarted Host whose revisions began again from zero', async () => {
+    const describeCall = vi.fn()
+      .mockResolvedValueOnce(described([view('theme', 8)]))
+      .mockResolvedValueOnce(described([view('theme', 1)]))
+    const mirror = new SettingsDescribeMirror(ctxWith(describeCall))
+    await mirror.load()
+    mirror.acceptView(view('theme', 1))
+    await vi.waitFor(() => { expect(mirror.namespace('theme')?.revision).toBe(1) })
+  })
+
   it('acceptView before any answer is a no-op instead of inventing a document', () => {
     const describeCall = vi.fn()
     const mirror = new SettingsDescribeMirror(ctxWith(describeCall))

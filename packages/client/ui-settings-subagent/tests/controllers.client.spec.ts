@@ -236,6 +236,22 @@ describe('SubagentModelSelectionCardController', () => {
     await vi.waitFor(() => { expect(models.models).toHaveBeenCalledTimes(2) })
   })
 
+  it('settles a thrown catalog request to the error state and retries it', async () => {
+    const host = stubConfigForm<SubagentModelSelectionSettings>()
+    const models = vi.fn()
+      .mockRejectedValueOnce(new Error('no Connection'))
+      .mockResolvedValueOnce({ ok: true, value: { groups: [], failures: [] } })
+    const controller = new SubagentModelSelectionCardController(host.scope, ctxWith({ session: { modelCatalog: models } }))
+    host.publish({ status: 'ready', writable: true, value: { enabled: false, allowedModels: [] }, user: {} })
+    const face = controller.inject()
+    const state = () => face.hooks.subagentModelSelectionCard.getSnapshot()
+
+    face.toggleEnabled()
+    await vi.waitFor(() => { expect(state().catalogStatus).toBe('error') })
+    face.retryCatalog()
+    await vi.waitFor(() => { expect(state().catalogStatus).toBe('ready') })
+  })
+
   it('rejects a draft after the Host revision changes', async () => {
     const host = stubConfigForm<SubagentModelSelectionSettings>()
     const models = modelsApi({
@@ -620,6 +636,31 @@ describe('shared Subagent card actions', () => {
     }
     expect(state()).toMatchObject({ dirty: false, failed: false })
     expect(limits.scope.getSnapshot().value?.maxDepth).toBe(2)
+  })
+
+  it('keeps the model draft failed and still saves limits when the model write throws', async () => {
+    const { limits, models, face, state } = card()
+    models.mutate.mockRejectedValueOnce(new Error('no Connection'))
+    face.editLimit('maxDepth', '2')
+    face.toggleEnabled()
+    face.save()
+    await vi.waitFor(() => { expect(state()).toMatchObject({ saving: false, dirty: true, failed: true }) })
+    expect(face.hooks.subagentModelSelectionCard.getSnapshot()).toMatchObject({ enabled: true, dirty: true, saving: false })
+    expect(limits.mutate).toHaveBeenCalledWith([{ op: 'set', path: ['maxDepth'], value: 2 }], 2)
+  })
+
+  it('drops the drafts once a write that outlived the page fails', async () => {
+    const { models, face, state } = card()
+    const pending = deferred<boolean>()
+    models.mutate.mockImplementationOnce(() => pending.promise)
+    face.toggleEnabled()
+    face.save()
+    await vi.waitFor(() => { expect(state().saving).toBe(true) })
+    face.discard()
+    expect(face.hooks.subagentModelSelectionCard.getSnapshot().dirty).toBe(true)
+    pending.resolve(false)
+    await vi.waitFor(() => { expect(state()).toMatchObject({ saving: false, dirty: false, failed: false }) })
+    expect(face.hooks.subagentModelSelectionCard.getSnapshot().enabled).toBe(false)
   })
 
   it('writes neither namespace when either draft is invalid and discards both', () => {

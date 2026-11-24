@@ -8,6 +8,8 @@ import { resourceFromAttributes } from '@opentelemetry/resources'
 import { LoggerProvider, type BatchLogRecordProcessorOptions, type LogRecordExporter, type ReadableLogRecord, type LogRecordProcessor } from '@opentelemetry/sdk-logs'
 import { createLogExporter, type LogExporterOptions } from './transport.ts'
 
+export const SESSION_LOG_DEFAULT_QUEUE_BYTES = 64 * 1024 * 1024
+
 /** Collector request ceiling in uncompressed UTF-8 bytes, including the OTLP envelope. */
 export const SESSION_LOG_MAX_REQUEST_BYTES = 4_000_000
 
@@ -28,7 +30,9 @@ export interface SessionLogRecord {
  * `exporter` belongs to the owning channel, and `selfObsMeterProvider` is
  * excluded because this processor implements no self-observability metering.
  */
-export type SessionLogProcessorOptions = Omit<BatchLogRecordProcessorOptions, 'exporter' | 'selfObsMeterProvider'>
+export type SessionLogProcessorOptions = Omit<BatchLogRecordProcessorOptions, 'exporter' | 'selfObsMeterProvider'> & {
+  maxQueueBytes?: number
+}
 
 /** Session-log transport and byte/count queue settings. */
 export interface SessionLogOptions {
@@ -62,6 +66,10 @@ export function resolveSessionLogLimits(options: Pick<SessionLogOptions, 'maxReq
       throw new Error(`session log processor.${key} must be a positive integer no greater than 2147483647`)
     }
   }
+  const queueBytes = options.processor?.maxQueueBytes ?? SESSION_LOG_DEFAULT_QUEUE_BYTES
+  if (!Number.isSafeInteger(queueBytes) || queueBytes < limit) {
+    throw new Error('session log processor.maxQueueBytes must be an integer no smaller than maxRequestBytes')
+  }
   const queue = options.processor?.maxQueueSize ?? 2048
   const batch = options.processor?.maxExportBatchSize ?? 512
   if (batch > queue) throw new Error('session log maxExportBatchSize must not exceed maxQueueSize')
@@ -80,7 +88,7 @@ class SessionLogProcessor implements LogRecordProcessor {
   constructor(
     private readonly exporter: LogRecordExporter,
     private readonly limit: number,
-    private readonly config: Required<Pick<SessionLogProcessorOptions, 'maxQueueSize' | 'maxExportBatchSize' | 'scheduledDelayMillis' | 'exportTimeoutMillis'>>,
+    private readonly config: Required<Pick<SessionLogProcessorOptions, 'maxQueueSize' | 'maxQueueBytes' | 'maxExportBatchSize' | 'scheduledDelayMillis' | 'exportTimeoutMillis'>>,
     private readonly warn: SessionLogOptions['onFailure'],
   ) {}
 
@@ -101,6 +109,10 @@ class SessionLogProcessor implements LogRecordProcessor {
     }
     if (bytes > this.limit) {
       this.warn('Session log record rejected; content was not truncated', new Error(`Session log record exceeds maxRequestBytes: ${bytes} > ${this.limit}`))
+      return
+    }
+    if (this.bytes + bytes > this.config.maxQueueBytes) {
+      this.warn('Session log queue byte budget is full; record rejected')
       return
     }
     this.queue.push({ record, bytes })
@@ -191,6 +203,7 @@ export class SessionLogReporter {
     const limit = resolveSessionLogLimits(options)
     this.processor = new SessionLogProcessor(createLogExporter(options.exporter), limit, {
       maxQueueSize: options.processor?.maxQueueSize ?? 2048,
+      maxQueueBytes: options.processor?.maxQueueBytes ?? SESSION_LOG_DEFAULT_QUEUE_BYTES,
       maxExportBatchSize: options.processor?.maxExportBatchSize ?? 512,
       scheduledDelayMillis: options.processor?.scheduledDelayMillis ?? 1000,
       exportTimeoutMillis: options.processor?.exportTimeoutMillis ?? 30000,

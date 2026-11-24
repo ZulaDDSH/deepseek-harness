@@ -331,6 +331,10 @@ export class AgentLoop extends Service implements AgentFactory {
     const ownership = this.ownership
     // Agent projections remain readable until teardown finishes.
     ctx.effect(() => () => ownership.dispose(), 'agentLoop.transactions()')
+    // Dependent fiber: constraint, a persistence provider unloads only after this factory's agents drained.
+    ctx.effect(() => ctx.inject(['sessionPersistence'], (childCtx: Context) => {
+      childCtx.effect(() => async () => { if (!ownership.isActive()) await ownership.dispose() }, 'agentLoop.persistenceDrain()')
+    }).dispose, 'agentLoop.persistenceDependency()')
     this.modelProjectionHandle = await ctx.sessionProjections.register(modelSelectionProjectionDefinition)
     this.inboxProjectionHandle = await ctx.sessionProjections.register(inboxProjectionDefinition)
     await ctx.sessionProjections.register(cliTerminalProjectionDefinition)
@@ -493,7 +497,13 @@ export class AgentLoop extends Service implements AgentFactory {
     // Reverse teardown, memoized so every racing owner awaits one quiescence:
     // stop the machine, unwind the scope, drain and close the session's write
     // path, leave the registries, release bookkeeping.
-    const teardown = (): Promise<void> => (disposing ??= (async () => {
+    let cancelAttempted = false
+    let cancelFailure: { readonly error: unknown } | undefined
+    let idleConfirmed = false
+    let scopeReleased = false
+    let sessionClosed = false
+    let detached = false
+    const runTeardown = async (): Promise<void> => {
       abort.abort(new Error(this.ownership.isActive()
         ? `agent "${id}" lifecycle disposed`
         : 'agent loop is not active'))
@@ -513,46 +523,80 @@ export class AgentLoop extends Service implements AgentFactory {
         if (machine === undefined) await machineReady.promise
         /* v8 ignore next -- setup failure untracks this disposer before resolving without a machine. */
         if (machine !== undefined) {
-          try {
-            machine.cancel({ kind: 'disposed' }, { keepInbox: !ready })
-          } catch (error: unknown) {
-            failures.push(error)
+          if (!cancelAttempted) {
+            cancelAttempted = true
+            try {
+              machine.cancel({ kind: 'disposed' }, { keepInbox: !ready })
+            } catch (error: unknown) {
+              cancelFailure = { error }
+            }
           }
+          if (cancelFailure !== undefined) failures.push(cancelFailure.error)
           // A failed queue write must not release resources underneath work.
-          await machine.whenIdle()
+          if (!idleConfirmed) {
+            await machine.whenIdle()
+            idleConfirmed = true
+          }
         }
       } catch (error: unknown) {
         failures.push(error)
       }
-      try {
-        await machine?.scope.dispose()
-      } catch (error: unknown) {
-        failures.push(error)
+      if (!scopeReleased) {
+        try {
+          await machine?.scope.dispose()
+          scopeReleased = true
+        } catch (error: unknown) {
+          failures.push(error)
+        }
       }
       // Close drains events already routed into the handle. The backend's
       // live-event listeners must stay mounted through driver shutdown to
       // receive all closing events. A failed final drain is retained here
       // rather than logged away.
-      try {
-        await stored?.handle.close()
-      } catch (error: unknown) {
-        failures.push(error)
+      if (!sessionClosed) {
+        try {
+          await stored?.handle.close()
+          sessionClosed = true
+        } catch (error: unknown) {
+          failures.push(error)
+        }
       }
-      try {
-        detachAgent?.()
-        detachSession?.()
-      } finally {
-        untrack()
+      if (!detached) {
+        detached = true
+        try {
+          detachAgent?.()
+          detachSession?.()
+        } finally {
+          untrack()
+        }
       }
       throwCollectedFailures(failures, `agent "${id}" disposal failed`)
-    })())
+    }
+    const teardown = (): Promise<void> => {
+      if (disposing === undefined) {
+        const attempt: Promise<void> = runTeardown().catch((error: unknown) => {
+          disposing = undefined
+          throw error
+        })
+        disposing = attempt
+      }
+      return disposing
+    }
     let unfollowScope: (() => Promise<void> | void) | undefined
     let unfollowOwner: () => Promise<void> | void
+    let unfollowAttempt: Promise<void> | undefined
     const dispose = async (): Promise<void> => {
+      const attempt = teardown()
       try {
-        await teardown()
+        await attempt
       } finally {
-        await Promise.all([unfollowOwner(), unfollowScope?.()])
+        const settled = attempt.catch(() => undefined)
+        unfollowAttempt = settled
+        try {
+          await Promise.all([unfollowOwner(), unfollowScope?.()])
+        } finally {
+          if (unfollowAttempt === settled) unfollowAttempt = undefined
+        }
       }
     }
     const untrack = this.ownership.track(dispose)
@@ -584,13 +628,13 @@ export class AgentLoop extends Service implements AgentFactory {
         if (!INACTIVE_STATES.has(loopCtx.fiber.state)) {
           unfollowScope = loopCtx.effect(function* () {
             yield created.scope.rawDispose
-            yield () => teardown()
+            yield () => disposing ?? unfollowAttempt ?? teardown()
           }, `agentLoop.scope(${id})`)
         }
         yield async () => {
           abort.abort(new Error(`agent "${id}" setup aborted: owner disposed during setup`))
           try {
-            await teardown()
+            await (disposing ?? unfollowAttempt ?? teardown())
           } finally {
             await unfollowScope?.()
           }

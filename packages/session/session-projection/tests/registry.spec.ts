@@ -26,6 +26,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     'test/marks': { marks: string[] }
     'test/stable-view': { marks: string[] }
+    'test/list': string[]
   }
 }
 
@@ -268,6 +269,64 @@ describe('SessionProjectionRegistry drive', () => {
     expect(order).toEqual(['key:test/marks', 'key:test/stable-view', 'event'])
   })
 
+  it('publishes appends only on the append feed; the whole-value feeds always carry the whole value', async () => {
+    const { ctx, session } = await harness()
+    await ctx.sessionProjections.register({
+      key: 'test/list',
+      stateSchema: z.array(z.string()),
+      init: () => [],
+      apply: (state, event) => (event.type === 'test/mark' ? [...state, ...event.data.marks] : state),
+      wire: {
+        viewSchema: z.array(z.string()),
+        view: state => state,
+        appended: (prev, next) => (next.length > prev.length ? { from: prev.length, items: next.slice(prev.length) } : undefined),
+      },
+      stateVersion: 1,
+    })
+    const appends: unknown[] = []
+    ctx.sessionProjections.onAppendEventChanged((_session, changes) => { appends.push(changes) })
+    const wholes: unknown[] = []
+    ctx.sessionProjections.onEventChanged((_session, changes) => { wholes.push(changes) })
+    mark(session, ['a'])
+    mark(session, ['b', 'c'])
+    expect(appends).toEqual([
+      [{ key: 'test/list', append: { from: 0, items: ['a'] } }],
+      [{ key: 'test/list', append: { from: 1, items: ['b', 'c'] } }],
+    ])
+    expect(wholes).toEqual([
+      [{ key: 'test/list', val: ['a'] }],
+      [{ key: 'test/list', val: ['a', 'b', 'c'] }],
+    ])
+    const wholeValues: unknown[] = []
+    ctx.sessionProjections.onChanged((_session, key, value) => { if (key === 'test/list') wholeValues.push(value) })
+    mark(session, ['d'])
+    expect(wholeValues).toEqual([['a', 'b', 'c', 'd']])
+    expect(appends.at(-1)).toEqual([{ key: 'test/list', append: { from: 3, items: ['d'] } }])
+    expect(wholes.at(-1)).toEqual([{ key: 'test/list', val: ['a', 'b', 'c', 'd'] }])
+  })
+
+  it('skips the whole view for an append-only audience when the unit declares an append', async () => {
+    const { ctx, session } = await harness()
+    await ctx.sessionProjections.register({
+      key: 'test/list',
+      stateSchema: z.array(z.string()),
+      init: () => [],
+      apply: (state, event) => (event.type === 'test/mark' ? [...state, ...event.data.marks] : state),
+      wire: {
+        viewSchema: z.array(z.string()),
+        view: state => { views += 1; return state },
+        appended: (prev, next) => (next.length > prev.length ? { from: prev.length, items: next.slice(prev.length) } : undefined),
+      },
+      stateVersion: 1,
+    })
+    let views = 0
+    const appends: unknown[] = []
+    ctx.sessionProjections.onAppendEventChanged((_session, changes) => { appends.push(changes) })
+    mark(session, ['a'])
+    expect(views).toBe(0)
+    expect(appends).toEqual([[{ key: 'test/list', append: { from: 0, items: ['a'] } }]])
+  })
+
   it('still delivers the changes made before a later unit throws', async () => {
     const { ctx, session } = await harness()
     await ctx.sessionProjections.register(marksUnit())
@@ -281,6 +340,41 @@ describe('SessionProjectionRegistry drive', () => {
     const event = mark(session, ['a'])
 
     expect(events).toEqual([{ changes: [{ key: 'test/marks', val: { marks: ['a'] } }], seq: event.seq }])
+  })
+
+  it('rethrows a single drive failure unwrapped', async () => {
+    const { ctx, session } = await harness()
+    await ctx.sessionProjections.register(marksUnit())
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    ctx.sessionProjections.onEventChanged(() => { throw new Error('only failure') })
+
+    mark(session, ['a'])
+
+    expect(warn).toHaveBeenCalledOnce()
+    expect(String(warn.mock.calls[0]?.[0])).toContain('Error: only failure')
+    expect(String(warn.mock.calls[0]?.[0])).not.toContain('AggregateError')
+  })
+
+  it('keeps driving later units and listeners after an earlier unit or listener throws', async () => {
+    const { ctx, session } = await harness()
+    await ctx.sessionProjections.register(stableViewUnit(() => ({ marks: 1 }) as never))
+    await ctx.sessionProjections.register(marksUnit())
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const keyed: string[] = []
+    const events: { changes: readonly { key: string; val: unknown }[]; seq: SessionSeq }[] = []
+    ctx.sessionProjections.onChanged((_session, key) => {
+      keyed.push(key)
+      throw new Error('listener failed')
+    })
+    ctx.sessionProjections.onEventChanged(() => { throw new Error('event listener failed') })
+    ctx.sessionProjections.onEventChanged((_session, changes, seq) => { events.push({ changes, seq }) })
+
+    const event = mark(session, ['a'])
+
+    expect(keyed).toEqual(['test/marks'])
+    expect(events).toEqual([{ changes: [{ key: 'test/marks', val: { marks: ['a'] } }], seq: event.seq }])
+    expect(warn).toHaveBeenCalledOnce()
+    expect(String(warn.mock.calls[0]?.[0])).toMatch(/AggregateError: 3 projection drive failures[\s\S]*Error: listener failed; Error: event listener failed/u)
   })
 
   it('computes views for an event listener alone and stops after its disposer runs', async () => {

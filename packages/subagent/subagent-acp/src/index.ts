@@ -14,7 +14,7 @@ import type {
   SubagentCapabilities,
   SubagentProvider,
 } from '@deepseek-ai/dsh-subagent'
-import { assertUsableCwd } from '@deepseek-ai/dsh-subagent'
+import { assertUsableCwd, resolveParentSandboxMode, SubagentError } from '@deepseek-ai/dsh-subagent'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { acpConfigurationFailure, type AcpRunSpec, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, type PermissionPolicy, startAcpRun } from './run.ts'
 
@@ -42,6 +42,8 @@ export interface Config {
    * ambient secrets do not leak implicitly.
    */
   env: Record<string, string>
+  /** Delegation from a read-only or workspace-write parent requires a command contained by an external boundary. */
+  allowRestrictedParent: boolean
   /**
    * Grace period (ms) for the child's EOF-driven quiesce on dispose — its
    * window to flush persistence and tear down its own nested subprocesses
@@ -59,6 +61,7 @@ export const Config: z<Config> = z.object({
   args: z.array(z.string()).default([]),
   permission: z.union(['allow', 'reject'] as const).default('reject'),
   env: z.dict(z.string()).default({}),
+  allowRestrictedParent: z.boolean().default(false),
   disposeEofGraceMs: z.number().default(DEFAULT_DISPOSE_EOF_GRACE_MS),
   disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
 })
@@ -92,6 +95,13 @@ class AcpProvider implements SubagentProvider {
   start(request: ResolvedSubagentStartRequest) {
     if (request.signal.aborted) {
       throw new Error('subagent request was aborted before the ACP child started')
+    }
+    const parentSandbox = resolveParentSandboxMode(this.ctx, request.parent.session)
+    if (!this.config.allowRestrictedParent && parentSandbox !== undefined && parentSandbox !== 'danger-full-access') {
+      throw new SubagentError(
+        `subagent-acp: the child process is not confined by the parent session's ${parentSandbox} sandbox; delegate from a danger-full-access session or set allowRestrictedParent for an externally contained command`,
+        'PARENT_SANDBOX_MISMATCH',
+      )
     }
     let cwd: string
     try {

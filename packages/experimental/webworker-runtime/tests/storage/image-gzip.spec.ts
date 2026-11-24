@@ -9,10 +9,11 @@
  * it expected. It also has to survive chunking: the two identification bytes may
  * arrive one at a time, which the single-byte case below feeds deliberately.
  */
+import { createHash } from 'node:crypto'
 import { gzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
-import { inflateImage, inflateImageStream } from '../../src/storage/image-gzip.ts'
-import { loadVfsImage } from '../../src/storage/memory.ts'
+import { inflateDigestedArchive, inflateImage, inflateImageStream } from '../../src/storage/image-gzip.ts'
+import { loadVfsImage, MemoryVfs } from '../../src/storage/memory.ts'
 import { packTar } from '../../src/storage/tar.ts'
 
 const encoder = new TextEncoder()
@@ -82,5 +83,37 @@ describe('image gzip envelope', () => {
   it('refuses a truncated gzip member instead of mounting a partial archive', async () => {
     const compressed = gzipSync(archive())
     await expect(inflateImage(compressed.subarray(0, compressed.byteLength - 64), 'the spec image')).rejects.toThrow()
+  })
+})
+
+describe('lazy archive digest', () => {
+  const tarOf = (text: string): Uint8Array => packTar({ 'client.js': encoder.encode(text) })
+  const good = gzipSync(tarOf('module.exports = "good"\n'))
+  const altered = gzipSync(tarOf('module.exports = "evil"\n'))
+  const name = `lazy/${createHash('sha256').update(good).digest('hex')}.tar.gz`
+
+  it('inflates an archive whose bytes match the digest in its name', async () => {
+    expect([...await inflateDigestedArchive(good, name)]).toEqual([...tarOf('module.exports = "good"\n')])
+  })
+
+  it('refuses same-length altered content and a name without a digest', async () => {
+    expect(altered.byteLength).toBe(good.byteLength)
+    await expect(inflateDigestedArchive(altered, name)).rejects.toThrow(/holds bytes with SHA-256/)
+    await expect(inflateDigestedArchive(good, 'lazy/abc.tar.gz')).rejects.toThrow(/does not name a SHA-256 content digest/)
+  })
+
+  it('leaves a refused archive retryable through the VFS', async () => {
+    const served = [altered, good]
+    const vfs = new MemoryVfs()
+    vfs.seedDirectory('/dsh')
+    vfs.deferArchive({
+      name,
+      root: '/dsh',
+      files: [{ path: 'client.js', size: encoder.encode('module.exports = "good"\n').byteLength }],
+      load: () => inflateDigestedArchive(served.shift() as Uint8Array, name),
+    })
+    await expect(vfs.whenReadable('/dsh/client.js')).rejects.toThrow(/could not be fetched/)
+    await vfs.whenReadable('/dsh/client.js')
+    expect(decoder.decode(vfs.readFileSync('/dsh/client.js') as Uint8Array)).toBe('module.exports = "good"\n')
   })
 })

@@ -55,3 +55,33 @@ it('retains drafts after quota failure and refuses to replace future data', asyn
 
   } finally { adapter.dispose() }
 })
+
+function stubLocks(): void {
+  let tail: Promise<unknown> = Promise.resolve()
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: {
+    request: <T>(_name: string, callback: () => Promise<T>): Promise<T> => {
+      const run = tail.then(callback)
+      tail = run.catch(() => undefined)
+      return run
+    },
+  } })
+}
+
+it('lets only one of two tabs save from the same reviewed revision when locks are available', async () => {
+  const other = 'shortcuts.other' as ShortcutCommandId
+  const rows = [...definitions, { id: other, defaults: definitions[0]!.defaults }]
+  const tabs = [webShortcutStorage(window, 'macos', () => {}), webShortcutStorage(window, 'macos', () => {})]
+  try {
+    const [first, second] = tabs as [typeof tabs[number], typeof tabs[number]]
+    const [one, two] = await Promise.all([first.get(rows), second.get(rows)])
+    stubLocks()
+    const results = await Promise.all([
+      first.edit({ type: 'set', id, binding: null }, one.revision),
+      second.edit({ type: 'set', id: other, binding: null }, two.revision),
+    ])
+    expect(results.map(result => result.status).sort()).toEqual(['saved', 'stale'])
+  } finally {
+    for (const tab of tabs) tab.dispose()
+    Reflect.deleteProperty(navigator, 'locks')
+  }
+})

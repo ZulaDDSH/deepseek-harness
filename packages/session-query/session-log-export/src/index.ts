@@ -11,6 +11,7 @@ import {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
   flushLiveSessionLog,
   readSessionLogText,
+  sessionLogExists,
   sessionLogExportDeps,
   sessionLogZipFilename,
   streamSessionLogZip,
@@ -199,6 +200,20 @@ async function sessionLogExportResponse(
     attachments: deps.attachments,
     sessions: deps.sessions,
   }
+  const headers = {
+    'content-type': 'application/zip',
+    'content-disposition': `attachment; filename="${sessionLogZipFilename(sessionId)}"`,
+  }
+  if (request.method === 'HEAD') {
+    try {
+      const exists = await sessionLogExists(deps.sessionPersistence, sessionId, request.signal)
+      request.signal.throwIfAborted()
+      return exists ? new Response(null, { headers }) : new Response('session not found', { status: 404 })
+    } catch {
+      request.signal.throwIfAborted()
+      return new Response('session log export failed to read the stored log', { status: 500 })
+    }
+  }
   let rootContent: string | undefined
   try {
     await flushLiveSessionLog(deps, sessionId, request.signal)
@@ -223,12 +238,7 @@ async function sessionLogExportResponse(
       compressionLevel,
       request.signal,
     ),
-    {
-      headers: {
-        'content-type': 'application/zip',
-        'content-disposition': `attachment; filename="${sessionLogZipFilename(sessionId)}"`,
-      },
-    },
+    { headers },
   )
   return response
 }

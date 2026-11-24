@@ -101,7 +101,7 @@ describe('headless terminal failures', () => {
     test.ctx.provide('subagents', { waitForTreeWork } as never)
 
     await expect(test.run()).resolves.toEqual(recover
-      ? { code: 0, out: 'summary\n', err: '' }
+      ? { code: 0, out: 'recovered\n', err: '' }
       : { code: 1, out: 'waiting\n', err: 'dsh: UNKNOWN: summary hook failed\n' })
   })
 

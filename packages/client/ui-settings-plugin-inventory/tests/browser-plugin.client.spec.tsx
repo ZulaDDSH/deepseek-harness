@@ -20,7 +20,7 @@ afterEach(cleanup)
 
 const EMPTY = { entries: [] }
 function isHooksFace(face: Record<string, unknown>): face is Record<string, unknown> & HooksSettingsSectionInjected {
-  return typeof face.setEnabledHooks === 'function' && typeof face.setHookDescriptions === 'function'
+  return typeof face.updateEnabledHooks === 'function' && typeof face.setHookDescriptions === 'function'
 }
 
 type ListResult =
@@ -44,8 +44,9 @@ async function bench() {
   const list = vi.fn<() => Promise<ListResult>>()
     .mockResolvedValue({ ok: true, value: EMPTY })
   ctx.provide('remote.pluginInventory', { list })
-  const mutate = vi.fn<() => Promise<{ ok: boolean; error?: { code: string; message: string } }>>(async () => ({ ok: true }))
-  ctx.provide('remote.settings', { mutate })
+  const describe = vi.fn(async () => ({ ok: true, value: { writable: true, hasDocument: true, namespaces: [{ ns: 'hooks-1', value: {}, revision: 4 }] } }))
+  const mutate = vi.fn<(ns: string, ops: unknown[], revision: number | undefined) => Promise<{ ok: boolean; error?: { code: string; message: string } }>>(async () => ({ ok: true }))
+  ctx.provide('remote.settings', { describe, mutate })
   return { ctx, retryClient, slots: ctx.get('slots') as SlotRegistry, locale, list, mutate }
 }
 
@@ -85,14 +86,14 @@ describe('ui-settings-plugin-inventory browser plugin', () => {
     assert(hooks.inject !== undefined)
     const hooksInjected = hooks.inject()
     assert(isHooksFace(hooksInjected))
-    await hooksInjected.setEnabledHooks('hooks-1', ['k1'])
-    expect(b.mutate).toHaveBeenCalledWith('hooks-1', [{ op: 'set', path: ['enabledHooks'], value: ['k1'] }], undefined)
-    await hooksInjected.setHookDescriptions('hooks-1', { k1: 'd' })
-    expect(b.mutate).toHaveBeenLastCalledWith('hooks-1', [{ op: 'set', path: ['hookDescriptions'], value: { k1: 'd' } }], undefined)
+    await hooksInjected.updateEnabledHooks('hooks-1', () => ['k1'])
+    expect(b.mutate).toHaveBeenCalledWith('hooks-1', [{ op: 'set', path: ['enabledHooks'], value: ['k1'] }], 4)
+    await hooksInjected.setHookDescriptions('hooks-1', ['k1'], 'd')
+    expect(b.mutate).toHaveBeenLastCalledWith('hooks-1', [{ op: 'set', path: ['hookDescriptions', 'k1'], value: 'd' }], undefined)
     b.mutate.mockResolvedValueOnce({ ok: false, error: { code: 'settings/refused', message: 'no' } })
-    await expect(hooksInjected.setHookDescriptions('hooks-1', {})).rejects.toThrow('settings.mutate failed')
+    await expect(hooksInjected.setHookDescriptions('hooks-1', ['k1'], undefined)).rejects.toThrow('settings.mutate failed')
     b.mutate.mockResolvedValueOnce({ ok: false, error: { code: 'settings/refused', message: 'no' } })
-    await expect(hooksInjected.setEnabledHooks('hooks-1', [])).rejects.toThrow('settings.mutate failed: settings/refused: no')
+    await expect(hooksInjected.updateEnabledHooks('hooks-1', () => [])).rejects.toThrow('settings.mutate failed: settings/refused: no')
 
     const injected = (entry.inject as unknown as () => PluginInventorySettingsTabInjected)()
     const text = { en: 'Local tools', zh: '本地工具' }

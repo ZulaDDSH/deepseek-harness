@@ -1,14 +1,46 @@
 /** Default token authentication, HTTP exchanges, and entry URL contribution. */
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-credentials'
 import { CONNECT_PATH } from '@deepseek-ai/dsh-client-connection'
 import type { ConnectionTrustRequest, PeerScope } from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { BrowserAuth } from './browser-auth.ts'
+import { BrowserAuth, MAX_PENDING_API_PEERS, PENDING_API_PEER_DEADLINE_MS } from './browser-auth.ts'
 
 /** Stable plugin name. */
 export const name = 'host-authentication-token'
+const BROWSER_SESSIONS_PATH = '/browser-sessions'
+const MAX_SESSION_BODY_BYTES = 1024
+
+function writeJson(response: ServerResponse, status: number, body: unknown): void {
+  response.writeHead(status, { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' })
+  response.end(JSON.stringify(body))
+}
+
+async function readBoundedBody(request: IncomingMessage): Promise<string | undefined> {
+  const chunks: Buffer[] = []
+  let total = 0
+  for await (const chunk of request) {
+    const buffer = Buffer.from(chunk as Uint8Array | string)
+    total += buffer.byteLength
+    if (total > MAX_SESSION_BODY_BYTES) return undefined
+    chunks.push(buffer)
+  }
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+function parseSessionId(body: string): string | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
+  const id: unknown = Reflect.get(parsed, 'id')
+  return Object.keys(parsed).length === 1 && typeof id === 'string' && id.length > 0 ? id : undefined
+}
 /** Services owning request admission and the persistent signing key. */
 export const inject = ['connection', 'connection.authentication', 'credentials']
 
@@ -16,11 +48,13 @@ export const inject = ['connection', 'connection.authentication', 'credentials']
 export interface Config {
   /** Absolute cookie lifetime in days; default 30. */
   cookieMaxAgeDays: number
+  sessionGeneration: number
 }
 
 /** Validate cookie lifetime before preparing the token implementation. */
 export const Config: z<Config> = z.object({
   cookieMaxAgeDays: z.natural().min(1).default(30),
+  sessionGeneration: z.natural().default(0),
 })
 
 /**
@@ -29,7 +63,7 @@ export const Config: z<Config> = z.object({
  * @param config - validated browser and API cookie lifetime.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  const auth = await BrowserAuth.create(ctx[Context.root], ctx.credentials, config.cookieMaxAgeDays)
+  const auth = await BrowserAuth.create(ctx[Context.root], ctx.credentials, config.cookieMaxAgeDays, config.sessionGeneration)
   const peer = ctx.connection.createPeer({ principal: { kind: 'owner' } })
   const apiPeers = new Map<PeerScope['id'], PeerScope>()
   ctx.connection.authentication.register({
@@ -43,10 +77,25 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.inject(['webServer'], (webCtx) => {
     let active = true
     const sockets = new Map<PeerScope, () => Promise<void>>()
+    const pending = new Map<PeerScope['id'], { peer: PeerScope; timer: ReturnType<typeof setTimeout> }>()
+    const disposePeer = (peer: PeerScope): Promise<void> => peer.dispose().catch((error: unknown) => {
+      console.error('[host-authentication-token] Peer release failed:', error)
+    })
+    const settlePending = (id: PeerScope['id']): void => {
+      const entry = pending.get(id)
+      if (entry === undefined) return
+      clearTimeout(entry.timer)
+      pending.delete(id)
+    }
     webCtx.effect(() => async () => {
       active = false
       apiPeers.clear()
-      await Promise.all([...sockets.values()].map(release => release()))
+      const abandoned = [...pending.values()]
+      for (const { peer } of abandoned) settlePending(peer.id)
+      await Promise.all([
+        ...abandoned.map(({ peer }) => disposePeer(peer)),
+        ...[...sockets.values()].map(release => release()),
+      ])
     }, 'host-authentication-token: API sockets')
     webCtx.on('webserver/request', async (request, response, next) => {
       const facts: ConnectionTrustRequest = request
@@ -70,15 +119,72 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           return
         }
         auth.authorizeConnect(request, response, webCtx.webServer.protocol === 'https:', (interactions) => {
+          if (pending.size >= MAX_PENDING_API_PEERS) return undefined
           const apiPeer = webCtx.connection.createPeer({ principal: { kind: 'owner' }, interactions })
           apiPeers.set(apiPeer.id, apiPeer)
-          apiPeer.ctx.effect(() => () => { apiPeers.delete(apiPeer.id) }, 'authentication-token: API credential')
+          const timer = setTimeout(() => {
+            pending.delete(apiPeer.id)
+            apiPeers.delete(apiPeer.id)
+            void disposePeer(apiPeer)
+          }, PENDING_API_PEER_DEADLINE_MS)
+          timer.unref()
+          pending.set(apiPeer.id, { peer: apiPeer, timer })
+          apiPeer.ctx.effect(() => () => { apiPeers.delete(apiPeer.id); settlePending(apiPeer.id) }, 'authentication-token: API credential')
           return apiPeer.id
         })
       },
     }), 'host-authentication-token: API connect')
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact', path: BROWSER_SESSIONS_PATH, auth: 'anonymous',
+      async handler(request, response) {
+        const facts: ConnectionTrustRequest = request
+        if (facts.socket?.destroyed || response.destroyed || facts.signal?.aborted) return
+        if (!active || !auth.isAuthenticated(request, webCtx.webServer.protocol === 'https:')) {
+          response.writeHead(401, { 'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8' })
+          response.end('unauthorized\n')
+          return
+        }
+        if (request.method === 'GET') {
+          writeJson(response, 200, { sessions: auth.sessions() })
+          return
+        }
+        if (request.method !== 'POST') {
+          response.writeHead(405, { 'allow': 'GET, POST', 'cache-control': 'no-store' })
+          response.end()
+          return
+        }
+        const body = await readBoundedBody(request)
+        if (body === undefined) {
+          response.writeHead(413, { 'cache-control': 'no-store', 'connection': 'close' })
+          response.end()
+          return
+        }
+        const id = parseSessionId(body)
+        if (id === undefined) {
+          writeJson(response, 400, { error: 'invalid_request' })
+          return
+        }
+        try {
+          if (!await auth.revoke(id)) {
+            writeJson(response, 404, { error: 'unknown_session' })
+            return
+          }
+        } catch {
+          writeJson(response, 500, { error: 'revocation_not_saved' })
+          return
+        }
+        response.writeHead(204, { 'cache-control': 'no-store' })
+        response.end()
+      },
+    }), 'host-authentication-token: browser sessions')
     webCtx.on('webserver/upgrade', async (request, socket, _head, admittedPeer, next) => {
       if (admittedPeer === undefined) { await next(); return }
+      if (admittedPeer === peer) {
+        const sid = auth.browserSessionId(request, webCtx.webServer.protocol === 'https:')
+        if (sid !== undefined) auth.trackSocket(sid, socket)
+        await next()
+        return
+      }
       if (new URL(request.url ?? '/', 'http://dsh.invalid').pathname !== '/api/remote.mux') {
         await next()
         return
@@ -92,6 +198,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         return
       }
       if (!active || admittedPeer.signal.aborted) { socket.destroy(); return }
+      settlePending(admittedPeer.id)
       if (sockets.has(admittedPeer)) {
         socket.end([
           'HTTP/1.1 409 Conflict',

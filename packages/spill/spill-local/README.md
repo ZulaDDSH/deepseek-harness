@@ -39,7 +39,7 @@ Loading the plugin with no config is safe: files land in a lazily-created privat
 | Field | Default | Meaning |
 |---|---|---|
 | `root` | private 0700 temp dir | Root directory for spill files; set to keep them under a known location |
-| `cleanupPeriodDays` | `30` | File age in days before the one-shot startup cleanup may delete it; `0` disables cleanup |
+| `cleanupPeriodDays` | `30` | File age in days before cleanup may delete it; `0` disables cleanup |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-spill-local) is the exhaustive source for every accepted field.
 
@@ -54,7 +54,7 @@ Files are stored at `<root>/session-<hash>/<random>-<safeName>`, where `session-
 <a id="startup-cleanup"></a>
 ### Startup cleanup
 
-One best-effort sweep starts after activation without delaying service availability. It scans the configured root and prior default `dsh-spill-*` roots under the OS temp directory, deletes regular files whose modification time is strictly older than the configured cutoff, prunes empty session directories, and removes only empty prior-default roots. A long-lived process does not sweep again until restart. Disposal waits for the sweep, and a concurrent write recreates a session directory if cleanup removes it.
+One best-effort sweep starts after activation without delaying service availability. It scans the configured root and prior default `dsh-spill-*` roots under the OS temp directory, deletes regular files whose modification time is strictly older than the configured cutoff, prunes empty session directories, and removes only empty prior-default roots. A long-lived process repeats the same sweep every 6 hours, never overlapping a running one. Disposal waits for the sweep, and a concurrent write recreates a session directory if cleanup removes it.
 
 The sweep resolves filesystem identities, never follows or deletes symlinks, and skips unrelated entries. On POSIX it admits only roots and session directories owned by the current user, not writable by group or others, and protected from replacement through their ancestor path; writable sticky temporary directories such as `/tmp` are permitted. Unsafe paths produce a warning and remain untouched. Filesystem and warning-sink failures are contained, so cleanup cannot fail activation or a concurrent spill write.
 
@@ -121,7 +121,7 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 These limits define when the local backend is a poor fit or needs operational care. They are current package constraints.
 
-- **A long-lived deployment is not swept until restart** — the one-shot sweep runs only after activation, so files that cross the age cutoff during a run are reclaimed on the next start.
+- **Retention is by age only** — sweeps run at activation and every 6 hours, so a file can outlive its cutoff by up to one interval, and there is no size quota: a host that spills more than its volume holds within `cleanupPeriodDays` can still fill it.
 - **Locators require a co-located filesystem consumer** — a remote or virtual deployment needs another `SpillStore` backend whose locator and retrieval hint are meaningful there.
 
 <a id="dev-note"></a>

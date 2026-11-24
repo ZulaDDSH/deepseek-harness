@@ -1,11 +1,13 @@
 /** Model-facing query for a bundled Python, Node.js, and pnpm payload, in place or installed under the Harness home. */
 
+import { execFile } from 'node:child_process'
 import { cp, lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, stat, symlink } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { WorkspaceDependencyError } from './error.ts'
+import { withInstallLease } from './lease.ts'
 
 export { WorkspaceDependencyError, type WorkspaceDependencyErrorCode } from './error.ts'
 
@@ -248,8 +250,21 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+async function requireEmulatedLaunch(python: string): Promise<void> {
+  if (!(await stat(python).then(entry => entry.isFile(), () => false))) return
+  await new Promise<void>((resolve, reject) => {
+    execFile(python, ['--version'], { timeout: 30_000, windowsHide: true }, (error) => { error === null ? resolve() : reject(error) })
+  }).catch((cause: unknown) => {
+    throw new WorkspaceDependencyError('primary runtime: the x64 payload cannot run on this ARM64 host (x64 emulation unavailable or blocked)', 'WORKSPACE_DEPENDENCY_UNSUPPORTED_PLATFORM', { cause })
+  })
+}
+
 async function compatibleManifest(source: string): Promise<PrimaryRuntimeManifest> {
   const manifest = await readPrimaryRuntime(source)
+  if (manifest.platform === 'win32' && manifest.arch === 'x64' && process.platform === 'win32' && process.arch === 'arm64') {
+    await requireEmulatedLaunch(workspaceDependencyPaths(source, manifest).python)
+    return manifest
+  }
   if (manifest.platform !== process.platform || manifest.arch !== process.arch) throw new WorkspaceDependencyError('primary runtime: incompatible platform or architecture', 'WORKSPACE_DEPENDENCY_UNSUPPORTED_PLATFORM')
   return manifest
 }
@@ -273,9 +288,13 @@ export async function resolvePrimaryRuntime(source: string): Promise<WorkspaceDe
  * @param root - Fixed primary runtime directory under the Harness home.
  * @returns Paths into the installed payload; no PATH or package-manager configuration is changed.
  */
-export async function installPrimaryRuntime(source: string, root: string): Promise<WorkspaceDependencies> {
+export async function installPrimaryRuntime(source: string, root: string, options: { leaseWaitMs?: number } = {}): Promise<WorkspaceDependencies> {
   const manifest = await compatibleManifest(source)
   await mkdir(dirname(root), { recursive: true })
+  return withInstallLease(root, () => installUnderLease(source, root, manifest), options.leaseWaitMs)
+}
+
+async function installUnderLease(source: string, root: string, manifest: PrimaryRuntimeManifest): Promise<WorkspaceDependencies> {
   const previous = `${root}.previous`
   const previousExists = await exists(previous)
   const rootExists = await exists(root)

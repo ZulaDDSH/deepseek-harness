@@ -61,6 +61,7 @@ import type {
   SessionOpenWorkspacePathRequest,
   SessionOpenWorkspacePathValue,
   SessionEventsPage, SessionPageRequest, SessionEventFrame, SessionObserveEventRequest,
+  SessionOutlineRequest, SessionOutlinePage,
   SessionProjectionFrame, SessionStateRequest, SessionState, SessionWaitRequest, SessionWaitValue,
   SessionPromptRequest,
   SessionPromptValue,
@@ -474,16 +475,17 @@ export class SessionController extends TypertRemoteService {
   @Remote
   async initializeDefaultModel(): Promise<void> {
     const provider = 'deepseek-account'
-    if (await hasProviderApiKey(this.ctx)) return
-    const catalog = await buildModelCatalog(this.ctx)
-    const model = catalog.groups.find(group => group.id === provider)?.models[0]
-    if (model === undefined) throw new RemoteError('session/provider-models-unavailable',
-      `provider "${provider}" has no available models`, { provider })
-    const selection = { provider, model: model.id,
-      ...model.reasoning?.defaultEffort === undefined ? {}
-        : { reasoningEffort: brandString<ReasoningEffortId>(model.reasoning.defaultEffort) },
-    }
-    await this.ctx.agentDefaultModel.saveSelection(selection)
+    await this.ctx.agentDefaultModel.saveInitialSelection(async () => {
+      if (await hasProviderApiKey(this.ctx)) return undefined
+      const catalog = await buildModelCatalog(this.ctx)
+      const model = catalog.groups.find(group => group.id === provider)?.models[0]
+      if (model === undefined) throw new RemoteError('session/provider-models-unavailable',
+        `provider "${provider}" has no available models`, { provider })
+      return { provider, model: model.id,
+        ...model.reasoning?.defaultEffort === undefined ? {}
+          : { reasoningEffort: brandString<ReasoningEffortId>(model.reasoning.defaultEffort) },
+      }
+    })
   }
 
   /**
@@ -692,6 +694,11 @@ export class SessionController extends TypertRemoteService {
   @Remote
   events(request: SessionPageRequest, signal: AbortSignal): Promise<SessionEventsPage> {
     return this.historyController.events(request, signal)
+  }
+
+  @Remote
+  outline(request: SessionOutlineRequest, signal: AbortSignal): Promise<SessionOutlinePage> {
+    return this.historyController.outline(request, signal)
   }
 
   /**

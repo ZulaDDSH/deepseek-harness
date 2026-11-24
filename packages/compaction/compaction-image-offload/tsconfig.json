@@ -15,6 +15,12 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../../interaction/commands"
+    },
+    {
       "path": "../compaction"
     },
     {

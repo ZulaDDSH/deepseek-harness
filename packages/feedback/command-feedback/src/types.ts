@@ -29,6 +29,7 @@ export interface FeedbackRecord {
   readonly text?: string
   /** Category the human filed the remark under. */
   readonly category?: FeedbackCategory
+  readonly localOnly?: boolean
 }
 
 declare module '@deepseek-ai/dsh-session/types' {
@@ -49,6 +50,7 @@ export interface SessionFeedbackRecordRequest {
   readonly text?: string
   /** Category the human filed the remark under. */
   readonly category?: FeedbackCategory
+  readonly localOnly?: boolean
 }
 
 /** Stable postcondition of a recorded remark. */
@@ -67,3 +69,10 @@ export interface SessionFeedbackSessionNotFound {
 export type SessionFeedbackRecordResult =
   | { readonly ok: true; readonly value: SessionFeedbackRecordValue }
   | { readonly ok: false; readonly error: SessionFeedbackSessionNotFound }
+
+export type SessionFeedbackSharingPolicy = 'full' | 'feedback-only' | 'disabled' | 'none'
+
+export interface SessionFeedbackSharing {
+  readonly sharing: SessionFeedbackSharingPolicy
+  readonly destination?: string
+}

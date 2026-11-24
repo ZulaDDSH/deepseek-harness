@@ -42,6 +42,8 @@ export const POLICY_ENV_NAMES = {
   noProxy: ['no_proxy', 'NO_PROXY'],
 } as const
 
+export const PROXY_FAIL_CLOSED_ENV = 'DSH_PROXY_FAIL_CLOSED'
+
 /**
  * Every environment name that carries proxy configuration, including the `ALL_PROXY` fallback this
  * package resolves but never writes back. A caller that must isolate a child from the machine's
@@ -265,12 +267,60 @@ export function isLoopbackHost(hostname: string): boolean {
   return LOOPBACK_IPV4.test(host.startsWith('::ffff:') ? host.slice('::ffff:'.length) : host)
 }
 
+function parseIpv4(text: string): bigint | undefined {
+  const parts = text.split('.')
+  if (parts.length !== 4 || !parts.every(part => /^(?:0|[1-9]\d{0,2})$/.test(part) && Number(part) <= 255)) return undefined
+  return parts.reduce((total, part) => total * 256n + BigInt(part), 0n)
+}
+
+function parseIpv6(text: string): bigint | undefined {
+  let value = text
+  const tail = /\d+\.\d+\.\d+\.\d+$/.exec(value)?.[0]
+  if (tail !== undefined) {
+    const v4 = parseIpv4(tail)
+    if (v4 === undefined) return undefined
+    value = `${value.slice(0, -tail.length)}${(v4 >> 16n).toString(16)}:${(v4 & 0xffffn).toString(16)}`
+  }
+  const halves = value.split('::')
+  if (halves.length > 2) return undefined
+  const groups = (side: string | undefined): string[] => (side === undefined || side === '' ? [] : side.split(':'))
+  const head = groups(halves[0])
+  const rest = groups(halves[1])
+  const all = [...head, ...rest]
+  if (!all.every(group => /^[0-9a-f]{1,4}$/i.test(group))) return undefined
+  if (halves.length === 1 ? head.length !== 8 : all.length > 7) return undefined
+  const fill = Array.from({ length: 8 - all.length }, () => '0')
+  return [...head, ...(halves.length === 2 ? fill : []), ...rest].reduce((total, group) => total * 65_536n + BigInt(`0x${group}`), 0n)
+}
+
+function cidrContains(entry: string, host: string): boolean {
+  const [base = '', prefix = '', ...rest] = entry.split('/')
+  const baseText = base.replace(/^\[|\]$/g, '')
+  const v4Base = parseIpv4(baseText)
+  const v6Base = v4Base === undefined ? parseIpv6(baseText) : undefined
+  const bits = Number(prefix)
+  const width = v4Base === undefined ? 128 : 32
+  if (rest.length > 0 || (v4Base === undefined && v6Base === undefined) || !/^\d{1,3}$/.test(prefix) || bits > width) return false
+  let address = parseIpv4(host) ?? parseIpv6(host)
+  if (address === undefined) return false
+  const hostIsV6 = host.includes(':')
+  if (v4Base !== undefined) {
+    if (hostIsV6) {
+      if (address >> 32n !== 0xffffn) return false
+      address &= 0xffff_ffffn
+    }
+  } else if (!hostIsV6) {
+    return false
+  }
+  const shift = BigInt(width - bits)
+  return address >> shift === (v4Base ?? v6Base ?? 0n) >> shift
+}
+
 /**
  * Decide whether a bypass list exempts one URL. An entry names a host and matches it together with
  * every subdomain under it — `example.com` also bypasses `api.example.com` — and a leading `.` or
  * `*.` is accepted as the same thing; an entry may carry a `:port`, and `*` bypasses everything.
- * CIDR notation is not matched —
- * an operating system's bypass list often carries `10.0.0.0/8`, which must be rewritten as suffixes.
+ * An IPv4 or IPv6 CIDR entry matches an IP-literal destination in its block.
  *
  * @param noProxy - the effective bypass list.
  * @param url - the request URL.
@@ -285,6 +335,10 @@ export function bypassesProxy(noProxy: string, url: URL): boolean {
     const entry = raw.trim().toLowerCase()
     if (entry === '') continue
     if (entry === '*') return true
+    if (entry.includes('/')) {
+      if (cidrContains(entry, host)) return true
+      continue
+    }
     const split = splitHostPort(entry)
     if (split.port !== undefined && split.port !== port) continue
     const candidate = split.host.replace(/^\*?\./, '').replace(/\.$/, '')

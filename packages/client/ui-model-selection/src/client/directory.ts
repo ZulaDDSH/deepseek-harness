@@ -35,6 +35,7 @@ export interface ModelDirectoryState {
   pending: ModelSelection | null
   /** Whole-request or selection failure text; null when none. */
   error: string | null
+  defaultNotSaved?: boolean
 }
 
 /** One session's shared directory controller; disposed with the session scope. */
@@ -46,6 +47,7 @@ export class ModelDirectory {
 
   /** Latest selection operation wins; an older response never overwrites a newer one. */
   private generation = 0
+  private inflight: Promise<void> | undefined
   private disposed = false
   private readonly unsubscribeCatalog: () => void
   private readonly unsubscribeSelection: () => void
@@ -97,15 +99,23 @@ export class ModelDirectory {
     const previousEffort = previous?.reasoningEffort ?? (previous === null ? undefined : this.catalog.reasoningFor(previous)?.defaultEffort)
     const nextEffort = selection.reasoningEffort ?? this.catalog.reasoningFor(selection)?.defaultEffort
     const generation = ++this.generation
-    this.store.update((s) => { s.status = 'selecting'; s.pending = selection; s.error = null })
-    const result = await this.sessions.selectModel({
-      sessionId: this.sessionId,
-      provider: selection.provider,
-      model: selection.model,
-      ...selection.reasoningEffort === undefined
-        ? {}
-        : { reasoningEffort: selection.reasoningEffort },
-    })
+    this.store.update((s) => { s.status = 'selecting'; s.pending = selection; s.error = null; delete s.defaultNotSaved })
+    const send = () => generation !== this.generation
+      ? Promise.resolve(undefined)
+      : this.sessions.selectModel({
+        sessionId: this.sessionId,
+        provider: selection.provider,
+        model: selection.model,
+        ...selection.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: selection.reasoningEffort },
+      })
+    const request = this.inflight === undefined ? send() : this.inflight.then(send)
+    const settled = request.then(() => {}, () => {})
+    this.inflight = settled
+    void settled.then(() => { if (this.inflight === settled) this.inflight = undefined })
+    const result = await request
+    if (result === undefined) return { ok: true, value: undefined }
     if (this.disposed || generation !== this.generation) {
       return result.ok ? { ok: true, value: undefined } : result
     }
@@ -125,7 +135,10 @@ export class ModelDirectory {
         ...this.isBlank() ? {} : { session_id: this.sessionId }, model_name: to, switch_from: previousEffort ?? 'default', switch_to: nextEffort ?? 'default',
       })
     }
-    this.store.update((s) => { s.status = 'ready'; s.pending = null; s.error = null })
+    this.store.update((s) => {
+      s.status = 'ready'; s.pending = null; s.error = null
+      if (result.value.defaultSave === 'failed' || result.value.defaultSave === 'unavailable') s.defaultNotSaved = true
+    })
     this.syncInputs()
     return { ok: true, value: undefined }
   }
@@ -136,10 +149,12 @@ export class ModelDirectory {
   resetConnected(): void {
     if (this.disposed) return
     ++this.generation
+    this.inflight = undefined
     this.store.update((state) => {
       if (state.status === 'selecting') state.status = 'idle'
       state.pending = null
       state.error = null
+      delete state.defaultNotSaved
     })
     this.syncInputs()
   }
@@ -147,6 +162,7 @@ export class ModelDirectory {
   /** Scope teardown: late settlements lose write access to the store. */
   dispose(): void {
     this.disposed = true
+    this.inflight = undefined
     this.unsubscribeSelection()
     this.unsubscribeCatalog()
   }
@@ -178,6 +194,7 @@ export class ModelDirectory {
         status: catalog.status === 'error' ? 'error' : 'loading',
         pending: this.store.getSnapshot().pending,
         error: catalog.error,
+        ...this.store.getSnapshot().defaultNotSaved === true ? { defaultNotSaved: true } : {},
       })
       return
     }
@@ -196,6 +213,7 @@ export class ModelDirectory {
         : 'ready',
       pending: this.store.getSnapshot().pending,
       error: null,
+      ...this.store.getSnapshot().defaultNotSaved === true ? { defaultNotSaved: true } : {},
     })
   }
 }

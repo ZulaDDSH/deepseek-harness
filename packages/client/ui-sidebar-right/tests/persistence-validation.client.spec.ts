@@ -103,6 +103,19 @@ it('contains inaccessible storage and failed removal while keeping memory state 
   expect(() => { writeSidebarLayout(session, empty); clearSidebarLayout(session) }).not.toThrow()
 })
 
+it('treats a throwing localStorage getter as unavailable storage', () => {
+  const saved = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, get: () => { throw new DOMException('blocked', 'SecurityError') } })
+  try {
+    expect(readSidebarLayout(session)).toBeUndefined()
+    expect(() => { writeSidebarLayout(session, empty); clearSidebarLayout(session) }).not.toThrow()
+    expect(() => createSidebarRightStore(() => ({ kind: 'guide', title: 'Start' })).create(session)).not.toThrow()
+  } finally {
+    if (saved === undefined) Reflect.deleteProperty(globalThis, 'localStorage')
+    else Object.defineProperty(globalThis, 'localStorage', saved)
+  }
+})
+
 it('does not persist a scope until the live store has a surface for it', () => {
   const instance = createSidebarRightStore(() => ({ kind: 'guide', title: 'Start' })).create(session)
   instance.store.set({ bySession: {} })

@@ -48,6 +48,8 @@ All actions in the status-writing job are pinned to commit SHAs. The job checks 
 
 Approval policy changes take effect only after they merge into the default branch. This prevents an untrusted pull request from changing the program or policy for its own run.
 
+Both workflows run only for the repository named by the Actions variable `WEIGHTED_APPROVAL_REPOSITORY` (`owner/name`), and only for `deepseek-harness/deepseek-harness` while it is unset, so a fork or a moved repository sets the variable to its own full name; until it does, the jobs are skipped and no decision is published. The decision check token is requested for the owner and name of the repository that triggered the run, so the approval App must be installed on that repository with only `checks: write`. Whether a branch rule in a given repository requires the `weighted approval` status is not checked by this policy.
+
 <a id="verification"></a>
 
 ## Verification

@@ -1,5 +1,6 @@
 /** Usage prompts for the composer dock: a window nearing or at its limit, and the offer to switch back. */
 
+import { browserStorage } from '@deepseek-ai/dsh-client-store'
 import type { QuotaResult, QuotaWindow, QuotaWindowId } from '@deepseek-ai/dsh-api-quota-controller/types'
 
 /** Used share at which a window prompts. */
@@ -10,6 +11,8 @@ const WINDOW_HOURS: Readonly<Record<QuotaWindowId, number>> = { '5h': 5, weekly:
 
 /** How long a dismissal, or a switch to API credits, lasts for a window that reports no reset time. */
 export const OPEN_WINDOW_HOLD_MS = 24 * 60 * 60 * 1000
+
+export const BACK_DISMISSAL_HOLD_MS = 30 * 24 * 60 * 60 * 1000
 
 /** A switch to API credits, kept so the subscription can be offered back once its window resets. */
 export interface UsageSwitch {
@@ -46,16 +49,20 @@ export function hardLimited(window: QuotaWindow): boolean {
 
 const OPEN_KEY_TAIL = '|open'
 
+function windowScope(key: string): string {
+  return `${key.split('|').slice(0, 3).join('|')}|`
+}
+
 function isDismissed(dismissed: ReadonlySet<string>, key: string, now: number): boolean {
-  const provider = `${key.split('|').slice(0, 2).join('|')}|`
+  const scope = windowScope(key)
   for (const entry of dismissed) {
-    if (entry.startsWith(provider) && Number(entry.slice(entry.lastIndexOf('|') + 1)) > now) return true
+    if (entry.startsWith(scope) && Number(entry.slice(entry.lastIndexOf('|') + 1)) > now) return true
   }
   return false
 }
 
-function limitKey(providerId: string, windowId: QuotaWindowId, window: QuotaWindow): string {
-  return `limit|${providerId}|${windowId}|${window.resetAt ?? 'open'}`
+function limitKey(kind: 'hard-limit' | 'near-limit', providerId: string, windowId: QuotaWindowId, window: QuotaWindow): string {
+  return `${kind === 'hard-limit' ? 'hard' : 'limit'}|${providerId}|${windowId}|${window.resetAt ?? 'open'}`
 }
 
 /**
@@ -76,9 +83,10 @@ export function usagePrompt(results: readonly QuotaResult[], state: UsagePromptS
       if (window.resetAt !== null && window.resetAt <= state.now) continue
       const hard = hardLimited(window)
       if (!hard && (window.usedPercent === null || window.usedPercent < threshold)) continue
-      const key = limitKey(result.providerId, windowId, window)
+      const kind = hard ? 'hard-limit' : 'near-limit'
+      const key = limitKey(kind, result.providerId, windowId, window)
       if (isDismissed(state.dismissed, key, state.now)) continue
-      candidates.push({ kind: hard ? 'hard-limit' : 'near-limit', key, result, windowId, window })
+      candidates.push({ kind, key, result, windowId, window })
     }
   }
   candidates.sort((left, right) => Number(right.kind === 'hard-limit') - Number(left.kind === 'hard-limit')
@@ -114,23 +122,31 @@ function parse(raw: string | null): unknown {
  * @param storage - the storage to use, or undefined when none is available.
  * @returns the prompt memory.
  */
-export function localUsagePromptStore(storage: Storage | undefined = typeof localStorage === 'undefined' ? undefined : localStorage): UsagePromptStore {
+export function localUsagePromptStore(storage: Storage | undefined = browserStorage()): UsagePromptStore {
+  const read = (key: string): string | null => {
+    try { return storage?.getItem(key) ?? null } catch { return null }
+  }
+  const write = (action: (target: Storage) => void): void => {
+    try { if (storage !== undefined) action(storage) } catch { return }
+  }
   return {
     dismissed() {
-      const value = parse(storage?.getItem(DISMISSED_KEY) ?? null)
+      const value = parse(read(DISMISSED_KEY))
       return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
     },
     saveDismissed(keys) {
-      storage?.setItem(DISMISSED_KEY, JSON.stringify(keys))
+      write(target => { target.setItem(DISMISSED_KEY, JSON.stringify(keys)) })
     },
     switched() {
-      const value = parse(storage?.getItem(SWITCHED_KEY) ?? null) as { providerId?: unknown; resetAt?: unknown } | null | undefined
+      const value = parse(read(SWITCHED_KEY)) as { providerId?: unknown; resetAt?: unknown } | null | undefined
       if (typeof value !== 'object' || value === null || typeof value.providerId !== 'string') return undefined
       return typeof value.resetAt === 'number' ? { providerId: value.providerId, resetAt: value.resetAt } : { providerId: value.providerId }
     },
     saveSwitched(value) {
-      if (value === undefined) storage?.removeItem(SWITCHED_KEY)
-      else storage?.setItem(SWITCHED_KEY, JSON.stringify(value))
+      write((target) => {
+        if (value === undefined) target.removeItem(SWITCHED_KEY)
+        else target.setItem(SWITCHED_KEY, JSON.stringify(value))
+      })
     },
   }
 }
@@ -144,9 +160,11 @@ export function localUsagePromptStore(storage: Storage | undefined = typeof loca
  * @returns the remembered keys after the dismissal.
  */
 export function withDismissed(keys: readonly string[], key: string, now: number): string[] {
+  const scope = windowScope(key)
   const live = keys.filter((entry) => {
     const reset = Number(entry.slice(entry.lastIndexOf('|') + 1))
-    return !entry.endsWith(OPEN_KEY_TAIL) && !entry.startsWith(`${key}|`) && (!Number.isFinite(reset) || reset >= now)
+    if (entry.startsWith('back|')) return Number.isFinite(reset) && reset + BACK_DISMISSAL_HOLD_MS >= now
+    return !entry.endsWith(OPEN_KEY_TAIL) && !entry.startsWith(scope) && (!Number.isFinite(reset) || reset >= now)
   })
   const stored = key.endsWith(OPEN_KEY_TAIL) ? `${key}|${now + OPEN_WINDOW_HOLD_MS}` : key
   return live.includes(stored) ? live : [...live, stored]

@@ -220,3 +220,52 @@ describe('policy deployment and page validation', () => {
     expect(() => resolveDesktopPolicyConfig({ ...deployment, ...change })).toThrow()
   })
 })
+
+describe('mandatory update policy persistence', () => {
+  function memoryStore() {
+    let saved: unknown
+    return { read: () => saved, write: (value: unknown) => { saved = value }, peek: () => saved }
+  }
+
+  function start(store: ReturnType<typeof memoryStore>, version: string = identity.bundledDshVersion,
+    authentication: 'anonymous' | 'feishu-test' = 'anonymous') {
+    const request = vi.fn<typeof fetch>().mockRejectedValue(new Error('offline'))
+    const policy = new DesktopMandatoryUpdatePolicy(resolveDesktopPolicyConfig({ ...deployment, authentication,
+      ...(authentication === 'feishu-test' ? { allowedAuthOrigins: ['https://login.example.com'] } : {}) })!,
+    { ...identity, bundledDshVersion: version }, vi.fn(), request, () => client, Math.random, store)
+    instances.push(policy)
+    return { policy, request }
+  }
+
+  it('keeps a known block across restart when the service is unreachable', async () => {
+    const store = memoryStore()
+    const first = start(store)
+    first.request.mockResolvedValueOnce(Response.json(force))
+    await first.policy.check('launch')
+    const second = start(store)
+    expect(second.policy.state).toMatchObject({ blocking: true, title: '<b>Update</b>', page: 'https://downloads.example.com/desktop?os=win' })
+    expect(await second.policy.check('launch')).toMatchObject({ blocking: true, error: 'unavailable' })
+  })
+
+  it('keeps a known block across restart when authentication is required', async () => {
+    const store = memoryStore()
+    const first = start(store, identity.bundledDshVersion, 'feishu-test')
+    first.request.mockResolvedValueOnce(Response.json(force))
+    await first.policy.check('launch')
+    const second = start(store, identity.bundledDshVersion, 'feishu-test')
+    second.request.mockResolvedValueOnce(Response.json({ error: { code: 'UNAUTHENTICATED' } }, { status: 401 }))
+    expect(await second.policy.check('launch')).toMatchObject({ blocking: true, error: 'authentication-required' })
+  })
+
+  it('clears the record on a fresh no-force response and ignores it for another installed version', async () => {
+    const store = memoryStore()
+    const first = start(store)
+    first.request.mockResolvedValueOnce(Response.json(force)).mockResolvedValueOnce(Response.json(clear))
+    await first.policy.check('launch')
+    expect(start(store, '0.1.6').policy.state.blocking).toBe(false)
+    expect(start(store).policy.state.blocking).toBe(true)
+    await first.policy.check('manual', true)
+    expect(store.peek()).toBeUndefined()
+    expect(start(store).policy.state.blocking).toBe(false)
+  })
+})

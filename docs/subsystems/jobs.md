@@ -28,7 +28,7 @@ Owned jobs publish `job/registered` and `job/settled` in their original owner Se
 
 `job/settled` may follow `turn/end`. An SDK run result covers only its own observation window; consumers needing later settlements retain a Session subscription or read persisted history. Turn completion does not imply that every owned job stopped.
 
-Application teardown can stop Session event routing or close its writer before an owned job's final settlement reaches storage. This includes normal one-shot completion and signal shutdown, as well as hard process loss. A missing `job/settled` remains incomplete even if the live registry reported termination; consumers must not invent a finish timestamp.
+The headless runner disposes its Agent before output and exit, on success, failure, and signal shutdown, so owned jobs settle and their `job/settled` records drain with the Agent's writer. Other application teardown can still stop Session event routing or close its writer before an owned job's final settlement reaches storage, and hard process loss always can. A missing `job/settled` remains incomplete even if the live registry reported termination; consumers must not invent a finish timestamp.
 
 ```ts type-equiv
 /** Durable identity and registration time of one owned job execution. */
@@ -312,7 +312,7 @@ interface JobView {
 }
 ```
 
-`JobRegistry.list`, `get`, `read`, `readAt`, `kill`, and `wait` each accept the caller’s `SessionId`; omitting it permits only unowned jobs, while a session may also access its own jobs.
+`JobRegistry.list`, `get`, `read`, `peek`, `readAt`, `kill`, and `wait` each accept the caller’s `SessionId`; omitting it permits only unowned jobs, while a session may also access its own jobs.
 
 ```ts type-equiv
 /** Output and post-read state returned by the consuming {@link JobRegistry.read}. */
@@ -383,7 +383,7 @@ type JobEventFilter =
 
 ## Service behavior
 
-The abstract [`JobRegistry`](../../packages/jobs/jobs/src/index.ts) Service Definition specifies atomic `start`, caller-scoped `list`, `get`, consuming `read`, non-consuming `readAt`, `kill`, and bounded `wait`, the filtered `events` stream, and `attachController`; [`LocalJobRegistry`](../../packages/jobs/jobs-local/src/index.ts) is the process-local Service Provider. Authorization compares owner sessions; owner cleanup and admission use the live `Agent` registered under the owner session when the job starts. The local provider's positive-safe-integer `maxConcurrentJobsPerOwner` config defaults to `10` and counts `running` plus `stopping` records per exact owner, with one shared bucket for unowned jobs; terminal producer settlement releases capacity; `retainBytes` (default 262144) and `settledRetainBytes` (default 16384) bound each ring's live and settled retention, and `pumpPollMs` (default 150) is the pull cadence. See [`dsh-jobs`](../../packages/jobs/jobs/README.md) for the Service Definition contract, [`dsh-jobs-local`](../../packages/jobs/jobs-local/README.md) for the registry lifecycle and admission policy, and [`dsh-tool-jobs`](../../packages/jobs/tool-jobs/README.md) for the model-facing Consumer.
+The abstract [`JobRegistry`](../../packages/jobs/jobs/src/index.ts) Service Definition specifies atomic `start`, caller-scoped `list`, `get`, consuming `read`, non-consuming `peek` and `readAt`, `kill`, and bounded `wait`, the filtered `events` stream, and `attachController`; [`LocalJobRegistry`](../../packages/jobs/jobs-local/src/index.ts) is the process-local Service Provider. Authorization compares owner sessions; owner cleanup and admission use the live `Agent` registered under the owner session when the job starts. The local provider's positive-safe-integer `maxConcurrentJobsPerOwner` config defaults to `10` and counts `running` plus `stopping` records per exact owner, with one shared bucket for unowned jobs; terminal producer settlement releases capacity; `retainBytes` (default 262144) and `settledRetainBytes` (default 16384) bound each ring's live and settled retention, and `pumpPollMs` (default 150) is the pull cadence. See [`dsh-jobs`](../../packages/jobs/jobs/README.md) for the Service Definition contract, [`dsh-jobs-local`](../../packages/jobs/jobs-local/README.md) for the registry lifecycle and admission policy, and [`dsh-tool-jobs`](../../packages/jobs/tool-jobs/README.md) for the model-facing Consumer.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -490,6 +490,13 @@ abstract get(id: JobId, caller?: SessionId): JobView
  * @returns the chunks since the cursor, the lossy flag, the result once, and the post-read projection.
  */
 abstract read(id: JobId, caller?: SessionId): JobRead
+
+/** Return what the next read returns and consume nothing: the model cursor does not move.
+ * @param id - The job to peek at.
+ * @param caller - The reading session checked against the owner.
+ * @returns The unconsumed read.
+ */
+abstract peek(id: JobId, caller?: SessionId): JobRead
 
 /**
  * Read retained ring output without moving the model cursor. Resume with

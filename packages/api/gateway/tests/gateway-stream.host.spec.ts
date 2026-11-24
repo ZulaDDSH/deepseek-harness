@@ -392,6 +392,75 @@ describe('Typert Remote streams', () => {
     }
   })
 
+  describe('Remote event backlog', () => {
+    const flush = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0))
+
+    async function openStalled() {
+      const { ctx } = await setup(false)
+      const source = new RemoteEventSourceProbe()
+      const unregister = ctx.typertGateway.registerRemoteEvents(source.source, REMOTE_HOST)
+      const events = (await ctx.typertGateway.wireStream.open(
+        '$events', { args: {} }, (async function* () {})(), ownerPeer(ctx), new AbortController().signal,
+      ))[Symbol.asyncIterator]()
+      await events.next()
+      return { ctx, source, events, unregister }
+    }
+
+    it('fails a consumer that falls more than the frame budget behind and reports no live client', async () => {
+      const { ctx, source, events, unregister } = await openStalled()
+      try {
+        for (let index = 0; index <= 4096; index += 1) source.push({ event: 'fixture/notice', args: [index] })
+        await flush()
+        await expect(events.next()).rejects.toMatchObject({ code: 'gateway/event-backlog' })
+        expect(ctx.typertGateway.hasLiveClient()).toBe(false)
+      } finally {
+        await unregister()
+      }
+    })
+
+    it('fails a consumer whose backlog exceeds the byte budget', async () => {
+      const { source, events, unregister } = await openStalled()
+      try {
+        for (let index = 0; index < 3; index += 1) source.push({ event: 'fixture/notice', args: ['x'.repeat(3_000_000)] })
+        await flush()
+        await expect(events.next()).rejects.toMatchObject({ code: 'gateway/event-backlog' })
+      } finally {
+        await unregister()
+      }
+    })
+
+    it('admits one frame larger than the byte budget while the queue is empty, then fails a second undrained frame', async () => {
+      const { source, events, unregister } = await openStalled()
+      try {
+        source.push({ event: 'fixture/notice', args: ['x'.repeat(9_000_000)] })
+        await flush()
+        await expect(events.next()).resolves.toMatchObject({ done: false, value: { type: 'emit' } })
+        source.push({ event: 'fixture/notice', args: ['y'.repeat(9_000_000)] })
+        source.push({ event: 'fixture/notice', args: ['z'] })
+        await flush()
+        await expect(events.next()).rejects.toMatchObject({ code: 'gateway/event-backlog' })
+      } finally {
+        await unregister()
+      }
+    })
+
+    it('delivers a backlog within both budgets in order and releases it as it drains', async () => {
+      const { source, events, unregister } = await openStalled()
+      try {
+        for (let round = 0; round < 3; round += 1) {
+          for (let index = 0; index < 4000; index += 1) source.push({ event: 'fixture/notice', args: [index] })
+          await flush()
+          for (let index = 0; index < 4000; index += 1) {
+            await expect(events.next()).resolves.toMatchObject({ done: false, value: { type: 'emit', args: [index] } })
+          }
+        }
+      } finally {
+        await unregister()
+        await events.return?.()
+      }
+    })
+  })
+
   it.each([false, true])('accepts WebSockets only after application readiness (already ready: %s)', async (alreadyReady) => {
     const startup = new StartupProbe()
     if (alreadyReady) startup.commit()

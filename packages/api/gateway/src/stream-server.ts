@@ -40,6 +40,8 @@ type BoundStreamOpener = (
 export type RemoteStreamFailureMapper = (error: unknown) => RemoteStreamFailure
 
 const MAX_MISSED_HEARTBEATS = 2
+export const MAX_STREAMS_PER_CONNECTION = 128
+export const MAX_CONNECTION_INBOX_BYTES = 16 * 1024 * 1024
 
 /** Carrier options for {@link RemoteStreamMuxServer}. */
 export interface RemoteStreamMuxServerOptions {
@@ -160,6 +162,7 @@ interface ActiveStream {
 
 class RemoteStreamMuxConnection {
   private readonly streams = new Map<string, ActiveStream>()
+  private readonly budget: ConnectionInboxBudget
   private writes = Promise.resolve()
 
   constructor(
@@ -169,7 +172,9 @@ class RemoteStreamMuxConnection {
     private readonly streamInboxBytes: number,
     private readonly compression: boolean,
     private readonly alive: () => void,
-  ) {}
+  ) {
+    this.budget = { used: 0, limit: Math.max(MAX_CONNECTION_INBOX_BYTES, streamInboxBytes) }
+  }
 
   /**
    * Serve frames until the socket closes. A Pong, any received frame, and a
@@ -240,10 +245,18 @@ class RemoteStreamMuxConnection {
     if (this.streams.has(message.streamId)) {
       throw new Error(`api gateway: duplicate Remote stream id ${JSON.stringify(message.streamId)}`)
     }
+    if (this.streams.size >= MAX_STREAMS_PER_CONNECTION) {
+      void this.sendFailure(message.streamId, new RemoteError(
+        'gateway/protocol',
+        `api gateway: Remote stream limit of ${String(MAX_STREAMS_PER_CONNECTION)} per connection reached`,
+        { endpoint: message.endpoint },
+      ))
+      return
+    }
     const abort = new AbortController()
     // Created before the opener resolves so items the Client sends right
     // after `open` wait in the inbox instead of being lost.
-    const inbox = new UplinkInbox(this.streamInboxBytes, message.endpoint, (error) => { abort.abort(error) })
+    const inbox = new UplinkInbox(this.streamInboxBytes, this.budget, message.endpoint, (error) => { abort.abort(error) })
     const active: ActiveStream = {
       abort,
       inbox,
@@ -346,6 +359,11 @@ class RemoteStreamMuxConnection {
   }
 }
 
+interface ConnectionInboxBudget {
+  used: number
+  readonly limit: number
+}
+
 interface UplinkEntry {
   readonly value: unknown
   readonly bytes: number
@@ -370,6 +388,7 @@ class UplinkInbox implements AsyncIterable<unknown>, AsyncIterator<unknown> {
 
   constructor(
     private readonly maxBytes: number,
+    private readonly budget: ConnectionInboxBudget,
     private readonly endpoint: string,
     private readonly onViolation: (error: RemoteError<'gateway/protocol' | 'gateway/uplink-overflow'>) => void,
   ) {}
@@ -392,8 +411,16 @@ class UplinkInbox implements AsyncIterable<unknown>, AsyncIterator<unknown> {
       ))
       return
     }
+    if (this.budget.used + frameBytes > this.budget.limit) {
+      this.violate(new RemoteError(
+        'gateway/uplink-overflow',
+        `api gateway: Remote stream connection uplink exceeded ${String(this.budget.limit)} buffered bytes`,
+        { endpoint: this.endpoint },
+      ))
+      return
+    }
     this.queue.pushBack({ value, bytes: frameBytes })
-    this.bytes += frameBytes
+    this.charge(frameBytes)
     this.signal()
   }
 
@@ -409,7 +436,7 @@ class UplinkInbox implements AsyncIterable<unknown>, AsyncIterator<unknown> {
     if (this.failure !== undefined) return
     this.failure = error
     this.queue.clear()
-    this.bytes = 0
+    this.charge(-this.bytes)
     this.signal()
   }
 
@@ -424,7 +451,7 @@ class UplinkInbox implements AsyncIterable<unknown>, AsyncIterator<unknown> {
       if (this.closed) return UPLINK_DONE
       const entry = this.queue.popFront()
       if (entry !== undefined) {
-        this.bytes -= entry.bytes
+        this.charge(-entry.bytes)
         return { value: entry.value, done: false }
       }
       if (this.failure !== undefined) throw this.failure
@@ -438,9 +465,14 @@ class UplinkInbox implements AsyncIterable<unknown>, AsyncIterator<unknown> {
   return(): Promise<IteratorResult<unknown>> {
     this.closed = true
     this.queue.clear()
-    this.bytes = 0
+    this.charge(-this.bytes)
     this.signal()
     return Promise.resolve(UPLINK_DONE)
+  }
+
+  private charge(delta: number): void {
+    this.bytes += delta
+    this.budget.used += delta
   }
 
   private violate(error: RemoteError<'gateway/protocol' | 'gateway/uplink-overflow'>): void {

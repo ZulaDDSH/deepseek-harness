@@ -52,6 +52,9 @@ import type { ProcessInspector } from './process-inspector.ts'
 import { LocalTerminalHandle } from './terminal.ts'
 import { prepareShellActivity } from './shell-activity.ts'
 
+const DISPOSAL_SLACK_MS = 30_000
+const MAX_TIMER_MS = 2_147_483_647
+
 const requireNodePty = createLazyRequire<typeof NodePty>('node-pty', import.meta.url)
 
 /** Load node-pty, reporting a missing or unloadable native module as `SUBPROCESS_PTY_UNAVAILABLE`. */
@@ -84,6 +87,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   private controlChannels = new Set<Duplex>()
   /** Test hook: process, spill, and platform operations forwarded to spawnSubprocess. */
   internals: SpawnInternals = {}
+  private readonly graceOf = new WeakMap<object, number>()
   /** Provider-lifetime latch suppressing repeated weaker-containment warnings. */
   private fallbackWarningIssued = false
   /**
@@ -143,13 +147,13 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       handle.terminate()
       // Direct result and range observation are independent. Start both so an
       // unreadable owner cannot hide behind a result that never settles.
-      pending.push(Promise.all([
+      pending.push(this.boundedDisposal(handle, Promise.all([
         handle.done.catch(() => {}),
         handle.waitForExit(),
-      ]).then(() => { this.live.delete(handle) }))
+      ])).then(() => { this.live.delete(handle) }))
     }
     for (const terminal of this.terminals) {
-      pending.push(terminal.terminate().then(() => { this.terminals.delete(terminal) }))
+      pending.push(this.boundedDisposal(terminal, terminal.terminate()).then(() => { this.terminals.delete(terminal) }))
     }
     const outcomes = await Promise.allSettled(pending)
     await Promise.all([...this.controlChannels].map(control => new Promise<void>((resolveClose) => {
@@ -164,6 +168,24 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     if (failures.length > 0) this.terminateForHostExit()
     if (failures.length === 1) throw failures[0]
     if (failures.length > 1) throw new AggregateError(failures, 'local subprocess teardown failed')
+  }
+
+  private async boundedDisposal(owner: object, settlement: Promise<unknown>): Promise<void> {
+    const limit = Math.min((this.graceOf.get(owner) ?? 0) + DISPOSAL_SLACK_MS, MAX_TIMER_MS)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const expiry = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(new SubprocessError(
+          `subprocess-local: a managed process did not exit within ${limit}ms of termination; cleanup is unconfirmed and the provider keeps ownership`,
+          'SUBPROCESS_CLEANUP_UNCONFIRMED',
+        ))
+      }, limit)
+    })
+    try {
+      await Promise.race([settlement, expiry])
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   async resolveExecutable(
@@ -226,6 +248,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       if (linuxScope !== undefined) this.watchLinuxScopeStart(handle.done, linuxScope.generation)
     }
     this.live.add(handle)
+    this.graceOf.set(handle, spec.graceMs)
     const control = handle.control
     if (control !== undefined) {
       this.controlChannels.add(control)
@@ -364,6 +387,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       spec.shellActivity === true,
     )
     this.terminals.add(handle)
+    this.graceOf.set(handle, spec.graceMs)
     if (linuxScope !== undefined) this.watchLinuxScopeStart(handle.done, linuxScope.generation)
     const release = async (): Promise<void> => {
       // terminate() can wait on this direct-exit promise.

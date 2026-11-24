@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-Run JavaScript workflows in fresh Node processes under the calling Session's file sandbox policy. Scripts keep the `agent()`, `parallel()`, `pipeline()`, `phase()` and `log()` hooks while subagents perform delegated work. The same execution provider serves PTC and workflows, including the opt-in Ralph loop. Runs have no overall elapsed deadline; cancellation stops the managed process and disposes child agents. The selected sandbox and subprocess providers determine enforcement and cleanup limits.
+Run JavaScript workflows in fresh Node processes under the calling Session's file sandbox policy. Scripts keep the `agent()`, `parallel()`, `pipeline()`, `phase()` and `log()` hooks while subagents perform delegated work. The same execution provider serves PTC and workflows, including the opt-in Ralph loop. Each run has an overall elapsed deadline (`maxDurationMs`, one hour by default, `0` disables it); a run that exceeds it ends as an error, and cancellation stops the managed process and disposes child agents. The selected sandbox and subprocess providers determine enforcement and cleanup limits.
 
 ## Table of Contents
 
@@ -42,8 +42,9 @@ With those dependencies available, mount the engine and its model-facing consume
 | `maxTotalAgents` | `1000` | Total `agent()` calls one run may start. |
 | `maxItemsPerCall` | `4096` | Items accepted by one `parallel()` or `pipeline()` call. |
 | `syncTimeoutMs` | `5000` | VM timeout for the script's initial synchronous slice, in milliseconds. |
+| `maxDurationMs` | `3600000` | Overall elapsed deadline for one run, in milliseconds, measured from run start. On expiry the engine stops the process, disposes children and settles the run as `error` (`RUN_FAILED`) naming the deadline. `0` disables the deadline; the maximum is `2147483647`. |
 
-An owning consumer may set `WorkflowStartRequest.subagentProvider` and lower `WorkflowStartRequest.maxTotalAgents` for one run. Script hooks cannot change either choice. Process heap, output, control and termination limits belong to the Node PTC provider; the engine adds no overall elapsed timer. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-workflow-ptc) defines accepted engine fields.
+An owning consumer may set `WorkflowStartRequest.subagentProvider` and lower `WorkflowStartRequest.maxTotalAgents` for one run. Script hooks cannot change either choice. Process heap, output, control and termination limits belong to the Node PTC provider; the engine enforces its own overall `maxDurationMs` deadline instead of a PTC `timeoutMs`. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-workflow-ptc) defines accepted engine fields.
 
 The Node PTC provider's `maxPendingCalls` also limits workflow concurrency: child startup, result waits and disposal use those slots. Progress batches use at most one additional slot. Leave headroom when setting `maxConcurrentAgents`.
 
@@ -51,13 +52,13 @@ The Node PTC provider's `maxPendingCalls` also limits workflow concurrency: chil
 
 The script runs with top-level `await`; `meta` and `args` arrive as JSON data. Every `agent()` call starts a managed subagent Activation under the run's fixed parent and waits for its text or structured result. The workflow records its own members and collects their results without adding them to the parent's subagent catalog or sending child settlement notices to the parent model. The final lossless-JSON return value becomes the run result; an ordinary child failure resolves `agent()` to `null`.
 
-Invalid metadata, an unparseable body, an unavailable provider route or a per-run cap above the ceiling is rejected before a run is published. During execution, hook misuse and tripped cooperative caps fail the workflow. Process failures, unavailable required confinement and PTC output or control limits also fail the run.
+Invalid metadata, an unparseable body, an unavailable provider route or a per-run cap above the ceiling is rejected before a run is published. During execution, hook misuse and tripped cooperative caps fail the workflow. A helper call that failed and that the script neither awaited nor caught also fails the run when the script returns; a dropped helper still pending at that point is not awaited. Process failures, unavailable required confinement and PTC output or control limits also fail the run.
 
 ### File policy and cancellation
 
 The engine captures the calling Session's effective working directory and standing file policy separately. The PTC process and every child started by that workflow retain the captured directory when the parent later moves. A runtime without confinement is accepted only for `danger-full-access`; `read-only` and `workspace-write` fail before execution. Node in-memory mode executes an async wrapper in a temporary environment, so workflow-local variables never join the Agent's retained REPL. Script mode uses an async function expression whose Promise completion carries the workflow result. The VM retains the documented helper API, but it is not a security boundary: code that reaches Node follows the selected runtime's file policy. The program-visible environment is empty. Network access is not restricted by the file policy.
 
-The workflow requests `timeoutMs: null` from PTC. Its initial VM slice still has `syncTimeoutMs`, and a caller's abort signal still applies, including an enclosing tool deadline. Cancellation immediately aborts the PTC process and pending or active subagents. The caller must dispose every run and await child cleanup; there is no separate workflow cleanup timer.
+The workflow requests `timeoutMs: null` from PTC and applies its own host-side `maxDurationMs` deadline, which also ends a script stuck in a loop after its first `await`. Its initial VM slice still has `syncTimeoutMs`, and a caller's abort signal still applies, including an enclosing tool deadline. Cancellation immediately aborts the PTC process and pending or active subagents. The caller must dispose every run and await child cleanup; there is no separate workflow cleanup timer.
 
 -----
 
@@ -93,7 +94,7 @@ The host tracks pending starts separately from accepted Activations. Cancellatio
 
 ### Cancellation and outcomes
 
-The first accepted terminal outcome owns the run result. Cancellation stops the process immediately rather than waiting for a guest acknowledgement. Process settlement and child cleanup remain separate obligations; public disposal waits for both. Existing workflow start/end pairing and child lifecycle projection remain intact.
+The first accepted terminal outcome owns the run result. Cancellation stops the process immediately rather than waiting for a guest acknowledgement. Process settlement and child cleanup remain separate obligations; public disposal waits for both. A child whose disposal fails still settles the run: the failure is reported in `cleanupFailures` beside the primary outcome, without failing a completed run. Existing workflow start/end pairing and child lifecycle projection remain intact.
 
 </details>
 
@@ -152,7 +153,7 @@ These limits qualify workflow execution and cleanup.
 
 - **File confinement and cleanup inherit provider limits** — the Node PTC and subprocess providers define enforcement completeness and the managed process range.
 - **Workflow caps are cooperative** — helper counters limit ordinary scripts; they are not host-enforced security quotas or descendant token budgets.
-- **No overall elapsed deadline** — a run can remain active until it completes, fails or is cancelled. Caller deadlines still apply.
+- **The overall deadline is one engine-wide value** — `maxDurationMs` applies to every run, including a Ralph loop, which runs as one workflow run; there is no per-run override, so a deployment with longer jobs raises it or sets `0`. Caller deadlines still apply.
 - **Child cleanup follows provider contracts** — the adapter awaits disposal and pending starts without a separate abandonment timer.
 - **Workflow roles need a matching Claude CLI provider name** — a script `agent()` call that passes a `role` follows the subagent tool's Orchestrator & Subagent Setup rules and runs a Claude-subscription role on `claudeCliProvider`. The tool and the engine are separate plugins, so a deployment that renames the Claude CLI provider must set the same name on both.
 - **The VM is not a security boundary** — withheld globals guide script authors; OS policy governs code that reaches Node.

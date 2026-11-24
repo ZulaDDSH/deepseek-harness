@@ -82,6 +82,8 @@ Each agent's chain is keyed by `(tool name, canonical arguments)` — two calls 
 - **Denied calls count.** Detection sits on `tools/post-execute`, which also runs for calls a `tools/pre-execute` listener denied; a model hammering a denied call is exactly the loop worth breaking.
 - **Calls without an agent are ignored.** A direct `ctx.tools.execute()` caller has no model to remind and no live agent object to key on.
 - **Per-agent keying, reset on user prompts.** One agent's repetition never trips another's reminder; a user prompt (`agent/pre-step`) deletes the submitting agent's chain, and object lifetime bounds the weak entry without a disposal listener.
+- **Own `__proto__` keys are ordinary data.** Canonicalization defines every key as an own property of a null-prototype copy, so calls differing only in a `__proto__` argument value are different calls.
+- **Deep arguments skip detection.** Arguments nested deeper than 64 levels are not canonicalized: the agent's chain is cleared, no reminder is produced, and the tool result is delivered unchanged. Any other failure while canonicalizing is contained the same way.
 - **In-memory only.** A session resumed from persistence starts with a fresh chain — the guard is a heuristic nudge, not a logged invariant, so reminders after a resume are the accepted cost.
 
 ### Reminder delivery

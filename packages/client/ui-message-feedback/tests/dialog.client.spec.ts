@@ -7,7 +7,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { MessageId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { MessageFeedbackActionResult } from '../src/client/controller.ts'
-import { FeedbackDialogController, type FeedbackSubmit } from '../src/client/dialog.ts'
+import { FeedbackDialogController, exportMode, type FeedbackSubmit } from '../src/client/dialog.ts'
 
 const MSG = 'm-1' as MessageId
 const MESSAGE_TARGET = { kind: 'message', messageId: MSG, rating: 'positive' } as const
@@ -22,7 +22,7 @@ describe('FeedbackDialogController', () => {
     const { controller } = bench()
 
     expect(controller.state.getSnapshot()).toEqual({
-      target: null, category: null, text: '', submitting: false, failure: null, toast: 0,
+      target: null, category: null, text: '', localOnly: false, sharing: null, submitting: false, failure: null, toast: 0,
     })
   })
 
@@ -190,7 +190,44 @@ describe('FeedbackDialogController', () => {
     controller.open({ kind: 'session' })
     controller.dispose()
     expect(controller.state.getSnapshot()).toEqual({
-      target: null, category: null, text: '', submitting: false, failure: null, toast: 0,
+      target: null, category: null, text: '', localOnly: false, sharing: null, submitting: false, failure: null, toast: 0,
     })
+  })
+
+  it('submits localOnly only when chosen and discards the choice with the draft', async () => {
+    const { controller, submit } = bench()
+    controller.open(MESSAGE_TARGET)
+    controller.edit({ localOnly: true })
+    await controller.submitDraft()
+    expect(submit).toHaveBeenLastCalledWith(MESSAGE_TARGET, { localOnly: true })
+
+    controller.open({ kind: 'session' })
+    expect(controller.state.getSnapshot().localOnly).toBe(false)
+    await controller.submitDraft()
+    expect(submit).toHaveBeenLastCalledWith({ kind: 'session' }, {})
+  })
+
+  it('reads the live sharing policy on every open and clears it when the read fails', async () => {
+    const load = vi.fn<() => Promise<{ sharing: 'feedback-only'; destination: string } | null>>()
+    load.mockResolvedValueOnce({ sharing: 'feedback-only', destination: 'https://collector.example.test' })
+    load.mockResolvedValueOnce(null)
+    const controller = new FeedbackDialogController(() => Promise.resolve({ ok: true }), load)
+    controller.open({ kind: 'session' })
+    await vi.waitFor(() => { expect(controller.state.getSnapshot().sharing).toEqual({ sharing: 'feedback-only', destination: 'https://collector.example.test' }) })
+    controller.dismiss()
+    expect(controller.state.getSnapshot().sharing).not.toBeNull()
+    controller.open({ kind: 'session' })
+    await vi.waitFor(() => { expect(controller.state.getSnapshot().sharing).toBeNull() })
+    expect(load).toHaveBeenCalledTimes(2)
+  })
+
+  it('names the disclosure from the policy and the local choice', () => {
+    const on = { sharing: 'feedback-only', destination: 'https://c.example.test' } as const
+    expect(exportMode(null, false)).toBe('generic')
+    expect(exportMode(on, false)).toBe('to')
+    expect(exportMode(on, true)).toBe('local')
+    expect(exportMode({ sharing: 'disabled' }, true)).toBe('off')
+    expect(exportMode({ sharing: 'none' }, false)).toBe('off')
+    expect(exportMode({ sharing: 'feedback-only' }, false)).toBe('generic')
   })
 })

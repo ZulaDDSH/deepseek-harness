@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type { FsInfo, FsTarget, FsTargetKey } from '@deepseek-ai/dsh-fs'
-import { applyHunks } from '@deepseek-ai/dsh-fs-patch'
+import { applyHunks, describeHunkFailure } from '@deepseek-ai/dsh-fs-patch'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
@@ -119,7 +119,7 @@ class Preflight {
           const characters = Array.from(first)
           const preview = characters.length > 80 ? `${characters.slice(0, 80).join('')}…` : first
           return { code: 'FS_PATCH_MISMATCH', hunkLine: result.failure.hunkLineNumber,
-            message: `cannot patch "${operation.target.displayPath}": hunk at patch line ${result.failure.hunkLineNumber} (${result.failure.stage}) does not match — ${preview}` }
+            message: `cannot patch "${operation.target.displayPath}": hunk at patch line ${result.failure.hunkLineNumber} (${result.failure.stage}) ${describeHunkFailure(result.failure)} — ${preview}` }
         }
         if (operation.kind === 'move') {
           this.publish(operation.destination, result.after)

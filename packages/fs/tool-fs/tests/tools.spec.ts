@@ -108,7 +108,7 @@ class FakeFs extends FileSystem {
     this.throwIfArmed()
     this.editIntents.push(expected)
     const content = this.files.get(target.targetKey) ?? ''
-    const after = content.split(edit.oldString).join(edit.newString)
+    const after = edit.append === true ? content + edit.newString : content.split(edit.oldString).join(edit.newString)
     this.files.set(target.targetKey, after)
     return { version: brandString<FsVersion>('v3'), before: content, after }
   }
@@ -493,6 +493,30 @@ describe('edit tool', () => {
     await call(ctx, 'read', { file_path: 'a.txt' }, { session })
     const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b', replace_all: true }, { session })
     expect(text(result)).toBe('The file /abs/a.txt has been updated. All occurrences were successfully replaced.')
+  })
+
+  it('appends with append: true, reporting it distinctly, and forwards append to the backend', async () => {
+    const { ctx, fs } = await setup()
+    const session = { header: {} }
+    fs.files.set('key:a.txt', 'a\n')
+    await call(ctx, 'read', { file_path: 'a.txt' }, { session })
+    const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: '', new_string: 'b\n', append: true }, { session })
+    if (result.isError) throw new Error('expected append success')
+    expect(result.value).toEqual({ path: '/abs/a.txt', before: 'a\n', after: 'a\nb\n' })
+    expect(text(result)).toBe('The file /abs/a.txt has been appended to successfully.')
+  })
+
+  it.each([
+    { args: { old_string: 'x', new_string: 'y', append: true }, message: 'old_string must be empty when append is true' },
+    { args: { old_string: '', new_string: '', append: true }, message: 'new_string must be a non-empty string when append is true' },
+    { args: { old_string: '', new_string: 'y', append: true, replace_all: true }, message: 'replace_all cannot be combined with append' },
+    { args: { old_string: '', new_string: 'y' }, message: 'old_string must be a non-empty string' },
+  ])('rejects invalid append arguments: $message', async ({ args, message }) => {
+    const { ctx } = await setup()
+    const result = await call(ctx, 'edit', { file_path: 'a.txt', ...args })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain(message)
+    expect(result.error?.info).toEqual({ name: 'ToolArgsError', code: 'INVALID_ARGS' })
   })
 
   it('rejects identical old/new strings', async () => {

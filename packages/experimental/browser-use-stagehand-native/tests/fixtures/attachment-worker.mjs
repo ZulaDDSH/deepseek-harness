@@ -13,6 +13,8 @@ parentPort.on('message', async ({ method, reply }) => {
   if (method === 'fixture-release') { release?.(); return }
   if (method === 'ready' && scenario === 'opening') return
   if (method === 'close' && scenario === 'closing') return
+  if ((method === 'tabs' || method === 'screenshot') && scenario.startsWith('stalled')) return
+  if (method === 'close' && scenario === 'stalled-undrained') return
   if (method === 'tabs' && scenario === 'error') throw new Error('Fixture worker crashed')
   if (method === 'tabs' && scenario === 'crash') { process.exit(23); return }
   if (method === 'ready' && scenario === 'failure') {

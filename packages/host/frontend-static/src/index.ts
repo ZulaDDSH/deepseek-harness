@@ -17,7 +17,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { open, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -64,6 +64,19 @@ const STATIC_MISS_CODES: ReadonlySet<string | undefined> = new Set([
   'ENOTDIR',
 ])
 
+async function readInsideRoot(target: string, distRoot: string): Promise<Buffer | undefined> {
+  const handle = await open(target, 'r')
+  try {
+    const [real, root] = await Promise.all([realpath(target), realpath(distRoot)])
+    if (real !== root && !real.startsWith(root + sep)) return undefined
+    const [opened, resolved] = await Promise.all([handle.stat({ bigint: true }), stat(real, { bigint: true })])
+    if (opened.ino !== resolved.ino || opened.dev !== resolved.dev) return undefined
+    return await handle.readFile()
+  } finally {
+    await handle.close()
+  }
+}
+
 /** A Response body that is `bytes` itself, without the copy a buffer body gets. */
 function bytesBody(bytes: Uint8Array): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
@@ -97,7 +110,7 @@ async function serveStatic(
   // it. `sep`, not '/': resolve() emits backslash paths on Windows, where a '/'
   // suffix would reject every legitimate subpath as traversal.
   if (target !== distRoot && !target.startsWith(distRoot + sep)) return new Response(null, { status: 403 })
-  let body: string | Uint8Array<ArrayBuffer>
+  let body: string | Uint8Array
   let headers: Record<string, string>
   try {
     if (renderIndex !== undefined) {
@@ -106,7 +119,9 @@ async function serveStatic(
       body = renderIndex(html)
       headers = { 'content-type': HTML_MIME }
     } else {
-      body = await readFile(target)
+      const bytes = await readInsideRoot(target, distRoot)
+      if (bytes === undefined) return new Response(null, { status: 403 })
+      body = bytes
       // Weak: gzip changes the transferred bytes.
       const cache = { 'cache-control': 'no-cache', etag: `W/"${createHash('sha1').update(body).digest('base64url')}"` }
       if (request.headers.get('if-none-match') === cache.etag) return new Response(null, { status: 304, headers: cache })

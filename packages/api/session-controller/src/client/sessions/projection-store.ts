@@ -165,6 +165,16 @@ export class ProjectionValueStore {
     this.changed(key)
   }
 
+  append(key: string, from: number, items: readonly unknown[], seq: SessionSeqCursor): boolean {
+    const row = this.rows.get(key)
+    if (row?.kind !== 'sequenced') return false
+    if (seq <= row.seq) return true
+    if (!Array.isArray(row.value) || row.value.length !== from) return false
+    this.rows.set(key, { kind: 'sequenced', value: [...row.value, ...items], seq })
+    this.changed(key)
+    return true
+  }
+
   /**
    * Fill keys from a Host block labeled `cached`: a zero-I/O
    * view of the persisted checkpoint. A cached value lands only where no

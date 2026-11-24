@@ -275,6 +275,48 @@ describe('tool-str-replace-editor', () => {
     expect(await readFile(sample, 'utf8')).toBe('ONE\r\na\r\nb\r\nTWO\r\nextra\r\nthree\r\n')
   })
 
+  it.each([
+    { name: 'after the last line of an unterminated file', before: 'a\r\nb', line: 2, text: 'x', after: 'a\r\nb\r\nx' },
+    { name: 'multiline after the last line of an unterminated file', before: 'a\r\nb', line: 2, text: 'x\ny', after: 'a\r\nb\r\nx\r\ny' },
+    { name: 'after the last line of a terminated file', before: 'a\r\nb\r\n', line: 2, text: 'x', after: 'a\r\nb\r\nx\r\n' },
+    { name: 'after the trailing empty piece of a terminated file', before: 'a\r\nb\r\n', line: 3, text: 'x', after: 'a\r\nb\r\n\r\nx' },
+    { name: 'at the start', before: 'a\r\nb\r\n', line: 0, text: 'x', after: 'x\r\na\r\nb\r\n' },
+  ])('inserts into a CRLF file $name without a bare LF or stray CR', async ({ before, line, text: inserted, after }) => {
+    const { ctx, root, owner } = await setup()
+    const sample = join(root, 'crlf-edge.txt')
+    await writeFile(sample, before)
+    const base = { file_text: null, old_str: null, view_range: null }
+    expect((await call(ctx, owner, { ...base, command: 'insert', path: sample, insert_line: line, new_str: inserted })).isError).toBe(false)
+    expect(await readFile(sample, 'utf8')).toBe(after)
+  })
+
+  it('rejects a replacement whose old_str occurrences overlap', async () => {
+    const { ctx, root, owner } = await setup()
+    const sample = join(root, 'overlap.txt')
+    await writeFile(sample, 'aaa')
+    const result = await call(ctx, owner, { command: 'str_replace', path: sample, old_str: 'aa', new_str: 'X', file_text: null, insert_line: null, view_range: null })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('Multiple occurrences of old_str `aa` in lines [1, 1]')
+    expect(await readFile(sample, 'utf8')).toBe('aaa')
+  })
+
+  it('stops a directory listing after its row budget instead of visiting every child directory', async () => {
+    const { ctx, root, owner } = await setup({ maxOutputChars: 40 })
+    for (let index = 0; index < 20; index++) {
+      await mkdir(join(root, 'wide', `d${String(index).padStart(2, '0')}`), { recursive: true })
+      await writeFile(join(root, 'wide', `d${String(index).padStart(2, '0')}`, 'f.txt'), 'x')
+    }
+    const listDir = ctx.fs.listDir.bind(ctx.fs)
+    let calls = 0
+    ctx.fs.listDir = async (target, signal) => {
+      calls += 1
+      return listDir(target, signal)
+    }
+    const listing = text(await call(ctx, owner, { command: 'view', path: join(root, 'wide') }))
+    expect(listing).toContain('Listing stopped early')
+    expect(calls).toBeLessThanOrEqual(11)
+  })
+
   it('keeps exact matching in an LF file', async () => {
     const { ctx, root, owner } = await setup()
     const sample = join(root, 'lf.txt')

@@ -164,6 +164,10 @@ export function apply(ctx: ClientContext): void {
             if (result.error.code === 'session/writer-held') throw new Error(t('error.sessionInUse'))
             throw result.error
           }
+          if (directory.store.getSnapshot().defaultNotSaved === true) {
+            const actx = sessions.scope(session.sessionId)
+            if (actx !== undefined) scope.get('conversation')?.input.for(actx).notify('info', t('warning.defaultNotSaved'))
+          }
         },
       },
     }), 'ui-model-selection: /model contribution')

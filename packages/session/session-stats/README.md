@@ -80,7 +80,7 @@ The fold state holds the eight totals plus in-flight boundaries: `lastTurn` (tur
 
 - Uninteresting events return the same state reference; the registry's `Object.is` gate keeps the change feed quiet.
 - First-token latency records the first non-empty delta chunk and survives an in-step `llm/retry`.
-- Decode time and tokens accrue only over steps carrying both a first token and a valid provider usage report; malformed usage is ignored like the window fold guards node usage.
+- Decode time and tokens accrue only over steps whose final assistant message carries both a first token in its own stream and a valid provider usage report; malformed usage is ignored like the window fold guards node usage. Decode time runs from that final attempt's first token, so a failed earlier attempt and the retry wait never enter the denominator of the displayed tokens per second; first-token latency still keeps the first attempt's boundary.
 - Tool time pairs `tool/call` → `tool/result` by callId; unresolved calls are dropped at `turn/end` because results land within their turn, and a callId colliding with an `Object` prototype name reads as unmatched.
 
 </details>

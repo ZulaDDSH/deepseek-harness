@@ -74,6 +74,8 @@ None; this package neither assembles nor sends a provider request.
 These limits define the current browse surface. They are current package constraints, not a general file-browser comparison or a task backlog.
 
 - **No search, no multi-select, and no rename or delete** — the dialog lists and creates directories; a target is reached by navigating, editing the path, or filtering the last pane by prefix.
+- **The path separator is inferred** — the Host listing carries no separator, so the dialog reads it from the home path: a home starting with a slash is POSIX (a backslash in its name stays a name character), otherwise a home containing a backslash is Windows. A Host that listed a Windows home beginning with a slash would be misread; a host-stamped `separator` field on the listing is the complete fix and is not implemented.
+- **A failed relist after creating a folder says so but does not retry** — when the Host confirms the new folder and the following listing fails, the dialog reports that the folder was created together with the listing error. It does not select the folder or offer a retry button; navigating (a crumb, Home, or the path editor) relists.
 - **Hidden-entry filtering is client-side** — the Host always lists hidden entries and flags them, so the toggle changes only what the dialog renders.
 
 <a id="dev-note"></a>

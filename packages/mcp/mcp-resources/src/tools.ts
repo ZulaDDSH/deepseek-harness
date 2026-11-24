@@ -22,6 +22,16 @@ const output = {
   render: (args: { server: string }, value: JsonValue) => renderResourceResult(args.server, value),
 }
 
+const RESOURCE_TOO_LARGE = 'MCP_RESOURCE_TOO_LARGE'
+
+// Constraint: matched by code string; this package must not import the MCP client.
+function explainTooLarge(error: unknown): never {
+  if (error instanceof Error && (error as { code?: unknown }).code === RESOURCE_TOO_LARGE) {
+    throw new Error(`${error.message}. The server's content cannot be read in full through read_mcp_resource and a retry returns the same result; use another resource or a narrower URI.`, { cause: error })
+  }
+  throw error
+}
+
 /**
  * Register resource operations in the consumer's tool scope.
  * @param ctx - context owning the tool registrations.
@@ -60,7 +70,7 @@ export function registerResourceTools(ctx: Context, request: RequestResource): (
       },
       output,
       isConcurrencySafe: () => true,
-      execute: (args, exec) => request(args.server, { method: 'resources/read', uri: args.uri }, exec),
+      execute: (args, exec) => request(args.server, { method: 'resources/read', uri: args.uri }, exec).catch(explainTooLarge),
     }))
   }, 'mcpResources.resourceTools')
   // oxlint-disable-next-line typescript/no-misused-promises -- all collected tool disposers are synchronous

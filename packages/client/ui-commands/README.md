@@ -29,6 +29,8 @@ Mount this plugin alongside `ui-input-trigger` and `ui-conversation`; the `/` so
 
 A contribution is a client-owned command; a host-name collision fails loudly. Its UI is a popupSelect spec or an action: a callback a bare invocation runs after the trigger token is consumed, without submitting a message. Business packages own their actions and availability; the composer registers File through this same API. A decoration adds a bare-invocation popup or action to an existing host command while preserving its catalog row, argument claim, and lifecycle logging; it never fires without a matching host row. Menu queries fuzzy-match ordered, case-insensitive subsequences of command names and titles, with prefixes first and no section headings.
 
+A popupSelect `options` function that throws before returning a promise is treated like a rejected promise: the picker shows the failed state with Retry.
+
 A popupSelect spec may supply `searchLabels()` to resolve its placeholder, empty-catalog text, and no-match text for each opening. Omitted labels retain the shell's generic copy; labels from one popup never carry into the next.
 
 Options may carry `group: { name, label }`: `name` identifies the group and `label` supplies its localized sticky heading. Equal names share one group; groups retain first-occurrence order in the loaded options, including when a query hides earlier rows. Ungrouped options form one headingless block at their first occurrence. Groups without matching rows are hidden.

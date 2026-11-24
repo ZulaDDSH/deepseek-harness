@@ -7,7 +7,7 @@ import type {
 } from '@deepseek-ai/dsh-api-gateway'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import { describe, expect, it } from 'vitest'
-import { apply, inject } from '../src/index.ts'
+import { API_REMOTE_FORWARDED_EVENTS, apply, inject } from '../src/index.ts'
 
 interface GatewayProbe {
   source: TypertRemoteEventSource | undefined
@@ -85,6 +85,20 @@ describe('Remote event Host source', () => {
     expect(gateway.host?.home.length).toBeGreaterThan(0)
     await fiber.dispose()
     expect(gateway.host).toBeUndefined()
+  })
+
+  it('declares each forwarded event once', () => {
+    const names = API_REMOTE_FORWARDED_EVENTS.map(entry => entry.event)
+    expect(names.filter((name, index) => names.indexOf(name) !== index)).toEqual([])
+  })
+
+  it('forwards one credential record update as exactly one frame', async () => {
+    const { ctx, gateway } = await setup()
+    const stream = sourceOf(gateway)(new AbortController().signal)[Symbol.asyncIterator]()
+    emitRaw(ctx, 'credentials/record-updated', [])
+    emitRaw(ctx, 'schedule/changed', [])
+    await expect(stream.next()).resolves.toEqual({ done: false, value: { event: 'credentials/record-updated', args: [] } })
+    await expect(stream.next()).resolves.toEqual({ done: false, value: { event: 'schedule/changed', args: [] } })
   })
 
   it('gives each Client stream an independent allowlisted event queue', async () => {

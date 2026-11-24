@@ -44,6 +44,10 @@ class ScriptedJobRegistry extends JobRegistry {
     return { chunks: [], lossy: false, job: this.get(id) }
   }
 
+  peek(id: JobId): JobRead {
+    return this.read(id)
+  }
+
   readAt(_id: JobId, from: number): JobOutputRead {
     return { chunks: [], next: from, lossy: false }
   }

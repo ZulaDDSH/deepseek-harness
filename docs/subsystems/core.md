@@ -531,9 +531,15 @@ currentSelection(): ModelSelection
  * editor keeps its composition entry. Saves commit in submission order; a failed
  * save rejects its caller without blocking later saves.
  * @param next - resolved selection accepted by an entry point.
- * @returns fulfillment after the optional profile write settles.
+ * @returns whether the profile was written; false when no configuration editor or entry exists.
  */
-async saveSelection(next: ModelSelection): Promise<void>
+async saveSelection(next: ModelSelection): Promise<boolean>
+
+/** Save a computed first-run default only while no selection was ever saved to the profile and none is submitted while the selection is being computed.
+ * @param resolve - Computes the selection to save, or undefined to leave the default alone.
+ * @returns Fulfillment after the optional profile write settles; resolves without writing when a selection was saved before or during the computation.
+ */
+async saveInitialSelection(resolve: () => Promise<ModelSelection | undefined>): Promise<void>
 ```
 
 Source: [`packages/core/agent-default-model/src/index.ts`](../../packages/core/agent-default-model/src/index.ts)

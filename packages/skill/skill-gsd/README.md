@@ -96,7 +96,7 @@ Mounting the provider adds twenty catalog entries to every session prefix, becau
 <a id="known-limitations-and-deferred-work"></a>
 
 - **Catalog size.** Twenty entries appear in every session, including sessions with GSD off, because gating is not available to providers.
-- **Parallel coders share one git index.** Plans in a wave run in parallel without worktrees. Their commits are serialised by git's index lock, and the executor brief tells coders to retry rather than delete the lock.
+- **Parallel coders share one git index.** Plans in a wave run in parallel without worktrees. Each commit names its task's paths (`git commit -- <paths>`), so it excludes what another coder or the user has staged, and the coder checks the committed path list afterwards. Git's index lock serialises the commits, and the executor brief tells coders to retry rather than delete the lock. A coder that edits a path outside its plan's `files` can still collide with another plan.
 - **No dry run against a real model yet.** The skill text is tested for structure and vocabulary, not for how a model follows the gates.
 - **Upstream drift.** The content is a rewrite of Get Shit Done at the time it was adapted, and it does not track later upstream changes.
 

@@ -832,10 +832,9 @@ describe('compactNow transaction and failure classification', () => {
     expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
   })
 
-  it('waits for the durability checkpoint before cancellation wins and admission releases', async () => {
+  it('waits for the durability checkpoint, then reports the committed result when cancellation lands during it', async () => {
     const { ctx, compact } = detachedService()
     const controller = new AbortController()
-    const reason = new Error('cancelled during flush')
     const flushGate = Promise.withResolvers<boolean>()
     const flush = vi.spyOn(ctx.sessions, 'flush').mockReturnValueOnce(flushGate.promise)
     const session = closedConversation(2)
@@ -851,13 +850,35 @@ describe('compactNow transaction and failure classification', () => {
     await vi.waitFor(() => {
       expect(flush).toHaveBeenCalledWith(session)
     })
-    controller.abort(reason)
+    controller.abort(new Error('cancelled during flush'))
     await Promise.resolve()
     expect(settled).toBe(false)
     expect(released).toBe(0)
 
-    flushGate.resolve(false)
-    await expect(running).rejects.toBe(reason)
+    flushGate.resolve(true)
+    await expect(running).resolves.toHaveProperty('summarySeq')
+    expect(compactEvents(session).map(event => event.type)).toContain('compaction/summary')
+    expect(released).toBe(1)
+  })
+
+  it('reports a failed durability checkpoint instead of cancellation when it lands after commit', async () => {
+    const { ctx, compact } = detachedService()
+    const controller = new AbortController()
+    const flushGate = Promise.withResolvers<boolean>()
+    const flush = vi.spyOn(ctx.sessions, 'flush').mockReturnValueOnce(flushGate.promise)
+    const session = closedConversation(2)
+    let released = 0
+    const agent = fakeAgent(session, () => () => { released += 1 })
+
+    const running = compact.compactNow(agent, controller.signal)
+    await vi.waitFor(() => {
+      expect(flush).toHaveBeenCalledWith(session)
+    })
+    controller.abort(new Error('cancelled during flush'))
+    flushGate.reject(new Error('disk full'))
+    await expect(running).rejects.toBeInstanceOf(ManualCompactionError)
+    await expect(running).rejects.toMatchObject({ code: 'persistence' })
+    expect(compactEvents(session).map(event => event.type)).toContain('compaction/summary')
     expect(released).toBe(1)
   })
 

@@ -10,7 +10,7 @@ import { JsonStorageBackend } from '@deepseek-ai/dsh-storage-json'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { MessageId } from '@deepseek-ai/dsh-llm/types'
-import { scheduleDomain, scheduleTaskSchema, type ScheduleTask } from '../src/storage.ts'
+import { promptIdOf, scheduleDomain, scheduleTaskSchema, type ScheduleTask } from '../src/storage.ts'
 import {
   createAfterScheduleRecord,
   createAtScheduleRecord,
@@ -243,7 +243,16 @@ it('accepts append-ordered history despite scheduled and delivered wall-clock ro
   const earlier = { ...lastDelivery, scheduledAt: '2026-09-17T00:00:00.000Z', deliveredAt: '2026-09-18T00:00:00.000Z', messageId: 'earlier' }
   const task = { ...stored, status: 'ended', lastDelivery,
     deliveryHistory: { records: [earlier, { ...lastDelivery, prompt: 'Sent prompt' }], earlierRecordsUnavailable: true, earlierRecordsPruned: false } }
-  expect(scheduleTaskSchema.parse(task)).toEqual(task)
+  const { prompt: sent, ...plain } = task.deliveryHistory.records[1] as typeof lastDelivery & { prompt: string }
+  expect(scheduleTaskSchema.parse(task)).toEqual({
+    ...task,
+    deliveryHistory: {
+      records: [earlier, { ...plain, promptId: promptIdOf(sent) }],
+      prompts: { [promptIdOf(sent)]: sent },
+      earlierRecordsUnavailable: true,
+      earlierRecordsPruned: false,
+    },
+  })
 })
 
 it('rejects malformed persisted schedule values rather than opening a partial task', () => {

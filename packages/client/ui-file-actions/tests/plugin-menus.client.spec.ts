@@ -22,7 +22,7 @@ it('contributes file and image operations without open-in-app and withdraws them
   ctx.provide('contextMenus', { register: registry.register.bind(registry), notify } as never)
   const registerLocale = vi.fn(() => () => {})
   ctx.provide('locale', { register: registerLocale, bind: () => (key: string) => key } as never)
-  const readBytes = vi.fn(async () => ({ ok: true as const, value: { data: [1, 2, 3] } }))
+  const readBytes = vi.fn(async () => ({ ok: true as const, value: { absolutePath: '/workspace/report.txt', version: 'v1', offset: 0, data: [1, 2, 3], eof: true } }))
   const workspaceFiles = {
     stat: async () => ({ ok: true, value: { absolutePath: '/workspace/image.png' } }),
     readBytes,
@@ -52,7 +52,7 @@ it('contributes file and image operations without open-in-app and withdraws them
     downloading.select('file-actions.file/download')
     await vi.waitFor(() => { expect(notify).toHaveBeenCalledWith('menu.downloadStarted', true, undefined) })
     expect(save).toHaveBeenCalledOnce()
-    expect(readBytes).toHaveBeenCalledWith(brandString<SessionId>('files'), 'report.txt', {}, expect.any(AbortSignal))
+    expect(readBytes).toHaveBeenCalledWith(brandString<SessionId>('files'), 'report.txt', { range: { offset: 0 } }, expect.any(AbortSignal))
     save.mockRestore()
     const image = registry.resolve({ kind: 'image', value: { url: 'https://example.com/image.png' } })
     await image.ready
@@ -67,6 +67,59 @@ it('contributes file and image operations without open-in-app and withdraws them
     image.dispose()
     expect(failure).not.toHaveBeenCalled()
   } finally {
+    registry.dispose()
+    await runtime.dispose()
+  }
+})
+
+it('saves an original above the complete-read cap through bounded windows and disables oversized originals', async () => {
+  const runtime = await SlotTestRuntime.create()
+  onTestFinished(() => runtime.dispose())
+  const { ctx } = runtime
+  await runtime.declare({
+    'contextMenu.icon': { kind: 'keyed', scope: 'root', inline: true },
+  })
+  const registry = new MenuRegistry(vi.fn())
+  ctx.provide('contextMenus', { register: registry.register.bind(registry), notify: vi.fn() } as never)
+  const registerLocale = vi.fn(() => () => {})
+  ctx.provide('locale', { register: registerLocale, bind: () => (key: string) => key } as never)
+  const size = 5 * 1024 * 1024, window = 2 * 1024 * 1024
+  const bytes = Uint8Array.from({ length: size }, (_, index) => index % 251)
+  const readBytes = vi.fn(async (_sessionId: unknown, _path: string, options: { range?: { offset?: number } }) => {
+    if (options.range === undefined) return { ok: false as const }
+    const offset = options.range.offset ?? 0
+    const end = Math.min(size, offset + window)
+    return { ok: true as const, value: { absolutePath: '/workspace/big.bin', version: 'v1', offset, data: bytes.slice(offset, end), eof: end >= size } }
+  })
+  const stat = vi.fn(async (_sessionId: unknown, path: string) => ({ ok: true as const, value: {
+    absolutePath: `/workspace/${path}`, version: 'v1', bytes: path === 'huge.bin' ? 300 * 1024 * 1024 : size,
+  } }))
+  runtime.remote.provideNamespaces({ workspaceFiles: { stat, readBytes }, session: { openWorkspacePath: vi.fn() } })
+  const fiber = ctx.plugin({ apply })
+  await fiber.await()
+  let saved: Blob | undefined
+  const save = vi.spyOn(ctx.fileActions, 'save').mockImplementation(async (source: FileActionSource) => {
+    saved = await source.read!(new AbortController().signal)
+    return { status: 'requested' }
+  })
+  try {
+    await vi.waitFor(() => { expect(registerLocale).toHaveBeenCalledOnce() })
+    const sessionId = brandString<SessionId>('files')
+    const big = registry.resolve({ kind: 'file', value: { sessionId, path: 'big.bin' } })
+    await big.ready
+    big.select('file-actions.file/download')
+    await vi.waitFor(() => { expect(saved).toBeDefined() })
+    expect(saved!.size).toBe(size)
+    expect(readBytes).toHaveBeenCalledTimes(3)
+    const huge = registry.resolve({ kind: 'file', value: { sessionId, path: 'huge.bin' } })
+    await huge.ready
+    expect(huge.source.getSnapshot().length).toBeGreaterThan(0)
+    expect(huge.source.getSnapshot().every(action => action.disabled === true)).toBe(true)
+    huge.dispose()
+    big.dispose()
+  } finally {
+    save.mockRestore()
+    await fiber.dispose()
     registry.dispose()
     await runtime.dispose()
   }

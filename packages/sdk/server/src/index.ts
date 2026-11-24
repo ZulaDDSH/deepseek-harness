@@ -66,14 +66,19 @@ export function apply(ctx: Context, config: JsonRpcConfig): void {
   // Share one exit task so racing shutdown requests cannot dispose the root or
   // exit the process more than once.
   let exitTask: Promise<void> | undefined
-  const disposeAndExit = (): Promise<void> => {
+  const disposeAndExit = (code = 0): Promise<void> => {
     exitTask ??= (async () => {
       await Promise.allSettled([Promise.resolve().then(() => transport.flush())])
       await Promise.allSettled([Promise.resolve().then(() => rootFiber.dispose())])
-      exit(0)
+      exit(code)
     })()
     return exitTask
   }
+
+  transport.onFailure((error) => {
+    console.error(`[sdk-jsonrpc-server] transport failed: ${error.message}`)
+    void disposeAndExit(1)
+  })
 
   transport.onRequest(async (method, params) => {
     // `initialize` is the SDK's readiness boundary. This plugin can activate

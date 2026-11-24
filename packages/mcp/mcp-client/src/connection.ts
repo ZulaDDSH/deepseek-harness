@@ -130,6 +130,33 @@ export interface ConnectionAuth {
   providerFor(url: string): SignInProvider
 }
 
+const REFRESH_MIN_INTERVAL_MS = 250
+const MAX_RESOURCE_READ_BYTES = 8 * 1024 * 1024
+
+// Constraint: must total text bytes and blob length of one read and reject before the result is forwarded.
+function boundedResourceRead(result: { contents: readonly { uri: string; text?: string; blob?: string }[] }, uri: string): void {
+  let total = 0
+  for (const item of result.contents) {
+    total += (item.text === undefined ? 0 : Buffer.byteLength(item.text)) + (item.blob === undefined ? 0 : item.blob.length)
+  }
+  if (total > MAX_RESOURCE_READ_BYTES) {
+    throw new McpLocalError(`MCP resource ${uri} is ${total} bytes, over the ${MAX_RESOURCE_READ_BYTES} byte limit for one read`, 'MCP_RESOURCE_TOO_LARGE')
+  }
+}
+
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal.aborted) return Promise.resolve()
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ms)
+    function done(): void {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', done)
+      resolve()
+    }
+    signal.addEventListener('abort', done, { once: true })
+  })
+}
+
 /**
  * Start the supervised connection for one MCP server and keep it alive per
  * the reconnect policy. The first attempt starts in a microtask; the caller
@@ -351,8 +378,9 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     client.onclose = () => {
       if (record.connectedAt !== undefined) lost(record, 'connection closed')
     }
-    async function refreshTools(): Promise<void> {
-      if (!isCurrent(record)) return
+    let refreshing = false
+    let refreshPending = false
+    async function syncOnce(): Promise<void> {
       ctx.logger.info(`${label}: tool list changed, re-syncing`)
       try {
         await enqueueSync(record)
@@ -362,6 +390,25 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       } catch (error) {
         if (error instanceof McpToolRegistrationError) lost(record, diagnostic(error, 'tool synchronization'))
         else if (isCurrent(record)) ctx.logger.error(`${label}: tool re-sync failed: ${diagnostic(error, 'tool synchronization')}`)
+      }
+    }
+    // Constraint: one active refresh plus at most one pending rerun per generation, at least REFRESH_MIN_INTERVAL_MS apart.
+    async function refreshTools(): Promise<void> {
+      if (!isCurrent(record)) return
+      if (refreshing) {
+        refreshPending = true
+        return
+      }
+      refreshing = true
+      try {
+        do {
+          refreshPending = false
+          const startedAt = Date.now()
+          await syncOnce()
+          if (refreshPending && isCurrent(record)) await pause(REFRESH_MIN_INTERVAL_MS - (Date.now() - startedAt), record.wire.lifetime.signal)
+        } while (refreshPending && isCurrent(record))
+      } finally {
+        refreshing = false
       }
     }
     try {
@@ -427,8 +474,9 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       if (definition === undefined) throw new Error(`${label}: tool is unavailable`)
       const errors = validateJsonSchemaValue(definition.parameters, args)
       if (errors.length > 0) throw new Error(`${label}: invalid tool arguments: ${errors.join('; ')}`)
+      let result: Awaited<ReturnType<Client['callTool']>>
       try {
-        return await record.wire.run(wireSignal => record.wire.client.callTool(
+        result = await record.wire.run(wireSignal => record.wire.client.callTool(
           { name, arguments: args },
           { signal: AbortSignal.any([wireSignal, signal]), timeout: config.toolCallTimeoutMs },
         ))
@@ -437,7 +485,11 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
         if (isAuthRequired(error)) authenticationRejected(error, record)
         throw mcpRequestError(error, `human tool "${name}"`, config.expandTemplates ? text => binding.redact(text) : undefined)
       }
+      if (!config.expandTemplates || result.isError !== true) return result
+      const content = Array.isArray(result.content) ? result.content : []
+      return { isError: true, content: content.flatMap(block => block.type === 'text' ? [{ type: 'text', text: binding.redact(block.text) }] : []) }
     },
+    redact: text => config.expandTemplates ? binding.redact(text) : text,
   })
 
   return {
@@ -467,7 +519,11 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
                     request.cursor === undefined ? undefined : { cursor: request.cursor }, options,
                   ) as JsonValue
                   : { resourceTemplates: [] }
-              case 'resources/read': return await generation.readResource({ uri: request.uri }, options) as JsonValue
+              case 'resources/read': {
+                const result = await generation.readResource({ uri: request.uri }, options)
+                boundedResourceRead(result, request.uri)
+                return result as JsonValue
+              }
               /* v8 ignore next -- exhaustive over the closed resource request union */
               default: return assertNever(request)
             }

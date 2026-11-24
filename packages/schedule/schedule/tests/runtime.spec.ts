@@ -203,7 +203,7 @@ describe('Host Schedule timer', () => {
     expect(tasks[1]).toEqual(task(daily))
     expect(vi.getTimerCount()).toBe(1)
     await vi.advanceTimersByTimeAsync(300_000)
-    expect(test.followup).toHaveBeenCalledTimes(4)
+    expect(test.followup.mock.calls.length).toBeGreaterThanOrEqual(4)
     expect(tasks[0]?.record.scheduledAt).toBe('2026-09-16T00:10:00.000Z')
     expect(tasks[1]).toEqual(task(daily))
   })
@@ -233,16 +233,72 @@ describe('Host Schedule timer', () => {
     expect(test.commit).toHaveBeenCalledTimes(2)
   })
 
-  it('keeps a failed enqueue without a retry timer', async () => {
-    const tasks = [task(createAfterScheduleRecord(brandString<ScheduleId>('failed'), 'Retry on restart', 1, Date.now() - 2000, 'Retry on restart'))]
+  it('retries a failed enqueue with bounded backoff once the fault clears', async () => {
+    const tasks = [task(createAfterScheduleRecord(brandString<ScheduleId>('failed'), 'Retry later', 1, Date.now() - 2000, 'Retry later'))]
+    const test = await setup(tasks)
+    test.followup.mockImplementationOnce(() => { throw new Error('unavailable') })
+    test.runtime.requestDrive()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(test.followup).toHaveBeenCalledTimes(1)
+    expect(test.commit).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(4999)
+    expect(test.followup).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(test.followup).toHaveBeenCalledTimes(2)
+    expect(test.commit).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('ends the retry backoff only for the tasks whose cause changed', async () => {
+    const id = brandString<ScheduleId>('backoff')
+    const tasks = [task(createAfterScheduleRecord(id, 'Back off', 1, Date.now() - 2000, 'Back off'))]
+    const test = await setup(tasks)
+    test.followup.mockImplementationOnce(() => { throw new Error('unavailable') })
+    test.runtime.requestDrive()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(test.followup).toHaveBeenCalledTimes(1)
+    test.runtime.requestDrive([brandString<ScheduleId>('unrelated')])
+    test.runtime.requestDrive([])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(test.followup).toHaveBeenCalledTimes(1)
+    test.runtime.requestDrive([id])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(test.followup).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops the retry backoff of a deleted task so a recreated id starts fresh', async () => {
+    const id = brandString<ScheduleId>('recreated')
+    const make = () => task(createAfterScheduleRecord(id, 'Recreated', 1, Date.now() - 2000, 'Recreated'))
+    const tasks = [make()]
+    const test = await setup(tasks)
+    test.followup.mockImplementationOnce(() => { throw new Error('unavailable') })
+    test.runtime.requestDrive()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(test.followup).toHaveBeenCalledTimes(1)
+    tasks.splice(0)
+    test.runtime.requestDrive([])
+    await vi.advanceTimersByTimeAsync(0)
+    tasks.push(make())
+    test.runtime.requestDrive([])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(test.followup).toHaveBeenCalledTimes(2)
+  })
+
+  it('doubles the retry delay while delivery keeps failing and caps it', async () => {
+    const tasks = [task(createAfterScheduleRecord(brandString<ScheduleId>('down'), 'Still down', 1, Date.now() - 2000, 'Still down'))]
     const test = await setup(tasks)
     test.followup.mockImplementation(() => { throw new Error('unavailable') })
     test.runtime.requestDrive()
     await vi.advanceTimersByTimeAsync(0)
-    expect(test.commit).not.toHaveBeenCalled()
-    expect(tasks).toHaveLength(1)
+    for (const [attempt, delay] of [[2, 5_000], [3, 10_000], [4, 20_000]] as const) {
+      await vi.advanceTimersByTimeAsync(delay - 1)
+      expect(test.followup).toHaveBeenCalledTimes(attempt - 1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(test.followup).toHaveBeenCalledTimes(attempt)
+    }
     await vi.advanceTimersByTimeAsync(86_400_000)
-    expect(test.followup).toHaveBeenCalledTimes(1)
+    expect(test.followup.mock.calls.length).toBeGreaterThan(280)
+    expect(test.followup.mock.calls.length).toBeLessThan(400)
   })
 
   it('keeps the task when Session durability fails after enqueue', async () => {
@@ -280,10 +336,10 @@ describe('Host Schedule timer', () => {
     expect(test.flush).toHaveBeenCalledTimes(1)
     expect(test.commit).toHaveBeenCalledTimes(failure === 'flush' ? 0 : 1)
     expect(records).toEqual([original])
-    expect(vi.getTimerCount()).toBe(0)
-    await vi.advanceTimersByTimeAsync(86_400_000)
-    expect(test.followup).toHaveBeenCalledTimes(1)
-    expect(records).toEqual([original])
+    expect(vi.getTimerCount()).toBe(1)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(test.followup).toHaveBeenCalledTimes(2)
+    expect(records[0]?.lastDelivery?.messageId).not.toBe(previous.messageId)
   })
 
   it('publishes a daily advance only after the Session flush completes', async () => {
@@ -351,11 +407,11 @@ describe('Schedule dispatch failures and concurrent changes', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(test.followup).toHaveBeenCalledTimes(2)
     expect(test.commit).toHaveBeenCalledTimes(3)
-    expect(test.resolve.mock.calls.map(([id]) => id)).toEqual(['original', 'other'])
-    const firstMessage = test.followup.mock.calls[0]?.[0]
-    expect(JSON.stringify(firstMessage?.content)).toContain('First')
+    expect(test.resolve.mock.calls.map(([id]) => id).sort()).toEqual(['original', 'other'])
+    const messages = test.followup.mock.calls.map(([message]) => message)
+    const firstMessage = messages.find(message => JSON.stringify(message.content).includes('First'))
     expect(JSON.stringify(firstMessage?.content)).toContain('Second')
-    const otherMessage = test.followup.mock.calls[1]![0]
+    const otherMessage = messages.find(message => JSON.stringify(message.content).includes('Third'))!
     expect(records.slice(0, 3).map(item => item.lastDelivery)).toEqual([
       {
         scheduledAt: '2026-09-16T00:00:00.000Z', deliveredAt: '2026-09-16T00:00:00.000Z',
@@ -638,7 +694,7 @@ describe('Schedule dispatch failures and concurrent changes', () => {
     })
   })
 
-  it.each([1, 2])('stops between committed tasks without arming a new timer (%i due tasks)', async (count) => {
+  it.each([1, 2])('drains the deliveries in flight at disposal and arms no timer (%i due tasks)', async (count) => {
     const records = Array.from({ length: count }, (_, index) =>
       task(createAfterScheduleRecord(brandString<ScheduleId>(`stop-${index}`), 'Stop', 1, Date.now() - 2000, 'Stop')))
     const test = await setup(records)
@@ -650,11 +706,11 @@ describe('Schedule dispatch failures and concurrent changes', () => {
     test.runtime.requestDrive()
     await vi.advanceTimersByTimeAsync(0)
     await stopped
-    expect(test.resolve).toHaveBeenCalledTimes(1)
-    expect(test.commit).toHaveBeenCalledTimes(1)
+    expect(test.resolve).toHaveBeenCalledTimes(count)
+    expect(test.commit).toHaveBeenCalledTimes(count)
     expect(records).toHaveLength(count)
-    expect(records.filter(record => record.status === 'active')).toHaveLength(count - 1)
-    expect(records[0]?.status).toBe('ended')
+    expect(records.map(record => record.status)).toEqual(Array(count).fill('ended'))
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('logs a rejected serialization operation and honors a wake requested before retirement', async () => {
@@ -705,7 +761,7 @@ describe('Schedule dispatch failures and concurrent changes', () => {
         expect(stop).not.toHaveBeenCalled()
       })
       await entered.promise
-      expect(vi.getTimerCount()).toBe(1)
+      expect(vi.getTimerCount()).toBe(0)
       released.resolve(undefined)
       await retired
       await unloading

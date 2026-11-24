@@ -300,9 +300,10 @@ Authenticated GUI operations; provider calls remain Host-owned.
 
 /**
  * Rebuild complete active Memorix documents with the Graphify adapter and load its bounded viewer.
+ * @param signal - caller lifetime; a queued rebuild is skipped and a running one stopped when it aborts.
  * @returns the official Graphify viewer, its graph source path and the imported document count; no Graphify run when the count is 0.
  */
-@Remote graph(): Promise<MemoryGraph>
+@Remote graph(signal?: AbortSignal): Promise<MemoryGraph>
 
 /**
  * Retain an uploaded document and import all chunks through Memorix.

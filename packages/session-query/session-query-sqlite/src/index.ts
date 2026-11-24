@@ -12,6 +12,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import z from '@deepseek-ai/schemastery'
 import type { Session, SessionEvent, SessionHeader, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type SessionPersistence from '@deepseek-ai/dsh-session-persistence'
+import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {
   SessionPersistenceRevision,
   SessionPersistenceSnapshot,
@@ -221,6 +222,9 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       return () => this._optionalPersistenceFiber.dispose()
     }, 'sessionQuerySqlite.optionalPersistence')
     ctx.effect(() => async () => this.close(), 'sessionQuerySqlite.close')
+    ctx.on('loader/volatile-update', () => {
+      if (!this.config.contentSearch()) void this._discardIndex()
+    })
   }
 
   /** Open eagerly only when activation owns the configured readiness boundary. */
@@ -246,7 +250,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       await this._ensureReady(signal)
       const persistenceBinding = await this._reconcile(signal)
       assertNotAborted(signal)
-      const generation = String(this._globalGeneration)
+      const generation = `${this._globalGeneration}:${this._mainGeneration()}`
       const fingerprint = requestFingerprint(normalized)
       const offset = normalized.cursor === undefined
         ? 0
@@ -292,6 +296,19 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
         }), offset),
       }
     })
+  }
+
+  private async _discardIndex(): Promise<void> {
+    await this._serialized(undefined, async () => {
+      await this._ready?.catch(() => undefined)
+      this._db?.close()
+      this._db = undefined
+      this._ready = undefined
+      this._lastPersistenceIdentity = undefined
+      if (!await removeIndexFiles(this.config.path).catch(() => false)) {
+        this.ctx.logger.warn(`session-query-sqlite: content search is off; "${this.config.path}" was not removed`)
+      }
+    }).catch(() => undefined)
   }
 
   /** Close the database after every accepted operation reaches quiescence. */
@@ -406,30 +423,29 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       || liveChanges.length > 0
       || liveDeletes.length > 0
 
-    let nextMainGeneration = this._mainGeneration()
     let nextLocalGeneration = this._localGeneration
-    if (persistentChanges.length > 0 || persistentDeletes.length > 0) nextMainGeneration += 1
-    const liveReplacements = liveChanges.map((entry) => {
-      nextLocalGeneration = Math.max(nextLocalGeneration, nextMainGeneration) + 1
-      return {
-        entry,
-        generation: nextLocalGeneration,
-        persisted: observation.persisted.has(entry.header.id),
-      }
-    })
-
     if (hasWrites) {
       let began = false
       try {
         db.exec('BEGIN IMMEDIATE')
         began = true
+        const bumpsMain = persistentChanges.length > 0 || persistentDeletes.length > 0
+        const nextMainGeneration = this._mainGeneration() + (bumpsMain ? 1 : 0)
+        const liveReplacements = liveChanges.map((entry) => {
+          nextLocalGeneration = Math.max(nextLocalGeneration, nextMainGeneration) + 1
+          return {
+            entry,
+            generation: nextLocalGeneration,
+            persisted: observation.persisted.has(entry.header.id),
+          }
+        })
         for (const row of persistentDeletes) this._deleteSession('persisted', row.id as SessionId)
         for (const entry of persistentChanges) {
           /* v8 ignore next -- observation loads every entry whose revision differs */
           if (entry.loaded === undefined) throw new Error(`missing loaded revision for session "${entry.header.id}"`)
           this._replacePersistedSession(entry.loaded, entry.revision, nextMainGeneration)
         }
-        if (persistentChanges.length > 0 || persistentDeletes.length > 0) {
+        if (bumpsMain) {
           db.prepare('UPDATE search_state SET global_generation = ? WHERE singleton = 1').run(nextMainGeneration)
         }
         for (const row of liveDeletes) this._deleteSession('live', row.id as SessionId)

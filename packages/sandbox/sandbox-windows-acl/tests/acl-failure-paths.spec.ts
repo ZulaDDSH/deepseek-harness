@@ -37,7 +37,7 @@ function aclApi(overrides: Partial<Win32Bindings> = {}): Win32Bindings {
       _path: unknown, _type: unknown, _info: unknown, _owner: unknown, _group: unknown,
       dacl: NativePtr, sacl: NativePtr, descriptor: NativePtr,
     ) => {
-      koffi.encode(dacl, PVOID, 0n) // no explicit DACL: the merge builds one
+      koffi.encode(dacl, PVOID, ptrAddress(craftEmptyAcl()))
       koffi.encode(sacl, PVOID, 0n) // no mandatory label either
       koffi.encode(descriptor, PVOID, 0n)
       return 0
@@ -152,6 +152,14 @@ function craftGrantedAcl(sid: NativePtr, world: NativePtr, grantMatches: boolean
     return acl
   }
   return craftPair(sid, world, abi.ACCESS_DENIED_ACE_TYPE, abi.FILE_DELETE_CHILD, true, grantMatches)
+}
+
+function craftEmptyAcl(): NativePtr {
+  const acl = allocBytes(8)
+  koffi.encode(acl, 'uint8', 2)
+  koffi.encode(acl, 2, 'uint16', 8)
+  koffi.encode(acl, 4, 'uint16', 0)
+  return acl
 }
 
 /** The label ACL the exact-label skip looks for: the Low no-write-up label ACE. */
@@ -310,7 +318,7 @@ describe('mergeAndApply failure paths', () => {
   it('frees the descriptor and reports when SetEntriesInAclW fails', () => {
     const localFree = vi.fn(() => 0n as NativePtr)
     const api = aclApi({
-      getNamedSecurityInfoW: readStub(null, null, 6n), // an existing descriptor without a DACL
+      getNamedSecurityInfoW: readStub(craftEmptyAcl(), null, 6n),
       setEntriesInAclW: vi.fn(() => 5),
       localFree,
     })
@@ -329,7 +337,7 @@ describe('mergeAndApply failure paths', () => {
   it('frees the descriptor and reports a NULL merged ACL', () => {
     const localFree = vi.fn(() => 0n as NativePtr)
     const api = aclApi({
-      getNamedSecurityInfoW: readStub(null, null, 6n),
+      getNamedSecurityInfoW: readStub(craftEmptyAcl(), null, 6n),
       setEntriesInAclW: vi.fn(() => 0), // success without writing the out slot
       localFree,
     })
@@ -363,7 +371,7 @@ describe('mergeAndApply failure paths', () => {
 
   it('reports a failed descriptor LocalFree after a successful apply', () => {
     const api = aclApi({
-      getNamedSecurityInfoW: readStub(null, null, 6n),
+      getNamedSecurityInfoW: readStub(craftEmptyAcl(), null, 6n),
       localFree: vi.fn(() => 1n as NativePtr), // both frees "fail"; the first is checked
     })
     const sid = craftSid(1, 0)
@@ -400,7 +408,7 @@ describe('mergeAndApply failure paths', () => {
       .mockReturnValueOnce(0n)
       .mockReturnValue(1n)
     const api = aclApi({
-      getNamedSecurityInfoW: readStub(null, null, 6n),
+      getNamedSecurityInfoW: readStub(craftEmptyAcl(), null, 6n),
       localFree,
     })
     const sid = craftSid(1, 0)
@@ -460,7 +468,7 @@ describe('mergeAndApply failure paths', () => {
     // not strand it.
     const localFree = vi.fn(() => 0n as NativePtr)
     const api = aclApi({
-      getNamedSecurityInfoW: readStub(null, null, 6n),
+      getNamedSecurityInfoW: readStub(craftEmptyAcl(), null, 6n),
       initializeAcl: vi.fn(() => 0),
       localFree,
     })
@@ -493,7 +501,7 @@ describe('mergeAndApply failure paths', () => {
   it('frees the label ACL and the descriptor on the null-merged-ACL path', () => {
     const localFree = vi.fn(() => 0n as NativePtr)
     const api = aclApi({
-      getNamedSecurityInfoW: readStub(null, null, 6n),
+      getNamedSecurityInfoW: readStub(craftEmptyAcl(), null, 6n),
       setEntriesInAclW: vi.fn(() => 0), // success without writing the out slot
       localFree,
     })
@@ -826,10 +834,20 @@ describe('the exact-ACE/exact-label skip and ACL-walk defenses', () => {
   })
 })
 
+describe('grantWrite NULL-DACL refusal', () => {
+  it('refuses a NULL-DACL directory without changing it and frees the descriptor', () => {
+    const localFree = vi.fn(() => 0n as NativePtr)
+    const setNamedSecurityInfoW = vi.fn(() => 0)
+    const api = aclApi({ getNamedSecurityInfoW: readStub(null, null, 6n), localFree, setNamedSecurityInfoW })
+    expect(() => grantWrite(api, 'C:\granted', craftSid(1, 0), craftLowLabelSid(), craftWorldSid())).toThrow(/NULL DACL/u)
+    expect(setNamedSecurityInfoW).not.toHaveBeenCalled()
+    expect(localFree).toHaveBeenCalledWith(6n)
+  })
+})
+
 describe('revokeWrite no-DACL path', () => {
   it('reports nothing to revoke when the read yields neither DACL nor descriptor', () => {
-    // The default stub encodes a NULL DACL and a NULL descriptor.
-    const api = aclApi()
+    const api = aclApi({ getNamedSecurityInfoW: readStub(null, null, null) })
     const sid = craftSid(1, 0)
     expect(revokeWrite(api, 'C:\\granted', sid)).toBe(false)
   })

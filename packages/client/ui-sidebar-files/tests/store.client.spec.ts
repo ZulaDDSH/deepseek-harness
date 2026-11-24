@@ -158,6 +158,32 @@ describe('createFilesStore', () => {
     expect(state.levels[sibling]).toEqual({ kind: 'ready', level: LEVEL })
   })
 
+  it('keeps an expanded directory a truncated listing no longer shows, until a complete listing drops it', () => {
+    const store = createFilesStore().create()
+    const { actions } = store
+    const child = `${ROOT}/src`
+    const grandchild = `${child}/nested`
+    actions.start(PANE, ROOT)
+    actions.loaded(PANE, ROOT, { entries: [{ name: 'src', type: 'directory' }], truncated: false })
+    for (const path of [child, grandchild]) {
+      actions.toggled(PANE, path)
+      actions.loaded(PANE, path, LEVEL)
+    }
+    actions.loaded(PANE, ROOT, { entries: [{ name: 'a', type: 'directory' }], truncated: true })
+    let state = store.getSnapshot().byPane[PANE]!.tree!
+    expect(state.expanded).toEqual([ROOT, child, grandchild])
+    expect(Object.keys(state.levels)).toEqual([ROOT, child, grandchild])
+    actions.loaded(PANE, ROOT, { entries: [{ name: 'src', type: 'file' }], truncated: true })
+    state = store.getSnapshot().byPane[PANE]!.tree!
+    expect(state.expanded).toEqual([ROOT])
+    actions.start(PANE, ROOT)
+    actions.loaded(PANE, ROOT, { entries: [{ name: 'src', type: 'directory' }], truncated: false })
+    actions.toggled(PANE, child)
+    actions.loaded(PANE, child, LEVEL)
+    actions.loaded(PANE, ROOT, { entries: [{ name: 'a', type: 'directory' }], truncated: false })
+    expect(store.getSnapshot().byPane[PANE]!.tree!.expanded).toEqual([ROOT])
+  })
+
   it('keeps the navigator\'s choices before and across a tree started at a new root', () => {
     const store = createFilesStore().create()
     const { actions } = store

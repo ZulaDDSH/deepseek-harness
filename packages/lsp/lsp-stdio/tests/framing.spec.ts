@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { encodeMessage, MessageDecoder } from '../src/framing.ts'
 
 /** Frame a message the way a server would, for decoder round-trips. */
@@ -78,5 +78,30 @@ describe('MessageDecoder', () => {
   it('rejects a non-JSON body', () => {
     const decoder = new MessageDecoder(1_000)
     expect(() => decoder.push(frame('not json'))).toThrow(expect.objectContaining({ name: 'LspError', code: 'LSP_PROTOCOL_ERROR', message: expect.stringMatching(/not valid JSON/) as string }))
+  })
+})
+
+describe('MessageDecoder fragmentation', () => {
+  it('concatenates a large fragmented body a bounded number of times and still decodes it', () => {
+    const body = JSON.stringify({ id: 1, result: 'x'.repeat(4 * 1024 * 1024) })
+    const bytes = frame(body)
+    const decoder = new MessageDecoder(16 * 1024 * 1024)
+    const concat = vi.spyOn(Buffer, 'concat')
+    try {
+      let messages: unknown[] = []
+      for (let offset = 0; offset < bytes.length; offset += 1024) messages = messages.concat(decoder.push(bytes.subarray(offset, offset + 1024)))
+      expect(messages).toHaveLength(1)
+      expect(concat.mock.calls.length).toBeLessThan(20)
+    } finally {
+      concat.mockRestore()
+    }
+  })
+
+  it('decodes a frame whose header and body arrive byte by byte followed by a second frame', () => {
+    const decoder = new MessageDecoder(1_000)
+    const bytes = Buffer.concat([frame('{"a":1}'), frame('{"b":2}')])
+    const messages: unknown[] = []
+    for (const byte of bytes) messages.push(...decoder.push(Buffer.from([byte])))
+    expect(messages).toEqual([{ a: 1 }, { b: 2 }])
   })
 })

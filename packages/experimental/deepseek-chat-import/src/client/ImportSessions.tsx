@@ -23,6 +23,7 @@ export type DeepseekChatImportOutcome =
     readonly message: string
     /** Byte limit, present when the browser's own size pre-check rejected the file. */
     readonly limit?: number
+    readonly sessionIds?: readonly string[]
   }
 
 /** Callbacks injected by the plugin apply closure. */
@@ -255,6 +256,12 @@ function ProgressBar({ progress, label }: { progress: UploadProgress; label: str
 }
 
 function failureText(outcome: Extract<DeepseekChatImportOutcome, { ok: false }>, t: Translate): string {
+  const text = reasonText(outcome, t)
+  const written = outcome.sessionIds?.length ?? 0
+  return written === 0 ? text : `${text} ${t('error.partial', { count: written })}`
+}
+
+function reasonText(outcome: Extract<DeepseekChatImportOutcome, { ok: false }>, t: Translate): string {
   switch (outcome.reason) {
     case 'too-large': return outcome.limit === undefined
       // The Host names the exact limit it rejected, which is not the pre-check one.

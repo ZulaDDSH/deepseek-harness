@@ -9,6 +9,8 @@ export interface LogoutRetryPolicy {
   readonly requestTimeoutMs: number
 }
 
+export type RevocationOutcome = 'revoked' | 'failed' | 'unconfirmed'
+
 /**
  * Revoke one captured grant without changing local account state.
  * @param origin - Issuer verified before local grant removal.
@@ -19,19 +21,20 @@ export interface LogoutRetryPolicy {
  * @returns After success, exhaustion, or cancellation; remote failures stay in the background.
  */
 export async function revokeAccount(origin: string, token: string, policy: LogoutRetryPolicy,
-  signal: AbortSignal, headers: Record<string, string>): Promise<void> {
+  signal: AbortSignal, headers: Record<string, string>): Promise<RevocationOutcome> {
   for (let attempt = 0; attempt <= policy.maxRetries; attempt++) {
-    if (signal.aborted) return
+    if (signal.aborted) return 'unconfirmed'
     if (attempt > 0) {
       try { await setTimeout(policy.delayMs * 2 ** (attempt - 1), undefined, { signal, ref: false }) }
-      catch { return } // The validated delay rejects only when the provider lifetime ends.
+      catch { return 'unconfirmed' }
     }
     try {
       await logoutAccount(origin, token,
         AbortSignal.any([signal, AbortSignal.timeout(policy.requestTimeoutMs)]), headers)
-      return
+      return 'revoked'
     } catch {
       // HTTP, business, and transport failures consume one attempt without restoring credentials.
     }
   }
+  return signal.aborted ? 'unconfirmed' : 'failed'
 }

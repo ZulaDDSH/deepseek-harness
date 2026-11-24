@@ -4,7 +4,7 @@ import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { GoalId } from './types.ts'
-import { GOAL_CHANGE_VERSION } from './runtime.ts'
+import { GOAL_CHANGE_VERSION, GOAL_REFUND_CHANGE_VERSION } from './runtime.ts'
 import type { GoalBlockReason, GoalPhase, GoalRef, GoalSnapshot } from './types.ts'
 import type {
   FoldedGoal,
@@ -12,10 +12,11 @@ import type {
   GoalClearChangeMeta,
   GoalMessageSource,
   GoalOperation,
+  GoalRefundChangeMeta,
   GoalSnapshotChangeMeta,
 } from './domain.ts'
 
-const SNAPSHOT_OPERATIONS: ReadonlySet<Exclude<GoalOperation, 'clear'>> = new Set([
+const SNAPSHOT_OPERATIONS: ReadonlySet<Exclude<GoalOperation, 'clear' | 'refund'>> = new Set([
   'create',
   'edit',
   'pause',
@@ -135,6 +136,7 @@ function decodeRef(value: unknown): GoalRef {
  */
 export function decodeGoalChange(value: unknown): GoalChangeMeta | undefined {
   if (!isRecord(value) || value['kind'] !== 'goal/change') return undefined
+  if (value['version'] === GOAL_REFUND_CHANGE_VERSION) return decodeRefund(value)
   if (value['version'] !== GOAL_CHANGE_VERSION) {
     throw new Error(`unsupported goal change version ${String(value['version'])}`)
   }
@@ -152,7 +154,7 @@ export function decodeGoalChange(value: unknown): GoalChangeMeta | undefined {
     } satisfies GoalClearChangeMeta
   }
   if (typeof value['operation'] !== 'string'
-    || !SNAPSHOT_OPERATIONS.has(value['operation'] as Exclude<GoalOperation, 'clear'>)) {
+    || !SNAPSHOT_OPERATIONS.has(value['operation'] as Exclude<GoalOperation, 'clear' | 'refund'>)) {
     throw new Error('goal change operation is invalid')
   }
   const allowed = ['createdAt', 'goal', 'kind', 'operation', 'roundsStarted', 'updatedAt', 'version']
@@ -165,12 +167,32 @@ export function decodeGoalChange(value: unknown): GoalChangeMeta | undefined {
   return {
     kind: 'goal/change',
     version: GOAL_CHANGE_VERSION,
-    operation: value['operation'] as Exclude<GoalOperation, 'clear'>,
+    operation: value['operation'] as Exclude<GoalOperation, 'clear' | 'refund'>,
     goal: decodeSnapshot(value['goal']),
     roundsStarted: nonNegativeInteger(value['roundsStarted'], 'roundsStarted'),
     createdAt,
     updatedAt,
   } satisfies GoalSnapshotChangeMeta
+}
+
+function decodeRefund(value: Record<string, unknown>): GoalRefundChangeMeta {
+  const allowed = ['createdAt', 'goal', 'kind', 'operation', 'refundedRound', 'roundsStarted', 'updatedAt', 'version']
+  if (value['operation'] !== 'refund' || Object.keys(value).sort().join(',') !== allowed.join(',')) {
+    throw new Error(`goal refund change must have operation refund and exactly ${allowed.join(',')} fields`)
+  }
+  const createdAt = nonNegativeInteger(value['createdAt'], 'createdAt')
+  const updatedAt = nonNegativeInteger(value['updatedAt'], 'updatedAt')
+  if (updatedAt < createdAt) throw new Error('goal change updatedAt cannot precede createdAt')
+  return {
+    kind: 'goal/change',
+    version: GOAL_REFUND_CHANGE_VERSION,
+    operation: 'refund',
+    goal: decodeSnapshot(value['goal']),
+    roundsStarted: nonNegativeInteger(value['roundsStarted'], 'roundsStarted'),
+    refundedRound: positiveInteger(value['refundedRound'], 'refundedRound'),
+    createdAt,
+    updatedAt,
+  }
 }
 
 /** Narrow model attribution to a valid goal source. */
@@ -254,6 +276,23 @@ function validateSnapshotTransition(
   }
 }
 
+function validateRefund(state: GoalFoldState, change: GoalRefundChangeMeta, current: GoalSnapshot): void {
+  const next = change.goal
+  requireNextRevision(current, next, change.operation)
+  requireSameDefinition(current, next, change.operation)
+  if (state.updatedAt === undefined) throw new Error('current goal fold lacks updatedAt')
+  if (change.createdAt !== state.createdAt || change.updatedAt < state.updatedAt) {
+    throw new Error('goal refund does not preserve the current timestamps')
+  }
+  if (next.phase !== current.phase || current.phase === 'complete'
+    || JSON.stringify(next.blockedReason) !== JSON.stringify(current.blockedReason)) {
+    throw new Error('goal refund must keep a non-complete phase and blocked reason')
+  }
+  if (change.refundedRound !== state.roundsStarted || change.roundsStarted !== state.roundsStarted - 1) {
+    throw new Error('goal refund must return exactly the latest admitted round')
+  }
+}
+
 /**
  * Return the revision identity carried by a snapshot or tombstone.
  * @param change - decoded goal mutation.
@@ -298,7 +337,8 @@ export function applyGoalChange(state: GoalFoldState, change: GoalChangeMeta): v
   } else {
     const current = state.goal
     if (current === undefined) throw new Error(`goal ${change.operation} requires a current goal`)
-    validateSnapshotTransition(state, change, current)
+    if (change.operation === 'refund') validateRefund(state, change, current)
+    else validateSnapshotTransition(state, change, current)
   }
   state.goal = change.goal
   state.roundsStarted = change.roundsStarted

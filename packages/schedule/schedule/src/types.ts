@@ -464,8 +464,7 @@ export type ScheduleCatalogEntry = ScheduleRecord & {
   /** Canonical UTC time of the latest stored change; editors send it back as `expectedUpdatedAt`. */
   readonly updatedAt?: string
   /**
-   * The latest delivery is queued or running in its reused target Session; a `new` target, whose deliveries run beside one
-   * another, never sets it.
+   * The latest delivery is queued or running in its target Session; the task launches nothing further until it is idle.
    */
   readonly executionActive?: true
   /** End of the minimum delivery interval, present while it remains in the future. */

@@ -259,9 +259,13 @@ function saveFailureDetail(error: AttachmentError, attachments: AttachmentStore,
       return /16-bit PNG/iu.test(error.message)
         ? 'the 16-bit PNG could not be converted to the normalized 8-bit sRGB form; convert it to an 8-bit PNG/JPEG/WebP and retry'
         : undefined
+    case 'IMAGE_QUEUE_FULL':
+      return 'the image processing queue is full; retry the read shortly'
     case 'TOO_MANY_IMAGES':
     case 'INVALID_IMAGE_BASE64':
     case 'INVALID_FILE_BASE64':
+    case 'FILE_TOO_LARGE':
+    case 'FILE_STORE_FULL':
     case 'INVALID_ATTACHMENT_REF':
     case 'ATTACHMENT_CORRUPT':
     case 'ATTACHMENT_NOT_FOUND':

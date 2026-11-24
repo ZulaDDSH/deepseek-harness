@@ -187,6 +187,30 @@ describe('FileSystemSkillProvider', () => {
     expect((await ctx.skills.list({ cwd: noGit })).map(skill => skill.name)).toContain('fallback-root')
   })
 
+  it('ignores a skill file over the byte limit without hiding its siblings', async () => {
+    const home = await tempDir('skill-oversized-home')
+    const root = join(home, '.dsh/skills')
+    await writeSkill(root, 'small', 'Small skill')
+    await writeSkill(root, 'huge', 'Huge skill', 'x'.repeat(1_048_576 + 1))
+    await writeSkill(root, 'limit', 'Limit skill', 'x'.repeat(1_048_000))
+    const ctx = await setupLocal(home)
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['limit', 'small'])
+    await expect(ctx.skills.get('huge')).resolves.toBeUndefined()
+  })
+
+  it('ignores a skill file over the byte limit through the filesystem service', async () => {
+    const home = await tempDir('skill-oversized-fs-home')
+    const root = join(home, '.dsh/skills')
+    await writeSkill(root, 'small', 'Small skill')
+    await writeSkill(root, 'huge', 'Huge skill', 'x'.repeat(1_048_576 + 1))
+    const ctx = new Context()
+    await ctx.plugin(TestFileSystem)
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, allHomes(home))
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['small'])
+    await expect(ctx.skills.get('huge')).resolves.toBeUndefined()
+  })
+
   it('reports an unreadable trusted-host skill file as SKILL_READ_FAILED', async () => {
     const home = await tempDir('skill-unreadable-home')
     const bundled = await tempDir('skill-unreadable-bundled')

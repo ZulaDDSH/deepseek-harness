@@ -59,7 +59,7 @@ it.each([
   const edited = await first.service.edit({ id, action: 'update', patch: { title: record.title }, expectedUpdatedAt: null })
   expect(edited).toMatchObject(record)
   const document = storedUnit(await readFile(saved.file, 'utf8'))
-  expect(document.unit).toEqual({ name: 'schedule', version: 2 })
+  expect(document.unit).toEqual({ name: 'schedule', version: 3 })
   expect(document.global).toBeNull()
   const row = document.tables.tasks[id]!
   expect(row.record).toEqual(record)
@@ -67,7 +67,7 @@ it.each([
   expect(row).not.toHaveProperty('sessionId')
   expect(row).not.toHaveProperty('legacyRule')
   expect(row).not.toHaveProperty('createdAt')
-  expect(await readdir(saved.root)).toEqual(['schedule.json'])
+  expect((await readdir(saved.root)).filter(name => !name.endsWith('.lock'))).toEqual(['schedule.json'])
   await expect(first.service.edit({ id, action: 'update', patch: { title: 'Stale' }, expectedUpdatedAt: null }))
     .resolves.toEqual({ id, code: 'schedule_conflict' })
   await first.ctx.fiber.dispose()
@@ -131,7 +131,7 @@ it('delivers an existing Cron rule normally with Vixie day-of-month/day-of-week 
     expect(await test.service.view({ id })).toMatchObject({ kind: 'cron', expression: cron.expression, timeZone: 'UTC', scheduledAt: '2026-10-05T09:00:00.000Z' })
   })
   const document = storedUnit(await readFile(saved.file, 'utf8'))
-  expect(document.unit).toEqual({ name: 'schedule', version: 2 })
+  expect(document.unit).toEqual({ name: 'schedule', version: 3 })
   expect(document.tables.tasks[id]).not.toHaveProperty('sessionId')
   expect(document.tables.tasks[id]?.record.kind).toBe('cron')
 })
@@ -149,7 +149,7 @@ it('keeps v1 bytes after an invalid timing replacement and upgrades on a valid S
   }
   await test.service.edit({ id, action: 'update', patch: { title: cron.title }, expectedUpdatedAt: null })
   const document = storedUnit(await readFile(saved.file, 'utf8'))
-  expect(document.unit).toEqual({ name: 'schedule', version: 2 })
+  expect(document.unit).toEqual({ name: 'schedule', version: 3 })
   expect(document.tables.tasks[id]?.record).toEqual(cron)
 })
 
@@ -162,10 +162,19 @@ it('recognizes inactive rows as ended and resumes Cron through its normal evalua
     .toMatchObject({ kind: 'cron', status: 'active', expression: cron.expression, scheduledAt: '2026-10-05T09:00:00.000Z' })
 })
 
-it.each([0, 3])('rejects an unsupported envelope version %s without modifying the old store', async (version) => {
+it.each([0, 4])('rejects an unsupported envelope version %s without modifying the old store', async (version) => {
   const saved = await store({ record: cron, sessionId: 'original' }, version)
   await expect(saved.open()).rejects.toThrow()
   expect(await readFile(saved.file, 'utf8')).toBe(saved.bytes)
+})
+
+it('reads a version-2 store byte-identical and stamps version 3 on the next write', async () => {
+  const saved = await store({ record: cron, sessionId: 'original' }, 2)
+  const first = await saved.open()
+  expect(await first.service.view({ id })).toMatchObject({ kind: 'cron', status: 'active' })
+  expect(await readFile(saved.file, 'utf8')).toBe(saved.bytes)
+  await first.service.edit({ id, action: 'update', patch: { title: cron.title }, expectedUpdatedAt: null })
+  expect(storedUnit(await readFile(saved.file, 'utf8')).unit).toEqual({ name: 'schedule', version: 3 })
 })
 
 it('rejects a corrupt Session binding without changing storage', async () => {
@@ -200,7 +209,7 @@ it('normalizes the edited row while leaving another old row untouched in the sam
   })
   await reopened.service.edit({ id: brandString<ScheduleId>('untouched'), action: 'update', patch: { title: 'Now edited' } })
   const current = storedUnit(await readFile(saved.file, 'utf8'))
-  expect(current.unit).toEqual({ name: 'schedule', version: 2 })
+  expect(current.unit).toEqual({ name: 'schedule', version: 3 })
   expect(current.tables.tasks.untouched).not.toHaveProperty('sessionId')
   expect(current.tables.tasks.untouched?.target).toEqual({ kind: 'session', sessionId: 'other' })
 })

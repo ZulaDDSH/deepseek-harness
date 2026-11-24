@@ -113,6 +113,7 @@ describe('hooks-codex bridge', () => {
   it.each([
     ['edit', { file_path: 'src/example.ts', old_string: 'before', new_string: 'after' }],
     ['edit', { file_path: 'src/example.ts', old_string: 'before', new_string: '' }],
+    ['edit', { file_path: 'src/example.ts', old_string: '', new_string: 'tail\n', append: true }],
     ['write', { file_path: 'src/example.ts', content: 'after' }],
     ['apply_patch', { patch: '*** Begin Patch\n*** Update File: src/example.ts\n@@\n-before\n+after\n*** End Patch' }],
     ['Bash', { command: 'Get-ChildItem', workdir: 'project' }],

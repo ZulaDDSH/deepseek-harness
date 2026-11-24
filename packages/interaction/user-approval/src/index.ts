@@ -256,7 +256,8 @@ export class ApprovalService extends Service {
       ...req.callId !== undefined ? { callId: req.callId } : {},
       ...req.reason !== undefined ? { reason: req.reason } : {},
     })
-    const outcome = await this.decide(req, session)
+    const decided = await this.decide(req, session)
+    const outcome: ApprovalOutcome = decided === 'allowed-once' && this.effectivePolicy(session) === 'never' ? 'rejected' : decided
     session.append('approval/decided', { id, outcome })
     return outcome
   }

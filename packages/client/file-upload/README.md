@@ -83,6 +83,7 @@ None; this package neither assembles nor sends a provider request.
 
 These limits apply to the transport operation itself.
 
+- **Unsent uploads are capped per Session, not per user** — a Session holds at most 100 uploaded receipts and 4 GiB of them until a prompt uses them or the Session ends; the browser cannot retire a receipt for a draft the user removes. Anyone allowed `fileUploads/upload` on a Session shares that cap, and the host-wide size limits live in the attachment backend.
 - **Uploads are not resumable** — a failed or cancelled retry starts from the first byte.
 - **Stream bodies are one-shot** — transferring a `ReadableStream` locks the caller's object, so retry requires a newly created stream.
 - **Stream progress has no total** — callers receive consumed-byte counts because the stream API carries no byte length.

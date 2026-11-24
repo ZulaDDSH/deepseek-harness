@@ -266,6 +266,76 @@ describe('SettingsFormModel', () => {
     expect(host.mutate).not.toHaveBeenCalled()
   })
 
+  it('keeps edits staged while a save is in flight, for the same and another field', async () => {
+    const { host, subject } = form()
+    acceptWrites(host)
+    host.publish({ revision: 4 })
+    const accept = host.mutate.getMockImplementation()!
+    const gate = Promise.withResolvers<void>()
+    host.mutate.mockImplementationOnce(async (ops, revision) => {
+      await gate.promise
+      const landed = await accept(ops, revision)
+      host.publish({ revision: 5 })
+      return landed
+    })
+
+    subject.actions().edit('timeoutMs', '9000')
+    const first = subject.save()
+    subject.actions().edit('timeoutMs', '9001')
+    subject.actions().edit('baseURL', 'https://other.test')
+    gate.resolve()
+    await first
+
+    expect(subject.field('timeoutMs')).toEqual({ text: '9001', overridden: true, invalid: false })
+    expect(subject.field('baseURL').text).toBe('https://other.test')
+    expect(subject.shell()).toMatchObject({ dirty: true, failed: false, saving: false })
+
+    await subject.save()
+
+    expect(host.mutate).toHaveBeenNthCalledWith(1, [{ op: 'set', path: ['timeoutMs'], value: 9_000 }], 4)
+    expect(host.mutate).toHaveBeenLastCalledWith([
+      { op: 'set', path: ['timeoutMs'], value: 9_001 },
+      { op: 'set', path: ['baseURL'], value: 'https://other.test' },
+    ], 5)
+    expect(subject.shell()).toMatchObject({ dirty: false, failed: false })
+  })
+
+  it('does not apply settings when a credential write is refused, and reports the failure', async () => {
+    const host = stubScope<Record<string, unknown>>()
+    host.publish({ status: 'ready', writable: true, value: { searchProvider: 'a' }, base: { searchProvider: 'a' }, user: {} })
+    const write = vi.fn(() => Promise.resolve(false))
+    const subject = new SettingsFormModel(host.scope, [settingsTextField('searchProvider')], [{ field: 'key', write }])
+
+    subject.actions().edit('searchProvider', 'b')
+    subject.actions().edit('key', 'secret')
+    await subject.save()
+
+    expect(write).toHaveBeenCalledWith('secret')
+    expect(host.mutate).not.toHaveBeenCalled()
+    expect(subject.shell()).toMatchObject({ dirty: true, failed: true, saving: false })
+    expect(subject.field('searchProvider').text).toBe('b')
+    expect(subject.field('key').text).toBe('secret')
+  })
+
+  it('waits for a credential write to settle before applying the settings that use it', async () => {
+    const host = stubScope<Record<string, unknown>>()
+    acceptWrites(host)
+    host.publish({ status: 'ready', writable: true, value: { searchProvider: 'a' }, base: { searchProvider: 'a' }, user: {} })
+    const gate = Promise.withResolvers<boolean>()
+    const subject = new SettingsFormModel(host.scope, [settingsTextField('searchProvider')], [{ field: 'key', write: () => gate.promise }])
+
+    subject.actions().edit('searchProvider', 'b')
+    subject.actions().edit('key', 'secret')
+    const save = subject.save()
+    expect(host.mutate).not.toHaveBeenCalled()
+
+    gate.resolve(true)
+    await save
+
+    expect(host.mutate).toHaveBeenCalledWith([{ op: 'set', path: ['searchProvider'], value: 'b' }], undefined)
+    expect(subject.shell()).toMatchObject({ dirty: false, failed: false })
+  })
+
   it('refuses a second save while one is in flight', async () => {
     const { host, subject } = form()
     acceptWrites(host)

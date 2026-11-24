@@ -25,6 +25,16 @@ interface Entry {
   removal?: Promise<boolean>
 }
 
+export interface OutputReservation {
+  readonly owner: string
+  released: boolean
+  finish(): void
+}
+
+interface OpenReservation extends OutputReservation {
+  readonly settled: Promise<void>
+}
+
 /** Names {@link ownerDirectory} generates. */
 const OWNER_DIRECTORY = /^session-[0-9a-f]{24}$/u
 /** Names of per-output directories, which `randomUUID()` generates. */
@@ -64,6 +74,8 @@ export class OutputStore {
   private disposed = false
   private readonly sweep: Promise<void>
   private saving: Promise<unknown> = Promise.resolve()
+  private pendingBytes = 0
+  private readonly reservations = new Set<OpenReservation>()
   /** Deletions and releases in progress, awaited by disposal. */
   private readonly pending = new Set<Promise<unknown>>()
 
@@ -75,35 +87,59 @@ export class OutputStore {
     this.sweep = this.sweepExpired()
   }
 
+  reserve(owner: string): OutputReservation {
+    const settled = Promise.withResolvers<void>()
+    const reservation: OpenReservation = {
+      owner, released: false, settled: settled.promise,
+      finish: () => { this.reservations.delete(reservation); settled.resolve() },
+    }
+    this.reservations.add(reservation)
+    return reservation
+  }
+
   /**
    * Save one output for an owner.
    * @param owner - opaque owner identity, such as a Session id.
    * @param name - file name shown to the consumer; only its final path component is used.
    * @param data - complete output bytes.
    * @returns the absolute path of the saved file.
-   * @throws {OfficeKitError} `output-too-large` when the file alone exceeds the byte budget, and `unavailable` after
+   * @throws {OfficeKitError} `output-too-large` when the file alone exceeds the byte budget, `busy` when saves still waiting would exceed it, and `unavailable` after
    * disposal or when retained files whose deletion failed leave too little of the budget.
    */
-  save(owner: string, name: string, data: Uint8Array): Promise<string> {
-    const saved = this.saving.then(() => this.saveNow(owner, name, data))
+  save(owner: string, name: string, data: Uint8Array, signal?: AbortSignal, reservation?: OutputReservation): Promise<string> {
+    if (data.byteLength <= this.options.maxBytes && this.pendingBytes + data.byteLength > this.options.maxBytes) {
+      return Promise.reject(new OfficeKitError('busy', 'Too many converted outputs are waiting to be saved.'))
+    }
+    const fence = reservation ?? this.reserve(owner)
+    const bytes = data.byteLength
+    this.pendingBytes += bytes
+    const saved = this.saving.then(() => this.saveNow(owner, name, data, fence, signal))
+    const settled = (): void => { this.pendingBytes -= bytes }
+    saved.then(settled, settled)
     this.saving = saved.catch((_failedSave: unknown) => undefined)
+    if (reservation === undefined) void this.saving.then(() => { fence.finish() })
     return saved
   }
 
   /** Saves run one at a time so the byte budget covers every retained file. */
-  private async saveNow(owner: string, name: string, data: Uint8Array): Promise<string> {
+  private async saveNow(
+    owner: string, name: string, data: Uint8Array, ticket: OutputReservation, signal: AbortSignal | undefined,
+  ): Promise<string> {
     await this.sweep
     if (this.disposed) throw new OfficeKitError('unavailable', 'The document converter is unavailable.')
+    this.throwIfStale(ticket, signal)
     if (data.byteLength > this.options.maxBytes) {
       throw new OfficeKitError('output-too-large', `The output exceeds the ${this.options.maxBytes}-byte output store limit.`)
     }
     for (const entry of [...this.entries.values()]) {
       if (this.bytes + data.byteLength <= this.options.maxBytes) break
+      this.throwIfStale(ticket, signal)
       await this.remove(entry)
     }
     if (this.bytes + data.byteLength > this.options.maxBytes) {
       throw new OfficeKitError('unavailable', 'Earlier outputs could not be deleted to make room for this output.')
     }
+    this.throwIfStale(ticket, signal)
     const directory = join(this.options.root, ownerDirectory(owner), randomUUID())
     const path = join(directory, basename(name))
     await writeOutput(directory, path, data).catch((error: unknown) => {
@@ -116,7 +152,16 @@ export class OutputStore {
     const entry: Entry = { path, directory, owner, bytes: data.byteLength, timer }
     this.entries.set(path, entry)
     this.bytes += data.byteLength
+    if (ticket.released || signal?.aborted === true) {
+      await this.remove(entry)
+      this.throwIfStale(ticket, signal)
+    }
     return path
+  }
+
+  private throwIfStale(ticket: OutputReservation, signal: AbortSignal | undefined): void {
+    signal?.throwIfAborted()
+    if (ticket.released) throw new OfficeKitError('unavailable', 'The owner of this output was released before it was saved.')
   }
 
   /**
@@ -129,6 +174,9 @@ export class OutputStore {
   }
 
   private async releaseNow(owner: string): Promise<void> {
+    const open = [...this.reservations].filter(reservation => reservation.owner === owner)
+    for (const reservation of open) reservation.released = true
+    await Promise.all(open.map(reservation => reservation.settled))
     await Promise.all([...this.entries.values()].filter(entry => entry.owner === owner).map(entry => this.remove(entry)))
     await this.removeEmpty(join(this.options.root, ownerDirectory(owner)))
   }

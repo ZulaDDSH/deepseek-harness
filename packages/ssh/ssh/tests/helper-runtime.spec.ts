@@ -41,6 +41,9 @@ describe.skipIf(process.platform === 'win32')('SSH helper runtime', () => {
       expect(edited.after).toBe('third text')
       await test.client.request('fs.edit', { target, edit: { oldString: 'third', newString: 'fourth', replaceAll: false }, policy: policy(test.root) }, editResultSchema)
       expect(await test.client.request('fs.readText', { target }, z.string())).toBe('fourth text')
+      const appended = await test.client.request('fs.edit', { target, edit: { oldString: '', newString: '\nfifth', replaceAll: false, append: true }, policy: policy(test.root) }, editResultSchema)
+      expect(appended.after).toBe('fourth text\nfifth')
+      expect(await test.client.request('fs.readText', { target }, z.string())).toBe('fourth text\nfifth')
       await expect(test.client.request('fs.write', { target, content: 'denied', policy: { mode: 'read-only', workspaceRoot: test.root } }, writeResultSchema)).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
     } finally { await test.close() }
   })

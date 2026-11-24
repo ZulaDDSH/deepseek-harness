@@ -124,8 +124,8 @@ export function apply(ctx: ClientContext): void {
     inject: (): SourceChangesInjected => ({
       hooks: { workspaceStatus: workspaceStatus.state, workspaceDiff: workspaceDiff.state },
       loadStatus: workspaceId => workspaceStatus.load(workspaceId),
-      refreshStatus: workspaceId => workspaceStatus.refresh(workspaceId),
-      loadDiff: (workspaceId, index) => workspaceDiff.load(workspaceId, index),
+      refreshStatus: workspaceId => { workspaceDiff.forget(workspaceId); return workspaceStatus.refresh(workspaceId) },
+      loadDiff: (workspaceId, path) => workspaceDiff.load(workspaceId, path),
     }),
   }, SourceChangesPage))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
@@ -154,8 +154,8 @@ export function apply(ctx: ClientContext): void {
       inject: (): WorkspaceChangesInjected => ({
         hooks: { workspaceStatus: workspaceStatus.state, workspaceDiff: workspaceDiff.state },
         loadStatus: workspaceId => workspaceStatus.load(workspaceId),
-        refreshStatus: workspaceId => workspaceStatus.refresh(workspaceId),
-        loadDiff: (workspaceId, index) => workspaceDiff.load(workspaceId, index),
+        refreshStatus: workspaceId => { workspaceDiff.forget(workspaceId); return workspaceStatus.refresh(workspaceId) },
+        loadDiff: (workspaceId, path) => workspaceDiff.load(workspaceId, path),
       }),
     },
     WorkspaceChangesTab,

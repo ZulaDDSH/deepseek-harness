@@ -69,7 +69,7 @@ async function queryFileApplications(
   signal.throwIfAborted()
   const target = await desktopTarget(path, signal, internals)
   const run = internals.run ?? runNativeCommand
-  if (target.platform === 'linux') return linuxFileApplications(path, signal, run, internals.env ?? process.env)
+  if (target.platform === 'linux') return linuxFileApplications(path, signal, run, internals.env ?? process.env, display)
   if (target.platform === 'darwin') {
     const { stdout } = await run('osascript', ['-l', 'JavaScript', '-e', MAC_APPLICATIONS, target.path, display ? 'icons' : 'handlers'], signal, 'hidden')
     const applications = parseMacApplications(JSON.parse(stdout))

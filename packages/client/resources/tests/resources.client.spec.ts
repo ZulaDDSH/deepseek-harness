@@ -327,6 +327,65 @@ describe('ResourceRegistry streams', () => {
     expect(source.getSnapshot()).toMatchObject({ value: undefined, failure: { code: 'gateway/bad-request' } })
   })
 
+  it('reports a provider that throws as a failed snapshot without an unhandled rejection', async () => {
+    const b = bench()
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      b.registry.register({
+        protocol: 'feed',
+        async *open() { throw new Error('invalid address') },
+      })
+      const source = b.registry.source(A)
+      source.subscribe(() => {})
+      await vi.waitFor(() => { expect(source.getSnapshot().status).toBe('failed') })
+      expect(source.getSnapshot()).toMatchObject({ value: undefined, failure: { code: 'gateway/internal', message: 'invalid address' } })
+      await settle()
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally { process.off('unhandledRejection', unhandled) }
+  })
+
+  it('reopens a stream that ended failed when a holder arrives while a pin keeps the record open', async () => {
+    const b = bench()
+    b.registry.register(b.provider)
+    const pin = new AbortController()
+    b.registry.pin(A, pin.signal)
+    const first = b.last()
+    first.fail(new RemoteError('gateway/internal', 'offline', {}))
+    first.end()
+    await vi.waitFor(() => { expect(b.snapshot().status).toBe('failed') })
+    await first.closed
+    await settle()
+    const unsubscribe = b.registry.source(A).subscribe(() => {})
+    expect(b.provider.open).toHaveBeenCalledTimes(2)
+    expect(b.snapshot().status).toBe('loading')
+    b.last().push('back')
+    await vi.waitFor(() => { expect(b.snapshot()).toMatchObject({ status: 'live', value: 'back' }) })
+    unsubscribe()
+    const again = b.registry.source(A).subscribe(() => {})
+    expect(b.provider.open).toHaveBeenCalledTimes(2)
+    again()
+    pin.abort()
+  })
+
+  it('does not reopen a running stream or one that ended live when another holder arrives', async () => {
+    const b = bench()
+    b.registry.register(b.provider)
+    const source = b.registry.source(A)
+    source.subscribe(() => {})
+    b.last().fail(new RemoteError('gateway/internal', 'offline', {}))
+    await vi.waitFor(() => { expect(b.snapshot().status).toBe('failed') })
+    source.subscribe(() => {})
+    expect(b.provider.open).toHaveBeenCalledTimes(1)
+    b.last().push('ok')
+    await vi.waitFor(() => { expect(b.snapshot().status).toBe('live') })
+    b.last().end()
+    await b.last().closed
+    await settle()
+    source.subscribe(() => {})
+    expect(b.provider.open).toHaveBeenCalledTimes(1)
+  })
+
   it('drops a failure frame that follows the release that aborted the stream', async () => {
     const b = bench()
     b.registry.register(b.provider)
@@ -338,6 +397,36 @@ describe('ResourceRegistry streams', () => {
     await settle()
     await settle()
     expect(source.getSnapshot()).toMatchObject({ status: 'loading', failure: undefined })
+  })
+})
+
+describe('ResourceRegistry idle records', () => {
+  const churn = (b: ReturnType<typeof bench>, count: number): void => {
+    for (let index = 0; index < count; index += 1) b.registry.source(`${RESOURCE_SCHEME}://feed/churn-${index}`)
+  }
+
+  it('forgets the oldest idle addresses beyond the bound but keeps recent and held ones stable', () => {
+    const b = bench()
+    const old = b.registry.source(A)
+    const held = b.registry.source(`${RESOURCE_SCHEME}://feed/held`)
+    held.subscribe(() => {})
+    churn(b, 300)
+    expect(b.registry.source(A)).not.toBe(old)
+    expect(b.registry.source(`${RESOURCE_SCHEME}://feed/held`)).toBe(held)
+    const recent = b.registry.source(`${RESOURCE_SCHEME}://feed/churn-299`)
+    expect(b.registry.source(`${RESOURCE_SCHEME}://feed/churn-299`)).toBe(recent)
+  })
+
+  it('still serves an evicted address that a rendered source subscribes late, and opens it for a new provider', async () => {
+    const b = bench()
+    const stale = b.registry.source(A)
+    churn(b, 300)
+    stale.subscribe(() => {})
+    expect(b.registry.source(A)).toBe(stale)
+    b.registry.register(b.provider)
+    expect(b.provider.open).toHaveBeenCalledTimes(1)
+    b.last().push('late')
+    await vi.waitFor(() => { expect(stale.getSnapshot()).toMatchObject({ status: 'live', value: 'late' }) })
   })
 })
 

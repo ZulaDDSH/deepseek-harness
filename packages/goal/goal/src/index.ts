@@ -25,6 +25,7 @@ import {
 import type { GoalFoldState } from './fold.ts'
 import {
   GOAL_CHANGE_VERSION,
+  GOAL_REFUND_CHANGE_VERSION,
   GoalError,
 } from './runtime.ts'
 import type {
@@ -44,6 +45,7 @@ import type {
   GoalChangeMeta,
   GoalChanged,
   GoalClearChangeMeta,
+  GoalRefundChangeMeta,
   GoalOperation,
   GoalSnapshotChangeMeta,
 } from './domain.ts'
@@ -449,6 +451,32 @@ export class GoalService extends TypertRemoteService {
     return { ...tombstone }
   }
 
+  refundRound(agent: Agent, ref: GoalRef): GoalView {
+    const [state, runtime] = this.prepareMutation(agent)
+    const currentState = this.expectCurrent(state, ref)
+    const current = currentState.goal
+    if (current.phase === 'complete' || currentState.roundsStarted < 1) {
+      throw new GoalError(
+        `cannot refund a round of goal "${current.id}" in phase "${current.phase}" with ${currentState.roundsStarted} rounds started`,
+        'GOAL_INVALID_TRANSITION',
+      )
+    }
+    const roundsStarted = currentState.roundsStarted - 1
+    const goal: GoalSnapshot = { ...current, revision: current.revision + 1 }
+    const change: GoalRefundChangeMeta = {
+      kind: 'goal/change',
+      version: GOAL_REFUND_CHANGE_VERSION,
+      operation: 'refund',
+      goal,
+      roundsStarted,
+      refundedRound: currentState.roundsStarted,
+      createdAt: currentState.createdAt,
+      updatedAt: this.nextMutationTime(currentState),
+    }
+    this.commit(agent, runtime, change, runtime.activation)
+    return { ...goal, roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt, activation: runtime.activation }
+  }
+
   /** Resolve the durable and process-local state used by a mutation. */
   private prepareMutation(agent: Agent): readonly [GoalProjection | null, GoalRuntimeState] {
     this.assertLive(agent)
@@ -529,7 +557,7 @@ export class GoalService extends TypertRemoteService {
   private transition(
     agent: Agent,
     ref: GoalRef,
-    operation: Exclude<GoalOperation, 'create' | 'edit' | 'clear'>,
+    operation: Exclude<GoalOperation, 'create' | 'edit' | 'clear' | 'refund'>,
     allowed: readonly GoalPhase[],
     phase: GoalPhase,
     activation: GoalActivation,
@@ -554,7 +582,7 @@ export class GoalService extends TypertRemoteService {
     agent: Agent,
     state: GoalProjection,
     runtime: GoalRuntimeState,
-    operation: Exclude<GoalOperation, 'create' | 'clear'>,
+    operation: Exclude<GoalOperation, 'create' | 'clear' | 'refund'>,
     goal: GoalSnapshot,
     activation: GoalActivation,
   ): GoalView {
@@ -579,7 +607,7 @@ export class GoalService extends TypertRemoteService {
   private commitSnapshot(
     agent: Agent,
     runtime: GoalRuntimeState,
-    operation: Exclude<GoalOperation, 'clear'>,
+    operation: Exclude<GoalOperation, 'clear' | 'refund'>,
     goal: GoalSnapshot,
     roundsStarted: number,
     createdAt: number,

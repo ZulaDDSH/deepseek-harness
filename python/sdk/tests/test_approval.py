@@ -44,6 +44,12 @@ for line in sys.stdin:
         assert client.next_notification().payload == {"outcome": "rejected"}
 
 
+def test_approval_params_expose_operation() -> None:
+    with_operation = ApprovalRequestParams.model_validate({"sessionId": "main", "toolName": "bash", "operation": "command: ls"})
+    assert with_operation.operation == "command: ls"
+    assert ApprovalRequestParams.model_validate({"sessionId": "main", "toolName": "bash"}).operation is None
+
+
 def test_approval_result_rejects_unrecognized_grants() -> None:
     with pytest.raises(ValidationError):
         ApprovalRequestResult(outcome="allow-always")

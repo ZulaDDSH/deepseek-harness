@@ -367,9 +367,9 @@ describe('viewer turn confinement', () => {
   }
 
   const viewerMessage = {
-    source: { kind: 'user' as const, principal: shareViewerPrincipal('share-1', { providerId: 'p', tenantId: 't', subjectId: 'alice' }) },
+    content: [], source: { kind: 'user' as const, principal: shareViewerPrincipal('share-1', { providerId: 'p', tenantId: 't', subjectId: 'alice' }) },
   }
-  const ownerMessage = { source: { kind: 'user' as const } }
+  const ownerMessage = { content: [], source: { kind: 'user' as const } }
 
   it('confines a viewer-started turn, keeps an owner’s turn native, and keeps owner steering confined', async () => {
     const { mounted, live, guard } = await mountedSource()
@@ -426,6 +426,7 @@ describe('agent pre-step gate', () => {
     const decision = {
       kind: 'enter' as const,
       messages: [{
+        content: [],
         source: {
           kind: 'user',
           principal: shareViewerPrincipal('share-1', { providerId: 'p', tenantId: 't', subjectId: 'alice' }),
@@ -450,11 +451,29 @@ describe('agent pre-step gate', () => {
 
   it('leaves a queued message from a principal this package does not drive alone', async () => {
     const mounted = await mount()
-    const decision = { kind: 'enter' as const, messages: [{ source: { kind: 'user', principal: { kind: 'owner' } } }] }
+    const decision = { kind: 'enter' as const, messages: [{ content: [], source: { kind: 'user', principal: { kind: 'owner' } } }] }
     await expect(mounted.handlers.get('agent/pre-step')?.(
       { agent: { session: { id: 'session-1' } }, turn: 1 },
       async () => decision,
     )).resolves.toEqual(decision)
+    await mounted.ctx.fiber.dispose()
+  })
+
+  it('refuses a reader message that cites another Session and admits the owner or plain text', async () => {
+    const mounted = await mount({ state: stateFile({ shares: [stored()] }) })
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({
+      version: 1, accessMode: 'open', allowedSubjectIds: [], sessionMode: 'view', requests: [],
+    })))
+    const reader = shareViewerPrincipal('share-1', { providerId: 'p', tenantId: 't', subjectId: 'alice' })
+    const cited = [{ type: 'text', text: 'read @[x](dsh-session:ImFiYyI) please' }]
+    const step = (principal: unknown, content: unknown[]) => mounted.handlers.get('agent/pre-step')?.(
+      { agent: { session: { id: 'session-1' } }, turn: 1 },
+      async () => ({ kind: 'enter', messages: [{ content, source: { kind: 'user', principal } }] }),
+    )
+    await expect(step(reader, cited)).resolves.toEqual({ kind: 'reject' })
+    await expect(step(reader, [{ type: 'text', text: 'bare dsh-session:ImFiYyI' }])).resolves.toEqual({ kind: 'reject' })
+    await expect(step(reader, [{ type: 'text', text: 'the dsh-session: scheme' }])).resolves.toMatchObject({ kind: 'enter' })
+    await expect(step({ kind: 'owner' }, cited)).resolves.toMatchObject({ kind: 'enter' })
     await mounted.ctx.fiber.dispose()
   })
 
@@ -467,7 +486,7 @@ describe('agent pre-step gate', () => {
       version: 1, accessMode: 'open', allowedSubjectIds: [], sessionMode: 'view', requests: [],
     })))
     const decision = { kind: 'enter' as const, messages: [{
-      source: { kind: 'user', principal: shareViewerPrincipal('share-1', actor) },
+      content: [], source: { kind: 'user', principal: shareViewerPrincipal('share-1', actor) },
     }] }
 
     await expect(mounted.handlers.get('agent/pre-step')?.(
@@ -498,6 +517,7 @@ describe('agent pre-step gate', () => {
       async () => ({
         kind: 'enter',
         messages: [{
+          content: [],
           source: {
             kind: 'user',
             principal: shareViewerPrincipal('share-1', { providerId: 'p', tenantId: 't', subjectId: 'alice' }),

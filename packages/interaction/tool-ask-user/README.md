@@ -151,7 +151,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 These limits define when the tool is a poor fit. They are current package constraints, not a UI backlog.
 
 - **The legacy tool never reports pending** — it returns an answer or an error. Native legacy calls do not enter the `userQuestions` projection, and interrupted calls cannot take late answers.
-- **An interrupted PTC wait may lose its question** — if the `run_code` process ends before an `ask_user_question` sub-call records its `tool/ptc-dispatch` result, the projection cannot reconstruct that sub-call for a late answer.
+- **An interrupted PTC wait stays answerable** — a PTC `ask_user_question` sub-call is admitted when its dispatch starts, so after the `run_code` process ends and resume repair appends the unknown-outcome result, the question stays in the projection as continued and accepts a late answer. Sub-call ids in the older durable format are rebuilt only from a pending `tool/ptc-dispatch` result, so a legacy-schema session whose dispatch never recorded one still loses the question. A legacy blocking tool called through PTC is admitted the same way and also shows as continued.
 - **Runtime-owned subagents cannot ask the user** — `ask_user_question` rejects a live child owned by another agent with `DELEGATED_CALLER`; the child must include the unresolved question or decision in its final result. Durable lineage does not decide this boundary, so a lineage-bearing session resumed as a runtime root may ask normally.
 - **Native answers render as JSON text** — the canonical value remains structured, but the model-facing result uses compact JSON rather than a richer content-block vocabulary.
 

@@ -109,7 +109,7 @@ it('serves token exchanges through WebServer and keeps token-owned Peers outside
   await token.fiber.dispose()
   expect(admission.peer.signal.aborted).toBe(true)
   expect(ctx.connection.admit({ headers })).toEqual({ rejection: 401 })
-  await ctx.plugin(Token, { cookieMaxAgeDays: 30 }).await()
+  await ctx.plugin(Token, { cookieMaxAgeDays: 30, sessionGeneration: 0 }).await()
   const reloaded = await BrowserAuth.create(ctx[Context.root], ctx.credentials, 30)
   const restarted = new URL(reloaded.authenticatedUrl(origin))
   expect(restarted.searchParams.get('token')).toBe(originalToken)

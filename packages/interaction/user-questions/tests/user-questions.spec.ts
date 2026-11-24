@@ -471,6 +471,36 @@ describe('askTimed', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('returns pending at the deadline when a noncooperative answerer never settles', async () => {
+    vi.useFakeTimers()
+    onTestFinished(() => { vi.useRealTimers() })
+    const ctx = await timedContext()
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    const agent = liveAgent('timed-never-settles')
+    ctx.agents.enter(agent)
+    registerAnswerer(ctx, { ask: () => new Promise<AskUserQuestionAnswer>(() => {}) })
+    const result = ctx.userQuestions.askTimed({ agent, questions: timedQuestions }, timedCallId, 5_000)
+    await vi.advanceTimersByTimeAsync(5_000)
+    await expect(result).resolves.toEqual({ pending: true, callId: timedCallId })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('discards a noncooperative answer that resolves after the deadline', async () => {
+    vi.useFakeTimers()
+    onTestFinished(() => { vi.useRealTimers() })
+    const ctx = await timedContext()
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    const agent = liveAgent('timed-late-answer')
+    ctx.agents.enter(agent)
+    const late = Promise.withResolvers<AskUserQuestionAnswer>()
+    registerAnswerer(ctx, { ask: () => late.promise })
+    const result = ctx.userQuestions.askTimed({ agent, questions: timedQuestions }, timedCallId, 5_000)
+    await vi.advanceTimersByTimeAsync(5_000)
+    late.resolve({ answers: [{ id: 'scope', selected: ['Tool only'] }] })
+    await expect(result).resolves.toEqual({ pending: true, callId: timedCallId })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('keeps a Client-claimed wait open and closes its stream when the answer settles', async () => {
     vi.useFakeTimers()
     onTestFinished(() => { vi.useRealTimers() })

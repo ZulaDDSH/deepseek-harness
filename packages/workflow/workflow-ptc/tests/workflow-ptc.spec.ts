@@ -574,9 +574,44 @@ describe('dsh-workflow-ptc', { timeout: 120_000 }, () => {
       }
       ctx.subagents.registerProvider(provider)
       await ctx.plugin(PtcWorkflowEngine, { provider: 'bad-dispose', maxConcurrentAgents: 2 })
+      const ends: WorkflowResultInfo[] = []
+      ctx.on('workflow/end', (_info, ended) => { ends.push(ended) })
       const result = await run(ctx, await fakeParent(ctx), scripted("return await agent('p')"))
       expect(result.stopReason).toBe('completed')
       expect(result.value).toBe('fine')
+      expect(result.cleanupFailures).toEqual([expect.stringContaining('child bad-dispose-child (call 1): ')])
+      expect(result.cleanupFailures![0]).toContain('dispose exploded')
+      expect(ends).toEqual([expect.objectContaining({ cleanupFailures: result.cleanupFailures })])
+    })
+
+    it('retries a child dispose() that fails once and reports no cleanup failure when the retry settles', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SessionProjectionRegistry)
+      await mountPtcRuntime(ctx)
+      provideWorkingDirectoryFixture(ctx)
+      await ctx.plugin(SubagentRuntime)
+      let disposeCalls = 0
+      const provider: SubagentProvider = {
+        name: 'flaky-dispose',
+        capabilities: { agentOptions: true, agentPreset: false, outputSchema: true, depthLimit: true },
+        inheritsParentContext: false,
+        start: async () => ({
+          id: brandString<SessionId>('flaky-dispose-child'),
+          result: Promise.resolve({ output: [{ type: 'text', text: 'fine' }], stopReason: 'completed' }),
+          cancel: () => undefined,
+          dispose: async () => {
+            disposeCalls += 1
+            if (disposeCalls === 1) throw new Error('transient dispose failure')
+          },
+        }),
+      }
+      ctx.subagents.registerProvider(provider)
+      await ctx.plugin(PtcWorkflowEngine, { provider: 'flaky-dispose', maxConcurrentAgents: 2 })
+      const result = await run(ctx, await fakeParent(ctx), scripted("return await agent('p')"))
+      expect(result.stopReason).toBe('completed')
+      expect(result.value).toBe('fine')
+      expect(result.cleanupFailures).toBeUndefined()
+      expect(disposeCalls).toBe(2)
     })
 
     it('a child dispose() rejecting an UNRENDERABLE value still acks — the containment warn is total', async () => {
@@ -602,6 +637,44 @@ describe('dsh-workflow-ptc', { timeout: 120_000 }, () => {
       const result = await run(ctx, await fakeParent(ctx), scripted("return await agent('p')"))
       expect(result.stopReason).toBe('completed')
       expect(result.value).toBe('fine')
+      expect(result.cleanupFailures).toEqual([expect.stringContaining('trap-child (call 1): ')])
+      expect(result.cleanupFailures![0]).toContain('unknown teardown failure')
+    })
+
+    async function disposalProvider(name: string, dispose: () => Promise<void> | void) {
+      const ctx = new Context()
+      await ctx.plugin(SessionProjectionRegistry)
+      await mountPtcRuntime(ctx)
+      provideWorkingDirectoryFixture(ctx)
+      await ctx.plugin(SubagentRuntime)
+      const provider: SubagentProvider = {
+        name,
+        capabilities: { agentOptions: true, agentPreset: false, outputSchema: true, depthLimit: true },
+        inheritsParentContext: false,
+        start: async () => ({
+          id: brandString<SessionId>(`${name}-child`),
+          result: Promise.resolve({ output: [{ type: 'text', text: 'fine' }], stopReason: 'completed' }),
+          cancel: () => { /* settled already */ },
+          dispose: async () => { await dispose() },
+        }),
+      }
+      ctx.subagents.registerProvider(provider)
+      await ctx.plugin(PtcWorkflowEngine, { provider: name, maxConcurrentAgents: 2 })
+      return { ctx, parent: await fakeParent(ctx) }
+    }
+
+    it('a child dispose() rejecting asynchronously keeps the completed outcome and reports the failure', async () => {
+      let disposals = 0
+      const { ctx, parent } = await disposalProvider('async-dispose', () => {
+        disposals += 1
+        return Promise.reject(new Error('async teardown refused'))
+      })
+      const result = await run(ctx, parent, scripted("return await agent('p')"))
+      expect(result.stopReason).toBe('completed')
+      expect(result.value).toBe('fine')
+      expect(result.cleanupFailures).toEqual([expect.stringContaining('async-dispose-child (call 1): ')])
+      expect(result.cleanupFailures![0]).toContain('async teardown refused')
+      expect(disposals).toBe(6)
     })
   })
 
@@ -615,6 +688,35 @@ describe('dsh-workflow-ptc', { timeout: 120_000 }, () => {
       // The likeliest authoring slip — a Claude Code-style meta header in the
       // body — gets a pointed message, not a bare SyntaxError.
       expect(() => ctx.workflowEngine.start({ ...scripted("export const meta = { name: 'x', description: 'd' }\nreturn 1"), parent })).toThrow(/meta rides the `meta` request field/)
+    })
+
+    it('ends a run with a pending child as an error at the overall deadline and disposes the child', async () => {
+      const { ctx, parent, provider } = await setup({ manual: true, config: { maxDurationMs: 2000 } })
+      const runEnds: WorkflowResultInfo[] = []
+      ctx.on('workflow/end', (_info, result) => { runEnds.push(result) })
+      const handle = ctx.workflowEngine.start({ ...scripted("return await agent('long job')"), parent })
+      const result = await handle.result
+      expect(result).toMatchObject({ stopReason: 'error', errorCode: 'RUN_FAILED', value: null })
+      expect(result.error).toContain('overall deadline of 2000 ms')
+      await handle.dispose()
+      expect(provider.runs[0]!.disposed).toBe(true)
+      expect(runEnds).toEqual([expect.objectContaining({ stopReason: 'error', error: result.error })])
+    })
+
+    it('ends an asynchronous infinite loop at the overall deadline', async () => {
+      const { ctx, parent } = await setup({ config: { maxDurationMs: 500 } })
+      const result = await run(ctx, parent, scripted('await Promise.resolve(); while (true) {}'))
+      expect(result).toMatchObject({ stopReason: 'error', errorCode: 'RUN_FAILED' })
+      expect(result.error).toContain('overall deadline of 500 ms')
+    })
+
+    it('applies no deadline when maxDurationMs is 0 and keeps a user cancellation as cancelled', async () => {
+      const { ctx, parent } = await setup({ manual: true, config: { maxDurationMs: 0 } })
+      const handle = ctx.workflowEngine.start({ ...scripted("return await agent('long job')"), parent })
+      await new Promise(resolve => setTimeout(resolve, 400))
+      handle.cancel('user stopped it')
+      expect(await handle.result).toMatchObject({ stopReason: 'cancelled' })
+      await handle.dispose()
     })
 
     it('cancel() aborts in-flight children and settles after their cleanup', async () => {

@@ -149,6 +149,12 @@ function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | unde
   return Object.hasOwn(record, key) ? record[key] : undefined
 }
 
+function sortedJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortedJson)
+  if (typeof value !== 'object' || value === null) return value
+  return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([name, item]) => [name, sortedJson(item)]))
+}
+
 function refused(reason: string): ActionCardResult {
   return { status: 'refused', reason }
 }
@@ -174,7 +180,7 @@ export class ActionCards extends TypertRemoteService {
   private readonly turnLoads = new Map<Agent, { readonly turn: number; readonly skills: Set<string> }>()
   /** The call accepted in each agent's latest turn, until its result fails. */
   private readonly accepted = new Map<Agent, { readonly turn: number; readonly callId: ToolCallId }>()
-  private readonly actions = new Map<string, Promise<ActionCardResult>>()
+  private readonly actions = new Map<string, { readonly signature: string; readonly operation: Promise<ActionCardResult> }>()
   private closing = false
   private readonly owner: Context['fiber']
 
@@ -257,7 +263,7 @@ export class ActionCards extends TypertRemoteService {
     }, { prepend: true })
     this.ctx.effect(() => async () => {
       this.closing = true
-      await Promise.allSettled([...this.actions.values()])
+      await Promise.allSettled([...this.actions.values()].map(action => action.operation))
     }, 'action-cards: drain user actions')
   }
 
@@ -331,7 +337,7 @@ export class ActionCards extends TypertRemoteService {
   /**
    * Apply a user action to a logged card. Shared checks run first, then the kind reconciles the card; `dismiss` is
    * recorded here and every other verb goes to the card's kind. `dismiss` also works on an unstarted card whose kind
-   * is no longer registered. Concurrent actions on one card share one operation.
+   * is no longer registered. An identical concurrent action shares the running operation and a different one is refused as busy.
    * @param agent - live root resolved from the displayed Session.
    * @param callId - the card's `propose_action` call id.
    * @param verb - `dismiss` or one of the kind's verbs.
@@ -345,20 +351,23 @@ export class ActionCards extends TypertRemoteService {
     const proposal = ownEntry(this.projection.stateOf(agent.session).view.proposals, callId)
     if (proposal === undefined) return Promise.resolve(refused('unknown'))
     const kind = this.kinds.get(proposal.action)
-    if (verb === DISMISS) return this.coalesce(agent, callId, () => this.dismiss(agent, kind, proposal, payload))
+    if (verb === DISMISS) return this.coalesce(agent, callId, verb, payload, () => this.dismiss(agent, kind, proposal, payload))
     const policy = kind === undefined ? undefined : ownEntry(kind.verbs, verb)
     if (kind === undefined || policy === undefined) return Promise.resolve(refused('unavailable'))
     if (policy.global === true && !this.ctx.remoteAccess.allows({ kind: 'global' })) return Promise.resolve(refused('access-denied'))
-    return this.coalesce(agent, callId, () => this.perform(agent, kind, proposal, verb, policy, payload))
+    return this.coalesce(agent, callId, verb, payload, () => this.perform(agent, kind, proposal, verb, policy, payload))
   }
 
   /** Share one operation per card, run under the Agent's initiator, until it settles. */
-  private coalesce(agent: Agent, callId: ToolCallId, run: () => Promise<ActionCardResult>): Promise<ActionCardResult> {
+  private coalesce(
+    agent: Agent, callId: ToolCallId, verb: string, payload: ActionCardFields | undefined, run: () => Promise<ActionCardResult>,
+  ): Promise<ActionCardResult> {
     const key = JSON.stringify([agent.id, callId])
+    const signature = JSON.stringify([verb, sortedJson(payload ?? null)])
     const existing = this.actions.get(key)
-    if (existing !== undefined) return existing
+    if (existing !== undefined) return existing.signature === signature ? existing.operation : Promise.resolve(refused('busy'))
     const operation = this.ctx.agents.withInitiator(agent, run).finally(() => { this.actions.delete(key) })
-    this.actions.set(key, operation)
+    this.actions.set(key, { signature, operation })
     return operation
   }
 

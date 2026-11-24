@@ -26,7 +26,7 @@ import {
 } from '@deepseek-ai/dsh-typert-generator'
 import type { CordisCatalogPolicy } from '@deepseek-ai/dsh-typert-generator'
 import { renderCordisCoreApiPages } from './cordis-core-api.ts'
-import { loadAnchoredFieldNotes } from './code-notes.ts'
+import { exitIfCodeNotesMissing, loadAnchoredFieldNotes } from './code-notes.ts'
 import { contextKeyMap, contextMergeFiles, eventNameList } from './cordis-walk.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -523,6 +523,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   MessageFeedbackListRequest: 'feedback.md',
   SessionFeedbackRecordRequest: 'feedback.md',
   SessionFeedbackRecordResult: 'feedback.md',
+  SessionFeedbackSharing: 'feedback.md',
   MessageFeedbackListResult: 'feedback.md',
   MessageFeedbackListValue: 'feedback.md',
   MessageFeedbackNoteBlank: 'feedback.md',
@@ -577,6 +578,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SessionModelsRequest: 'session.md',
   SessionPage: 'session.md',
   SessionPageRequest: 'session.md',
+  SessionOutlinePage: 'session.md',
+  SessionOutlineRequest: 'session.md',
   SessionEventsPage: 'session.md',
   SessionEventFrame: 'session.md',
   SessionObserveEventRequest: 'session.md',
@@ -895,6 +898,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   CreateTeamTaskRequest: 'agent-team.md',
   TeamId: 'agent-team.md',
   TeamTaskId: 'agent-team.md',
+  TeamMessageSnapshot: 'agent-team.md',
+  TeamMessageId: 'agent-team.md',
   TeamTaskView: 'agent-team.md',
   TeamProjection: 'agent-team.md',
   UpdateTeamTaskRequest: 'agent-team.md',
@@ -909,6 +914,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ToolExecution: 'tools.md',
   ToolDispatchExecution: 'tools.md',
   ToolExecutionInput: 'tools.md',
+  ToolPreflightResult: 'tools.md',
+  RevocationOutcome: 'credentials.md',
   ToolExecutionMode: 'tools.md',
   ToolExecutionResult: 'tools.md',
   ToolExecutionToken: 'tools.md',
@@ -1038,6 +1045,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ProjectionKeySelection: 'session-projection.md',
   ProjectionChangeListener: 'session-projection.md',
   ProjectionEventChangeListener: 'session-projection.md',
+  ProjectionAppendEventChangeListener: 'session-projection.md',
   ProjectionSnapshot: 'session-projection.md',
   ProjectionCheckpoint: 'session-projection.md',
   DirectoryPickerCapability: 'workspace.md',
@@ -1508,6 +1516,7 @@ export function computeOutputs(): [string, string][] {
  * @returns nothing; writes files or reports freshness through the process.
  */
 export function main(): void {
+  exitIfCodeNotesMissing('gen-cordis-catalog')
   const outputs: [string, string][] = [
     ...computeOutputs(),
     ...renderCordisCoreApiPages(),

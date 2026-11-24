@@ -399,6 +399,7 @@ export class WorkspaceRegistry extends Service {
         archivedSessionIds: [...state.archivedSessionIds, sessionId],
         pinnedSessionIds: state.pinnedSessionIds.filter(id => id !== sessionId),
       })
+      if (options.stopActivity !== true) await this.rollBackIfActive(sessionId, state)
       if (options.stopActivity === true) await this.stopSessionActivity(sessionId)
       try {
         await this.ctx.parallel('workspace/session-archived', { sessionId })
@@ -406,6 +407,18 @@ export class WorkspaceRegistry extends Service {
         this.ctx.logger.warn('Session archived, but archive follow-up admission failed: %s', error)
       }
     })
+  }
+
+  private async rollBackIfActive(sessionId: SessionId, previous: WorkspaceDomainState): Promise<void> {
+    const activity = await this.ctx.waterfall('workspace/session-activity', { sessionId }, () => Promise.resolve([]))
+    if (activity.length === 0) return
+    const refusal = new WorkspaceActiveSessionError(sessionId, activity)
+    try {
+      await this.setState(previous)
+    } catch (rollbackError) {
+      throw new AggregateError([refusal, rollbackError], `archive of session '${sessionId}' found activity and could not be rolled back`)
+    }
+    throw refusal
   }
 
   /**

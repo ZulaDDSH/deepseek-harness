@@ -231,6 +231,7 @@ These limits define when the search tools are a poor fit or need special operati
 - **Sampling, when enabled, groups by first path segment beneath the search root only** — an over-cap `glob` page balances across those top-level entries, so a result concentrated deeper is still shown unevenly below that level; recursive balancing is deferred.
 - **A `glob` that hits the tool timeout returns `SEARCH_ABORTED` without partial paths** — ripgrep's output is only returned once the process exits, so narrow `path` or `pattern` to finish within the budget.
 - **A `glob` `path` inside an ignored directory is searched** — ignore rules apply only to entries beneath the search root, so `path: "node_modules"` lists that tree even without `includeIgnored`.
+- **File names that are not valid UTF-8 are not returned faithfully** — the subprocess seam decodes ripgrep output as UTF-8 before the tools see it, so `glob` shows such a path with U+FFFD replacement characters and `grep` shows it decoded the same way (its matched line shows a placeholder). Both results say how many listed paths or matches were affected (`undecodable` in the result value, a note line in the text) instead of hiding it, but the shown path may not open; no lossless path is provided. `glob` also counts a real name that contains U+FFFD.
 
 <a id="dev-note"></a>
 ### Dev Note

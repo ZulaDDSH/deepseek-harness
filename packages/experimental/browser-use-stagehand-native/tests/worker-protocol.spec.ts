@@ -1,6 +1,7 @@
 /** Invalid host envelopes terminate only the owned Worker with a diagnostic. */
 
 import { once } from 'node:events'
+import { tmpdir } from 'node:os'
 import { Worker } from 'node:worker_threads'
 import { finished } from 'node:stream/promises'
 import { expect, it } from 'vitest'
@@ -16,7 +17,7 @@ it('reports malformed requests before exiting its real Worker', async () => {
   ].join('\n')
   const worker = new Worker(new URL(`data:text/javascript,${encodeURIComponent(bootstrap)}`), {
     workerData: { model: { modelName: 'openai/gpt-5.4-mini', apiKey: 'fixture-model-key' }, mode: 'attach', cdpEndpoint: 'http://fixture', headless: true, operationTimeoutMs: 30000, shutdownGraceMs: 1000 },
-    env: {}, execArgv: [], stderr: true,
+    env: { TEMP: tmpdir(), TMP: tmpdir(), TMPDIR: tmpdir() }, execArgv: [], stderr: true,
   })
   let diagnostics = ''
   worker.stderr.setEncoding('utf8')

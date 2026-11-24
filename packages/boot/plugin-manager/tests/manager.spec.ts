@@ -903,7 +903,8 @@ it('unloads before removing packages and retries inactive dependencies whose fil
   onTestFinished(() => { remove.mockRestore() })
   expect(await manager.removeBundle('extra')).toMatchObject({ changed: true, application: 'failed', packageResult: { exitCode: 1 } })
   expect(readProfileManifest('test', dir).dependencies).toEqual({ extra: '1.0.0' })
-  expect((await manager.listBundles()).find(row => row.name === 'extra')?.enabled).toBe(false)
+  expect((await manager.listBundles()).find(row => row.name === 'extra')?.enabled).toBe(true)
+  await manager.setBundleEnabled('extra', false)
   rmSync(join(dir, 'node_modules', 'extra'), { recursive: true })
   remove.mockImplementationOnce(async () => {
     const manifest = readProfileManifest('test', dir)
@@ -913,6 +914,19 @@ it('unloads before removing packages and retries inactive dependencies whose fil
   })
   expect(await manager.removeBundle('extra')).toMatchObject({ changed: true, application: 'applied' })
   expect((await manager.listBundles()).some(row => row.name === 'extra')).toBe(false)
+})
+
+it('leaves a bundle disabled and says so when a failed removal already deleted its files', async () => {
+  const { manager, dir } = await fixture()
+  const remove = vi.spyOn(operations, 'runProfilePnpm').mockImplementation(() => {
+    rmSync(join(dir, 'node_modules', 'extra'), { recursive: true })
+    return Promise.resolve({ exitCode: 1, output: 'removal failed', truncated: false, logPath: join(dir, 'pnpm.log') })
+  })
+  onTestFinished(() => { remove.mockRestore() })
+  const result = await manager.removeBundle('extra')
+  expect(result).toMatchObject({ changed: true, application: 'failed', packageResult: { exitCode: 1 } })
+  expect(result.warnings?.join(' ')).toContain('extra was left disabled after the failed removal')
+  expect((await manager.listBundles()).find(row => row.name === 'extra')?.enabled).toBe(false)
 })
 
 it('treats a terminated run that trapped the signal and exited zero as a failure', async () => {
@@ -1203,6 +1217,24 @@ it('removes a package with the registry it was installed from, so pnpm verifies 
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ ...manifest, dependencies: { ...manifest.dependencies, mirrored: '1.0.0' } }))
   await manager.removeBundle('mirrored')
   expect(pnpm.mock.calls.at(-1)?.[1]).toEqual(['remove', 'mirrored'])
+})
+
+it('records the registry a package came from so a restarted manager still removes it with that registry', async () => {
+  const corp = 'https://corp.example/npm/'
+  const { manager, dir } = await fixture('live', false, undefined, {}, undefined, (profile) => {
+    mkdirSync(join(profile, '.plugin-manager'), { recursive: true })
+    writeFileSync(join(profile, '.plugin-manager', 'registries.json'), JSON.stringify({ extra: corp }))
+  })
+  const pnpm = vi.spyOn(operations, 'runProfilePnpm').mockImplementation(() => {
+    const manifest = readProfileManifest('test', dir)
+    delete manifest.dependencies?.extra
+    writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+    return Promise.resolve({ exitCode: 0, output: '', truncated: false, logPath: join(dir, 'pnpm.log') })
+  })
+  onTestFinished(() => { pnpm.mockRestore() })
+  expect(await manager.removeBundle('extra')).toMatchObject({ application: 'applied' })
+  expect(pnpm.mock.calls.at(-1)?.[1]).toEqual(['remove', 'extra', `--config.registry=${corp}`])
+  expect(JSON.parse(readFileSync(join(dir, '.plugin-manager', 'registries.json'), 'utf8'))).toEqual({})
 })
 
 it('streams pnpm output, reports the installation phases, and names the installed bundle', async () => {
@@ -2241,6 +2273,69 @@ it('reports a reinstallation that fails too, leaving the package uninstalled', a
   const updated = await manager.updateBundle('extra', '1.2.0')
   expect(updated).toMatchObject({ step: 'install', result: { application: 'failed' }, restore: { application: 'failed' } })
   expect(readProfileManifest('test', dir).dependencies?.extra).toBeUndefined()
+})
+
+const selectionBefore = (dir: string) => {
+  const manifest = readProfileManifest('test', dir)
+  manifest.dsh = { profile: { bundles: ['extra', 'core'] } }
+  writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+}
+const selectionOf = (dir: string) => readProfileManifest('test', dir).dsh?.profile?.bundles
+
+it.each([
+  ['installs the target', []],
+  ['installs the removed version again', ['extra@1.2.0']],
+] as const)('keeps the updated bundle\'s place in the selection when it %s', async (_name, fails) => {
+  const { manager, dir, bundle } = await fixture('live', false, undefined, {}, undefined, selectionBefore)
+  viewAnswers(extraRegistry)
+  extraPnpm(dir, bundle, fails)
+  expect(selectionOf(dir)).toEqual(['extra', 'core'])
+  const updated = await manager.updateBundle('extra', '1.2.0')
+  expect(updated.result.application).toBe(fails.length === 0 ? 'applied' : 'failed')
+  expect(updated.restore?.application).toBe(fails.length === 0 ? undefined : 'applied')
+  expect(selectionOf(dir)).toEqual(['extra', 'core'])
+})
+
+it('keeps a deselected bundle deselected through an update', async () => {
+  const { manager, dir, bundle } = await fixture('live', false, undefined, {}, undefined, (dir) => {
+    const manifest = readProfileManifest('test', dir)
+    manifest.dsh = { profile: { bundles: ['core'] } }
+    writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+  })
+  viewAnswers(extraRegistry)
+  extraPnpm(dir, bundle)
+  expect((await manager.updateBundle('extra', '1.2.0')).result.application).toBe('applied')
+  expect(selectionOf(dir)).toEqual(['core'])
+})
+
+it('queues another profile change behind an update until its removal and installation both finish', async () => {
+  const { manager, dir, bundle } = await fixture('live', false, undefined, {}, undefined, selectionBefore)
+  viewAnswers(extraRegistry)
+  const pnpm = extraPnpm(dir, bundle)
+  const step = pnpm.getMockImplementation()!
+  const log: string[] = []
+  pnpm.mockImplementation(async (context, args, options) => {
+    const result = await step(context, args, options)
+    log.push(String(args[0]))
+    return result
+  })
+  let reached!: () => void
+  const atInstall = new Promise<void>((resolve) => { reached = resolve })
+  const install = manager.installBundle.bind(manager)
+  const spy = vi.spyOn(manager, 'installBundle').mockImplementation(async (spec, options) => {
+    reached()
+    await new Promise(resolve => setTimeout(resolve, 200))
+    return install(spec, options)
+  })
+  onTestFinished(() => { spy.mockRestore() })
+  const update = manager.updateBundle('extra', '1.2.0')
+  await atInstall
+  const other = manager.setBundleEnabled('extra', false).then((result) => { log.push('other'); return result })
+  expect((await update).result.application).toBe('applied')
+  expect(await other).toMatchObject({ changed: true, application: 'applied' })
+  expect(log).toEqual(['remove', 'add', 'other'])
+  expect(selectionOf(dir)).toEqual(['core'])
+  expect(readProfileManifest('test', dir).dependencies?.extra).toBe('1.2.0')
 })
 
 it('refuses an update before changing anything when the target is not a newer compatible bundle', async () => {

@@ -4,7 +4,7 @@ import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import { TeamModePane, TeamModeToggle, type TeamModePaneProps, type TeamModeToggleProps } from '../src/client/TeamModeToggle.tsx'
+import { TeamModePane, TeamModeToggle, type TeamModePaneProps, type TeamModeToggleProps, type TeamSelectionFailure } from '../src/client/TeamModeToggle.tsx'
 import { de, en, es, fr, ja, pt, ru, zh } from '../src/client/locales.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 
@@ -12,7 +12,7 @@ afterEach(cleanup)
 
 type TestProps = TeamModePaneProps & TeamModeToggleProps
 
-function props(enabled: boolean | undefined, selectTeamMode = vi.fn(async () => null as string | null), child?: 'addressed' | 'listed', requestedModel: boolean | 'loading' = false): TestProps {
+function props(enabled: boolean | undefined, selectTeamMode = vi.fn(async (_enabled: boolean) => null as TeamSelectionFailure | null), child?: 'addressed' | 'listed', requestedModel: boolean | 'loading' = false): TestProps {
   return {
     sessionId: brandString<SessionId>('root'),
     useSession: (select: (value: { subagent: object | null }) => unknown) => select({ subagent: child === 'addressed' ? {} : null }),
@@ -67,7 +67,7 @@ it('allows reading settings from the summary while model history loads', () => {
 })
 
 it.each([false, true])('blocks repeated writes while waiting for persisted mode (enabled: %s)', async (enabled) => {
-  const pending = Promise.withResolvers<string | null>()
+  const pending = Promise.withResolvers<TeamSelectionFailure | null>()
   onTestFinished(async () => { await act(async () => { pending.resolve(null) }) })
   const select = vi.fn(() => pending.promise)
   const view = render(<TeamModePane {...props(enabled, select)} />)
@@ -91,7 +91,7 @@ it.each(['returned', 'error', 'string'])('reports rejected mode writes through t
   const input = props(false, vi.fn(async () => {
     if (failure === 'error') throw new Error('offline')
     if (failure === 'string') throw 'offline'
-    return 'offline'
+    return { message: 'offline', unconfirmed: false }
   }))
   render(<TeamModePane {...input} />)
   const toggle = screen.getByRole('switch')
@@ -137,6 +137,36 @@ it.each([false, true])('enables directly regardless of model history (requested:
   expect(input.selectTeamMode).toHaveBeenCalledWith(true)
   expect(input.requestDisableConfirmation).not.toHaveBeenCalled()
   expect(input.dismiss).not.toHaveBeenCalled()
+})
+
+it('shows an unconfirmed write as applied-but-unsaved and lets the switch toggle the opposite way', async () => {
+  const select = vi.fn<TeamModePaneProps['selectTeamMode']>()
+    .mockResolvedValueOnce({ message: 'flush failed', unconfirmed: true })
+    .mockResolvedValueOnce(null)
+  const input = props(false, select)
+  const view = render(<TeamModePane {...input} />)
+  await act(async () => { fireEvent.click(screen.getByRole('switch')) })
+  expect(select.mock.calls).toEqual([[true]])
+  expect(input.reportFailure).toHaveBeenCalledWith(expect.stringContaining('flush failed'))
+  expect(screen.getByRole('status').textContent).toBe(zh['mode.unconfirmed'])
+  view.rerender(<TeamModePane {...props(true, select)} />)
+  await act(async () => { fireEvent.click(screen.getByRole('switch')) })
+  expect(select.mock.calls).toEqual([[true], [false]])
+  expect(screen.queryByRole('status')).toBeNull()
+})
+
+it('retries an unconfirmed write from the status row and clears it on success', async () => {
+  const select = vi.fn<TeamModePaneProps['selectTeamMode']>()
+    .mockResolvedValueOnce({ message: 'flush failed', unconfirmed: true })
+    .mockResolvedValueOnce(null)
+  const input = props(false, select)
+  render(<TeamModePane {...input} />)
+  await act(async () => { fireEvent.click(screen.getByRole('switch')) })
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: zh['mode.retry'] })) })
+  expect(select.mock.calls).toEqual([[true], [true]])
+  expect(input.reportFailure).toHaveBeenCalledOnce()
+  expect(screen.queryByRole('status')).toBeNull()
+  expect(screen.queryByRole('button', { name: zh['mode.retry'] })).toBeNull()
 })
 
 it('disables directly when a model is selected but no request has been recorded', async () => {

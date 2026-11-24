@@ -148,7 +148,7 @@ These limits define where the seam's guarantees stop. They are current package c
 - **The seam guarantees write ownership only within one backend instance** — cross-process exclusion is provider-specific. The shipped JSONL provider adds a kernel-backed lease across instances and processes; another provider must document an equivalent guarantee or require deployments to prevent concurrent writers.
 - **A backend plugin reload under live sessions fails their writers loudly** — a reloaded backend cannot serve handles the old instance issued; writes fail until the sessions restart, and nothing silently re-adopts the logs.
 - **Only handle-acquired sessions persist** — `ctx.sessions.create` + `session/flush` alone stores nothing; agent-loop is the production acquisition point, and tests seed storage through `create`/`append`/`close`.
-- **No deletion or retention API** — pruning stored sessions is out-of-band backend maintenance.
+- **No deletion or retention API** — the seam offers neither. The JSONL backend has a backend-only `deleteSession` and an opt-in age-based `retention` setting (off by default) that clients cannot reach through `ctx.sessionPersistence`'s abstract type; other backends have no retention.
 - **`list()` is unpaginated and unfiltered** — it returns every stored session's snapshot; fine for local stores, unindexed at scale.
 - **Synthetic closers are the only crash story** — resume appends `interruptedTurnClosers` through the write handle; there is no partial-turn resume that continues an interrupted turn instead of closing it.
 

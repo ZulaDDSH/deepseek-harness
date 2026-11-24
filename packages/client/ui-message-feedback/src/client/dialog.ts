@@ -8,7 +8,7 @@
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { MessageId } from '@deepseek-ai/dsh-api-remotes/client'
-import type { FeedbackCategory, FeedbackRecord } from '@deepseek-ai/dsh-command-feedback/types'
+import type { FeedbackCategory, FeedbackRecord, SessionFeedbackSharing } from '@deepseek-ai/dsh-command-feedback/types'
 import type { MessageFeedbackRating } from '@deepseek-ai/dsh-message-feedback/types'
 import type { MessageFeedbackActionResult } from './controller.ts'
 
@@ -23,6 +23,8 @@ export interface FeedbackDialogState {
   readonly target: FeedbackDialogTarget | null
   readonly category: FeedbackCategory | null
   readonly text: string
+  readonly localOnly: boolean
+  readonly sharing: SessionFeedbackSharing | null
   /** A submission is in flight; the form ignores edits and submits until it settles. */
   readonly submitting: boolean
   /** Failure code of the last submission from this open; null when none. */
@@ -38,22 +40,34 @@ export interface FeedbackDialogState {
  */
 export type FeedbackSubmit = (target: FeedbackDialogTarget, entry: FeedbackRecord) => Promise<MessageFeedbackActionResult>
 
-const CLOSED: Omit<FeedbackDialogState, 'toast'> = {
-  target: null, category: null, text: '', submitting: false, failure: null,
+export type FeedbackSharingLoad = () => Promise<SessionFeedbackSharing | null>
+
+export function exportMode(sharing: SessionFeedbackSharing | null, localOnly: boolean): 'off' | 'local' | 'to' | 'generic' {
+  if (sharing !== null && (sharing.sharing === 'disabled' || sharing.sharing === 'none')) return 'off'
+  if (localOnly) return 'local'
+  return sharing?.destination === undefined ? 'generic' : 'to'
+}
+
+const CLOSED: Omit<FeedbackDialogState, 'toast' | 'sharing'> = {
+  target: null, category: null, text: '', localOnly: false, submitting: false, failure: null,
 }
 
 /** Per-session dialog controller; one instance backs the overlay entry and every message control. */
 export class FeedbackDialogController {
   /** Dialog state store (the overlay entry subscribes here). */
-  readonly state: SnapshotStore<FeedbackDialogState> = createSnapshotStore<FeedbackDialogState>({ ...CLOSED, toast: 0 })
+  readonly state: SnapshotStore<FeedbackDialogState> = createSnapshotStore<FeedbackDialogState>({ ...CLOSED, sharing: null, toast: 0 })
   /** Bumped by every open, dismiss, and dispose so a late settlement can tell its draft is gone. */
   private generation = 0
   private toastSeq = 0
+  private disposed = false
 
   /**
    * @param submit - records one submission; the owner routes it by target.
    */
-  constructor(private readonly submit: FeedbackSubmit) {}
+  constructor(
+    private readonly submit: FeedbackSubmit,
+    private readonly loadSharing: FeedbackSharingLoad = () => Promise.resolve(null),
+  ) {}
 
   /**
    * Open the dialog with an empty draft, replacing any open draft.
@@ -61,20 +75,28 @@ export class FeedbackDialogController {
    */
   open(target: FeedbackDialogTarget): void {
     this.generation += 1
-    this.state.set({ ...CLOSED, target, toast: this.state.getSnapshot().toast })
+    const { toast, sharing } = this.state.getSnapshot()
+    this.state.set({ ...CLOSED, target, toast, sharing })
+    void this.refreshSharing()
+  }
+
+  async refreshSharing(): Promise<void> {
+    const sharing = await this.loadSharing().catch(() => null)
+    if (!this.disposed) this.state.set({ ...this.state.getSnapshot(), sharing })
   }
 
   /** Close the dialog and discard the draft; a toast on screen stays. */
   dismiss(): void {
     this.generation += 1
-    this.state.set({ ...CLOSED, toast: this.state.getSnapshot().toast })
+    const { toast, sharing } = this.state.getSnapshot()
+    this.state.set({ ...CLOSED, toast, sharing })
   }
 
   /**
    * Replace part of the draft while it is editable.
    * @param draft - the category (null clears it) or the text as typed.
    */
-  edit(draft: Partial<Pick<FeedbackDialogState, 'category' | 'text'>>): void {
+  edit(draft: Partial<Pick<FeedbackDialogState, 'category' | 'text' | 'localOnly'>>): void {
     const s = this.state.getSnapshot()
     if (s.target === null || s.submitting) return
     this.state.set({ ...s, ...draft })
@@ -95,6 +117,7 @@ export class FeedbackDialogController {
     const result = await this.submit(s.target, {
       ...(text.length === 0 ? {} : { text }),
       ...(s.category === null ? {} : { category: s.category }),
+      ...(s.localOnly ? { localOnly: true } : {}),
     })
     if (result.ok) {
       // The remark is recorded whichever draft is on screen now, so the toast
@@ -131,6 +154,7 @@ export class FeedbackDialogController {
   /** Scope-teardown disposer: drop the draft and the toast, orphan in-flight work. */
   dispose(): void {
     this.generation += 1
-    this.state.set({ ...CLOSED, toast: 0 })
+    this.disposed = true
+    this.state.set({ ...CLOSED, sharing: null, toast: 0 })
   }
 }

@@ -74,6 +74,7 @@ export interface AcpTestLaunchOptions {
   env?: NodeJS.ProcessEnv
   /** Permission handler; omitted requests fail closed as `cancelled`. */
   requestPermission?: (params: RequestPermissionRequest) => Promise<RequestPermissionResponse>
+  shutdownTimeoutMs?: number
 }
 
 /** Stable ACP methods used by the subprocess test harness. */
@@ -256,6 +257,16 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
   // stream exhaustion terminal for those waiters too, but only after the
   // parser has dispatched every buffered frame.
   void connection.closed.then(closeUpdateStream)
+  const shutdownTimeoutMs = options.shutdownTimeoutMs ?? 30_000
+  let drainAbandoned = false
+  const drainWithinDeadline = async (): Promise<void> => {
+    if (drainAbandoned || await within(drained, shutdownTimeoutMs) !== TIMED_OUT) return
+    drainAbandoned = true
+    child.stdout.destroy()
+    child.stderr.destroy()
+    closeUpdateStream()
+    throw new Error(`ACP test agent output did not drain within ${String(shutdownTimeoutMs)} ms`)
+  }
 
   return {
     child,
@@ -272,30 +283,38 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
       try {
         await spawned
       } catch (error: unknown) {
-        await drained
+        await drainWithinDeadline().catch(() => undefined)
         closeUpdateStream()
         throw error
       }
       if (!isRunning(child)) {
-        await drained
+        await drainWithinDeadline()
         closeUpdateStream()
         return
       }
       const exited = waitForExit(child)
       if (signal === undefined) child.stdin.end()
       else child.kill(signal)
-      const failure = await Promise.race([
+      const outcome = await within(Promise.race([
         exited.then((): undefined => undefined),
         childFailure,
-      ])
+      ]), shutdownTimeoutMs)
+      if (outcome === TIMED_OUT) {
+        child.kill('SIGKILL')
+        await within(exited, shutdownTimeoutMs)
+        await drainWithinDeadline().catch(() => undefined)
+        closeUpdateStream()
+        throw new Error(`ACP test agent did not exit within ${String(shutdownTimeoutMs)} ms of ${signal ?? 'stdin close'} and was killed`)
+      }
+      const failure = outcome
       if (failure === undefined) {
-        await drained
+        await drainWithinDeadline()
         closeUpdateStream()
         return
       }
 
       const propagateFailureAfterDrain = async (): Promise<never> => {
-        await drained
+        await drainWithinDeadline()
         closeUpdateStream()
         throw failure
       }
@@ -461,4 +480,16 @@ function exitMarkerWithinGrace(exited: Promise<void>): Promise<boolean> {
 /** Whether the child still lacks either OS termination marker. */
 function isRunning(child: ChildProcessWithoutNullStreams): boolean {
   return child.exitCode === null && child.signalCode === null
+}
+
+const TIMED_OUT = Symbol('timed out')
+
+async function within<T>(promise: Promise<T>, timeoutMs: number): Promise<T | typeof TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<typeof TIMED_OUT>((resolve) => { timer = setTimeout(() => { resolve(TIMED_OUT) }, timeoutMs) }),
+    ])
+  } finally { clearTimeout(timer) }
 }

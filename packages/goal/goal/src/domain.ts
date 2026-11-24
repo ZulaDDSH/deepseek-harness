@@ -18,15 +18,27 @@ export type GoalOperation =
   | 'resume'
   | 'complete'
   | 'block'
+  | 'refund'
   | 'clear'
 
 /** Full-snapshot goal mutation committed by a durable `goal/change` event. */
 export interface GoalSnapshotChangeMeta {
   readonly kind: 'goal/change'
   readonly version: 1
-  readonly operation: Exclude<GoalOperation, 'clear'>
+  readonly operation: Exclude<GoalOperation, 'clear' | 'refund'>
   readonly goal: GoalSnapshot
   readonly roundsStarted: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+
+export interface GoalRefundChangeMeta {
+  readonly kind: 'goal/change'
+  readonly version: 2
+  readonly operation: 'refund'
+  readonly goal: GoalSnapshot
+  readonly roundsStarted: number
+  readonly refundedRound: number
   readonly createdAt: number
   readonly updatedAt: number
 }
@@ -41,7 +53,7 @@ export interface GoalClearChangeMeta {
 }
 
 /** Durable change union carried by the goal domain's own session event. */
-export type GoalChangeMeta = GoalSnapshotChangeMeta | GoalClearChangeMeta
+export type GoalChangeMeta = GoalSnapshotChangeMeta | GoalRefundChangeMeta | GoalClearChangeMeta
 
 /** Message attribution for admitted continuation rounds. */
 export interface GoalMessageSource {

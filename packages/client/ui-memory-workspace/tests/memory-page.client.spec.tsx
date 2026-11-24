@@ -84,8 +84,8 @@ function memoryWith(overrides: Partial<Memory> = {}): Memory {
     page: () => Promise.resolve({ ok: true, value: emptyPage }),
     graph: () => Promise.resolve({ ok: true, value: { path: 'graph.json', html: '<html></html>', documents: 1 } }),
     importDocument: () => Promise.resolve({ ok: true, value: { filename: 'a.md', originalPath: 'a.md', completed: 1, total: 1, error: null } }),
-    status: () => Promise.resolve({ ok: true, value: { chatMemory: true, server: 'ready' } }),
-    retry: () => Promise.resolve({ ok: true, value: { chatMemory: true, server: 'ready' } }),
+    status: () => Promise.resolve({ ok: true, value: { chatMemory: true, server: 'ready', maxDocumentBytes: 1000 } }),
+    retry: () => Promise.resolve({ ok: true, value: { chatMemory: true, server: 'ready', maxDocumentBytes: 1000 } }),
     ...overrides,
   }
 }
@@ -262,10 +262,10 @@ it('tells the user what to configure when Memorix is unavailable', async () => {
 })
 
 it('shows the chat memory state, the failure, the retry action and the latest save failure when Memorix is unavailable', async () => {
-  const retry = vi.fn(() => Promise.resolve({ ok: true as const, value: { chatMemory: true, server: 'starting' as const } }))
+  const retry = vi.fn(() => Promise.resolve({ ok: true as const, value: { chatMemory: true, server: 'starting' as const, maxDocumentBytes: 1000 } }))
   mount(memoryWith({
     status: () => Promise.resolve({ ok: true, value: {
-      chatMemory: true,
+      chatMemory: true, maxDocumentBytes: 1000,
       server: 'unavailable',
       connection: 'Memorix is not connected: the MCP client "memorix" is failed (Connection closed).',
       saveFailure: { message: 'server is disconnected', at: '2026-10-15T09:00:00.000Z' },
@@ -285,7 +285,7 @@ it('shows the chat memory state, the failure, the retry action and the latest sa
 it('shows Setting up while Memorix starts and Ready once it is connected', async () => {
   const states: Array<'starting' | 'ready'> = ['starting', 'ready']
   mount(memoryWith({
-    status: () => Promise.resolve({ ok: true, value: { chatMemory: true, server: states.length > 1 ? states.shift()! : 'ready' } }),
+    status: () => Promise.resolve({ ok: true, value: { chatMemory: true, server: states.length > 1 ? states.shift()! : 'ready', maxDocumentBytes: 1000 } }),
   }))
   expect(await screen.findByText(en.settingUp)).toBeTruthy()
   expect(await screen.findByText(en.ready, {}, { timeout: 4000 })).toBeTruthy()
@@ -310,6 +310,13 @@ it('shows the setup hint only when Memorix itself is unavailable', async () => {
   fireEvent.click(screen.getByRole('tab', { name: en.graph }))
   expect((await screen.findByRole('alert')).textContent).toBe('Graphify could not start')
   expect(screen.queryByText(en.setupHint)).toBeNull()
+})
+
+it('lists the chunks Graphify left out of the graph', async () => {
+  mount(memoryWith({ graph: () => Promise.resolve({ ok: true, value: { path: 'g.json', html: '<html></html>', documents: 1, skipped: ['observation 4 (document:x): bad title'] } }) }))
+  await idle()
+  fireEvent.click(screen.getByRole('tab', { name: en.graph }))
+  expect(await screen.findByText(`${en.graphSkipped}: observation 4 (document:x): bad title`)).toBeTruthy()
 })
 
 it('shows the upload hint instead of an empty viewer when no document is imported', async () => {
@@ -353,7 +360,7 @@ it('names the collection select distinctly from the Browse tab', async () => {
 
 it('formats the last saved and recalled instants and keeps Not yet', async () => {
   mount(memoryWith({ status: () => Promise.resolve({ ok: true, value: {
-    chatMemory: true, server: 'ready', lastSavedAt: '2026-10-15T09:30:00.000Z',
+    chatMemory: true, maxDocumentBytes: 1000, server: 'ready', lastSavedAt: '2026-10-15T09:30:00.000Z',
   } }) }))
   const format = new Intl.DateTimeFormat(en.dateLocale, { dateStyle: 'medium', timeStyle: 'short' })
   expect(await screen.findByText(format.format(new Date('2026-10-15T09:30:00.000Z')))).toBeTruthy()
@@ -367,4 +374,31 @@ it('ignores dropped files while busy', async () => {
   fireEvent.drop(zone, { dataTransfer: { files: [new File(['x'], 'a.txt')] } })
   expect(importDocument).not.toHaveBeenCalled()
   await screen.findByRole('combobox')
+})
+
+it('refuses a file over the Host upload limit without reading it, and still uploads the others', async () => {
+  const importDocument = vi.fn((filename: string) => Promise.resolve({ ok: true as const, value: { filename, originalPath: filename, completed: 1, total: 1, error: null } }))
+  const status = (maxDocumentBytes: number) => () => Promise.resolve({ ok: true as const, value: { chatMemory: true, server: 'ready' as const, maxDocumentBytes } })
+  const { container } = mount(memoryWith({ importDocument, status: status(2 * 1_048_576) }))
+  await screen.findByText(en.chatOn)
+  const huge = new File(['x'], 'huge.pdf')
+  Object.defineProperty(huge, 'size', { value: 3 * 1_048_576 })
+  const read = vi.fn(() => Promise.resolve(new ArrayBuffer(0)))
+  Object.defineProperty(huge, 'arrayBuffer', { value: read })
+  fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [huge, fileNamed('ok.md')] } })
+  await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(`huge.pdf: ${en.fileTooLarge} 2 MiB`) })
+  expect(read).not.toHaveBeenCalled()
+  expect(importDocument.mock.calls.map(call => call[0])).toEqual(['ok.md'])
+})
+
+it('cancels the in-flight graph request when the Context graph tab is left', async () => {
+  const signals: (AbortSignal | undefined)[] = []
+  const graph = vi.fn((signal?: AbortSignal) => { signals.push(signal); return new Promise<never>(() => undefined) })
+  mount(memoryWith({ graph }))
+  await idle()
+  fireEvent.click(screen.getByRole('tab', { name: en.graph }))
+  await waitFor(() => { expect(signals).toHaveLength(1) })
+  expect(signals[0]?.aborted).toBe(false)
+  fireEvent.click(screen.getByRole('tab', { name: en.browse }))
+  expect(signals[0]?.aborted).toBe(true)
 })

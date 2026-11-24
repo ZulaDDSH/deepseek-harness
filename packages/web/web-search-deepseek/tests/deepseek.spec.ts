@@ -329,11 +329,12 @@ describe('DeepSeekSearchProvider account authentication', () => {
 
   it('invalidates the sent account token once when cancellation interrupts reading the 401 body', async () => {
     const controller = new AbortController()
-    const response = jsonResponse({ error: 'invalid token' }, { status: 401 })
-    vi.spyOn(response, 'json').mockImplementation(async (): Promise<unknown> => {
-      controller.abort(new Error('caller stopped'))
-      throw new DOMException('The operation was aborted.', 'AbortError')
-    })
+    const response = new Response(new ReadableStream({
+      pull(streamController) {
+        controller.abort(new Error('caller stopped'))
+        streamController.error(new DOMException('The operation was aborted.', 'AbortError'))
+      },
+    }, { highWaterMark: 0 }), { status: 401 })
     vi.stubGlobal('fetch', vi.fn(async () => response))
     const rejectAccountToken = vi.fn(async (_token: string) => {})
     const error = await rejectedWebError(searchProvider({
@@ -583,16 +584,14 @@ describe('DeepSeekSearchProvider error handling', () => {
   })
 
   it('surfaces an abort during success-body parse as WEB_ABORTED', async () => {
-    const body = new Response('', { status: 200 })
-    vi.spyOn(body, 'json').mockRejectedValue(new DOMException('aborted', 'AbortError'))
+    const body = new Response(new ReadableStream({ pull(streamController) { streamController.error(new DOMException('aborted', 'AbortError')) } }), { status: 200 })
     vi.stubGlobal('fetch', vi.fn(async () => body))
     await expect(searchProvider(options).search({ query: 'q' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
   })
 
   it('surfaces an abort during error-body parse as WEB_ABORTED', async () => {
-    const body = new Response('', { status: 500 })
-    vi.spyOn(body, 'json').mockRejectedValue(new DOMException('aborted', 'AbortError'))
+    const body = new Response(new ReadableStream({ pull(streamController) { streamController.error(new DOMException('aborted', 'AbortError')) } }), { status: 500 })
     vi.stubGlobal('fetch', vi.fn(async () => body))
     await expect(searchProvider(options).search({ query: 'q' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
@@ -1032,5 +1031,58 @@ describe('web-search-deepseek on any model route', () => {
     expect(result).toMatchObject({ truncated: false })
     const [, init] = fetchMock.mock.calls[0] ?? []
     expect((init?.headers as Record<string, string>)['x-api-key']).toBe(key)
+  })
+})
+
+describe('DeepSeek result-block failures', () => {
+  it('fails when every result block holds only error items', () => {
+    expect(() => mapAnthropicResponse({
+      content: [{ type: 'web_search_tool_result', content: [{ type: 'web_search_result_error', url: '', error_code: 'unavailable' }] }],
+    })).toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: 'DeepSeek web search failed: unavailable' }))
+  })
+
+  it('fails when a result block carries an error object or no content', () => {
+    expect(() => mapAnthropicResponse({
+      content: [{ type: 'web_search_tool_result', content: { type: 'web_search_tool_result_error', error_code: 'too_many_requests' } }],
+    })).toThrow(expect.objectContaining({ message: 'DeepSeek web search failed: too_many_requests' }))
+    expect(() => mapAnthropicResponse({ content: [{ type: 'web_search_tool_result' }] }))
+      .toThrow(expect.objectContaining({ message: 'DeepSeek web search failed: missing_content' }))
+  })
+
+  it('reports a verified empty search as success', () => {
+    expect(mapAnthropicResponse({ content: [{ type: 'web_search_tool_result', content: [] }] }))
+      .toEqual({ sources: [], truncated: false })
+  })
+
+  it('exposes a partial failure beside the sources that did arrive', () => {
+    const result = mapAnthropicResponse({
+      content: [
+        { type: 'web_search_tool_result', content: [{ type: 'web_search_result_error', url: '', error_code: 'unavailable' }] },
+        { type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://a.test' }] },
+      ],
+    })
+    expect(result.sources).toEqual([{ url: 'https://a.test' }])
+    expect(result.content).toContain('unavailable')
+  })
+})
+
+describe('DeepSeekSearchProvider bounds and endpoint redaction', () => {
+  const secretOptions = { ...options, baseURL: 'https://user:pw@api.deepseek.test/anthropic/v1' }
+
+  it('rejects a success body over the byte cap without parsing it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ pad: 'x'.repeat(5 * 1024 * 1024) }), { status: 200 })))
+    const error = await rejectedWebError(searchProvider(options).search({ query: 'q' }))
+    expect(error.message).toContain('exceeds the')
+  })
+
+  it('records and reports the endpoint without user information or query', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: { message: 'boom' } }, { status: 500 })))
+    const recordRequest = vi.fn()
+    const error = await rejectedWebError(searchProvider({ ...secretOptions, recordRequest }).search({ query: 'q' }))
+    expect(recordRequest).toHaveBeenCalledOnce()
+    const [recorded] = recordRequest.mock.calls[0] as [{ endpoint: string }]
+    expect(recorded.endpoint).toBe('https://api.deepseek.test/anthropic/v1/messages')
+    expect(error.message).not.toContain('pw')
+    expect(error.message).toContain('https://api.deepseek.test/anthropic/v1/messages')
   })
 })

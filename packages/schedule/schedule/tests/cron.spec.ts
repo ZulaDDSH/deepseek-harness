@@ -44,6 +44,7 @@ describe('cron selector validation', () => {
     [{ expression: '0 0 * * *', time_zone: 'UTC', extra: true }, 'invalid_rule'],
     [{ expression: 7, time_zone: 'UTC' }, 'invalid_rule'],
     [{ expression: '0 0 L * *', time_zone: 'UTC' }, 'invalid_rule'],
+    [{ expression: `${'*,'.repeat(5000)}* * * * *`, time_zone: 'UTC' }, 'invalid_rule'],
     [{ expression: '0 0 * * *', time_zone: 7 }, 'invalid_time_zone'],
     [{ expression: '0 0 * * *', time_zone: '+08:00' }, 'invalid_time_zone'],
     [{ expression: '0 0 * * *', time_zone: 'Unknown/Zone' }, 'invalid_time_zone'],

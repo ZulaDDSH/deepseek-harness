@@ -27,7 +27,7 @@ Mount this provider with [`dsh-ssh`](../ssh/README.md) and `sandboxPolicy`; use 
 
 `resolve()` canonicalizes paths on the remote host. `processPath()` and `fileUrl()` name files in that same remote namespace; they do not grant host-side access. File URLs encode literal percent signs, backslashes and newlines without changing the filename. `processPathFromHostPath()` returns `undefined`, so consumers requiring an installed executable or bootstrap must supply a remote artifact explicitly.
 
-Reads preserve the shared filesystem error codes. All five mutations send the resolved per-call policy to the helper; `patchText`, `deleteFile`, and `moveFile` use `fs.patch`, `fs.delete`, and `fs.move`, with guards and results matching the local provider. Lost transport reports an I/O failure; a mutation may already have committed and is not retried automatically.
+Reads preserve the shared filesystem error codes. All five mutations send the resolved per-call policy to the helper; `patchText`, `deleteFile`, and `moveFile` use `fs.patch`, `fs.delete`, and `fs.move`, with guards and results matching the local provider. A mutation whose transport fails or is cancelled after dispatch, or whose reply cannot be validated, throws `FsOutcomeUnknownError` (`outcomeUnknown: true`, same `FS_IO_ERROR` or `FS_ABORTED` code; test with `isOutcomeUnknown`): the remote side may already have committed, and it is never retried automatically. Reconcile by re-reading the target and comparing its `FsVersion` with the guard you sent; repeat only when the version still equals that guard. A typed remote refusal and an already-aborted signal are definite failures. The provider does not issue operation receipts, and a failure while sending the request is flagged unknown too.
 
 -----
 

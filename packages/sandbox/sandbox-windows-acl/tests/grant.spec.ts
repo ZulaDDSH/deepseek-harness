@@ -60,6 +60,17 @@ describe.skipIf(!isWin32)('AclWriteGrant (server-side materialization)', () => {
     expect(icaclsText(standingDir)).toContain('S-1-4-9000-77')
   })
 
+  it('restore removes a standing workspace grant that dispose keeps', () => {
+    const dir = scratch()
+    const grant = AclWriteGrant.create('S-1-4-9000-78')
+    grant.add(dir, true)
+    grant.dispose()
+    expect(icaclsText(dir)).toContain('S-1-4-9000-78')
+    expect(AclWriteGrant.restore('S-1-4-9000-78', dir)).toBe(true)
+    expect(icaclsText(dir)).not.toContain('S-1-4-9000-78')
+    expect(icaclsText(dir)).not.toContain('Low Mandatory Level')
+  })
+
   it('two grants with different SIDs coexist and revoke independently', () => {
     const dir = scratch()
     const grantA = AclWriteGrant.create('S-1-4-9000-78')

@@ -80,6 +80,7 @@ export interface Config {
   enabledHooks?: Volatile<string[]>
   /** User-written descriptions keyed by {@link hookKey}; edited live from Settings. */
   hookDescriptions?: Volatile<Record<string, string>>
+  mandatory?: boolean
 }
 
 export const Config = z.object({
@@ -90,6 +91,7 @@ export const Config = z.object({
   maxForcedStops: z.number().default(DEFAULT_MAX_FORCED_STOPS),
   enabledHooks: z.array(z.string()).default([]).volatile(),
   hookDescriptions: z.dict(z.string()).default({}).volatile(),
+  mandatory: z.boolean().default(false),
 })
 
 let handlerCounter = 0
@@ -133,11 +135,15 @@ export function apply(ctx: Context, config: Config): void {
       ...inventory, status: 'loaded',
       skipped: result.skipped.map(s => `${s.event}: ${s.reason}`),
     }
+    if (config.mandatory === true && result.skipped.length > 0) {
+      throw new Error(`unsupported handlers: ${result.skipped.map(s => `${s.event}: ${s.reason}`).join(', ')}`)
+    }
     for (const s of result.skipped) {
       ctx.logger.warn(`hooks-codex: skipping ${s.reason} on ${s.event} (only sync command hooks run)`)
     }
   } catch (error: unknown) {
     inventory = { ...inventory, error: String(error) }
+    if (config.mandatory === true) throw new Error(`hooks-codex: mandatory hook config "${config.configPath}" is unusable: ${String(error)}`)
     ctx.logger.warn(`hooks-codex: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
     return
   }
@@ -206,6 +212,10 @@ export function apply(ctx: Context, config: Config): void {
           && output.additionalContext === undefined
           && output.stdout.length > 0 && !output.stdout.startsWith('{')) {
           output.additionalContext = output.stdout
+        }
+        if (config.mandatory === true && output.updatedInput !== undefined) {
+          output.decision = 'deny'
+          output.reason = `${point} hook requested updatedInput, which is not supported in mandatory mode`
         }
         outputs.push(output)
         // Execution and decision mapping remain in each bridge so dialect

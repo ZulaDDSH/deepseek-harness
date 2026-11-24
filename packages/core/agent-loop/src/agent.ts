@@ -19,7 +19,7 @@ import type {
   RequestErrorAction,
 } from '@deepseek-ai/dsh-agent'
 import { AgentModel, agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
-import type { GenerateOptions, LlmCallConfig, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmCallConfig, Message, MessageId, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
 import {
   LlmError,
   createAssistantMessage,
@@ -38,6 +38,7 @@ import { ToolActivationError, ToolBatchExecutionError } from '@deepseek-ai/dsh-t
 import type { ResolvedToolSet } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import { ReactLoopInbox } from './inbox.ts'
+import type { ClaimedInput } from './inbox.ts'
 import { RuntimeContextProjection } from './runtime-context.ts'
 import { AssistantStreamAttempt } from './assistant-stream.ts'
 import { SystemPromptProjection } from './runtime-context.ts'
@@ -67,6 +68,8 @@ type PreparedStep =
   | {
     kind: 'enter'
     messages: UserMessage[]
+    claimed: ClaimedInput
+    admitted: Set<MessageId>
     startsRequestSeries?: true
     assembly: PromptAssembly
     selection: Readonly<ModelSelection>
@@ -108,6 +111,8 @@ function abortedCancelCause(signal: AbortSignal): AgentCancelCause | undefined {
   }
 }
 
+const MAX_CLAIM_RESTORES = 3
+
 /** Drives one session through turn and step boundaries. */
 export class ReactLoopAgent implements Agent {
   readonly model: AgentModel
@@ -133,6 +138,8 @@ export class ReactLoopAgent implements Agent {
   private readonly systemPrompt: SystemPromptProjection
   /** Identities fully frozen by this loop; weak references do not retain replaced history. */
   private readonly frozenMessages = new WeakSet<Message>()
+  private drained = false
+  private readonly restoreCounts = new Map<MessageId, number>()
 
   constructor(
     private loopCtx: Context,
@@ -148,7 +155,7 @@ export class ReactLoopAgent implements Agent {
     this.scope = createScope(loopCtx, this)
     this.ctx = this.scope.ctx
     this.model = new AgentModel(projections.modelSelection, session, options)
-    this.inbox = new ReactLoopInbox(projections.inbox, session, this.dispatch)
+    this.inbox = new ReactLoopInbox(projections.inbox, session, this.dispatch, (message) => { this.restoreCounts.delete(message.id) })
     this.phase = { kind: 'idle', lastTurn }
     this.runtimeContext = new RuntimeContextProjection(this.ctx, session)
     this.systemPrompt = new SystemPromptProjection(session)
@@ -276,7 +283,13 @@ export class ReactLoopAgent implements Agent {
 
   private async kick(): Promise<void> {
     try {
-      while (await this.turn()) {}
+      while (true) {
+        this.drained = false
+        if (await this.turn()) continue
+        // Invariant: no await between this check and the idle commit.
+        if (!this.drained || !this.inbox.hasPending || this.lifetimeSignal.aborted) break
+        this.rearm()
+      }
     } catch (_error) {
       // Reported failures and cancellation are contained at the driver boundary.
     } finally {
@@ -294,10 +307,59 @@ export class ReactLoopAgent implements Agent {
     if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": pre-step outside running phase`)
     const signal = this.phase.abort.signal
     const claimed = this.inbox.claim(target, position.turn)
+    let prepared: PreparedStep
+    try {
+      prepared = await this.routeAndPrepare(claimed, position, signal)
+    } catch (error: unknown) {
+      throw this.releaseClaim(claimed, signal, error)
+    }
+    if (prepared.kind === 'reject') this.discardClaim(claimed)
+    return prepared
+  }
+
+  private releaseClaim(claimed: ClaimedInput, signal: AbortSignal, cause: unknown): unknown {
+    if (abortedCancelCause(signal) !== undefined) {
+      this.discardClaim(claimed)
+      return cause
+    }
+    let exhausted = 0
+    const retry = (messages: readonly UserMessage[]): UserMessage[] => messages.filter((message) => {
+      const restores = (this.restoreCounts.get(message.id) ?? 0) + 1
+      if (restores <= MAX_CLAIM_RESTORES) {
+        this.restoreCounts.set(message.id, restores)
+        return true
+      }
+      exhausted++
+      this.discardMessage(message)
+      return false
+    })
+    try {
+      this.inbox.restore({ 'next-step': retry(claimed['next-step']), 'next-turn': retry(claimed['next-turn']) })
+    } catch (restoreError: unknown) {
+      return new AggregateError([cause, restoreError], 'Claimed input could not be restored to the inbox', { cause })
+    }
+    return exhausted === 0 ? cause : new Error(`Discarded ${exhausted} claimed input message(s) after ${MAX_CLAIM_RESTORES} failed restores`, { cause })
+  }
+
+  private discardClaim(claimed: ClaimedInput): void {
+    for (const message of [...claimed['next-step'], ...claimed['next-turn']]) this.discardMessage(message)
+  }
+
+  private discardMessage(message: UserMessage): void {
+    this.restoreCounts.delete(message.id)
+    this.dispatch.emit('agent/inbox/discarded', { message })
+  }
+
+  private async routeAndPrepare(
+    claimed: ClaimedInput,
+    position: { turn: number; step: number },
+    signal: AbortSignal,
+  ): Promise<PreparedStep> {
+    const messages = [...claimed['next-step'], ...claimed['next-turn']]
     const pinned = this.options.pinnedSelection?.(this.session)
     const captured = this.model.current()
     const routed = pinned !== undefined ? undefined : await this.dispatch.waterfall(
-      'agent/route', { ...position, messages: claimed, signal },
+      'agent/route', { ...position, messages, signal },
       () => Promise.resolve<ModelSelection | undefined>(undefined),
     )
     signal.throwIfAborted()
@@ -310,13 +372,13 @@ export class ReactLoopAgent implements Agent {
       const assembly = await this.loopCtx.systemPrompt.assemble({ ...assembleContextFor(this, signal), modelSelection: selection, toolSet })
       signal.throwIfAborted()
       const decision = await this.dispatch.waterfall(
-        'agent/pre-step', { messages: claimed, ...position, signal, modelSelection: selection },
+        'agent/pre-step', { messages, ...position, signal, modelSelection: selection },
         (): Promise<PreStepDecision> => {
           const sections = renderContextSections(assembly)
           const context = this.runtimeContext.project(sections)
           return Promise.resolve<PreStepDecision>({
             kind: 'enter',
-            messages: context === undefined ? claimed : [...claimed, context],
+            messages: context === undefined ? messages : [...messages, context],
           })
         },
       )
@@ -325,7 +387,7 @@ export class ReactLoopAgent implements Agent {
         toolSet.dispose()
         return decision
       }
-      return { ...decision, assembly, selection, toolSet }
+      return { ...decision, claimed, admitted: new Set(), assembly, selection, toolSet }
     } catch (error: unknown) {
       toolSet.dispose()
       throw error
@@ -403,6 +465,8 @@ export class ReactLoopAgent implements Agent {
             stopRecovery()
             this.session.append('step/end', { turn, step })
           }
+        } catch (error: unknown) {
+          throw this.releaseClaim(this.unadmittedInput(decision), signal, error)
         } finally {
           // Admission closes once the step's tool batch settles or no step opens.
           decision.toolSet.dispose()
@@ -440,12 +504,24 @@ export class ReactLoopAgent implements Agent {
         this.throwError(error)
       }
     }
-    if (!this.inbox.hasPending) return false
-    phase.abort = new AbortController()
-    // A fresh controller makes a latch set on the old one stale: the live driver claims the queue itself.
-    phase.wakeRequested = false
-    phase.step = 0
+    if (!this.inbox.hasPending) {
+      this.drained = true
+      return false
+    }
+    this.rearm()
     return true
+  }
+
+  private unadmittedInput(decision: Extract<PreparedStep, { kind: 'enter' }>): ClaimedInput {
+    const pending = (messages: readonly UserMessage[]): UserMessage[] => messages.filter(message => !decision.admitted.has(message.id))
+    return { 'next-step': pending(decision.claimed['next-step']), 'next-turn': pending(decision.claimed['next-turn']) }
+  }
+
+  private rearm(): void {
+    if (this.phase.kind !== 'running') return
+    this.phase.abort = new AbortController()
+    this.phase.wakeRequested = false
+    this.phase.step = 0
   }
 
   private async step(decision: Extract<PreparedStep, { kind: 'enter' }>): Promise<StepEndReason | null> {
@@ -485,6 +561,8 @@ export class ReactLoopAgent implements Agent {
             }
           } else {
             this.session.append('user/message', message, { surfaceOp: 'append' })
+            decision.admitted.add(message.id)
+            this.restoreCounts.delete(message.id)
           }
         }
       }

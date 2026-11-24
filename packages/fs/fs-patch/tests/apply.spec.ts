@@ -43,22 +43,29 @@ describe('applyHunks', () => {
     { name: 'repeated anchors use the advancing cursor', before: 'fn\nx\nfn\nx\n', body: ['@@ fn', '-x', '+first', '@@ fn', '-x', '+second'], after: 'fn\nfirst\nfn\nsecond\n' },
     { name: 'anchors also use punctuation tolerance', before: 'fn “a”\nx\n', body: ['@@ fn "a"', '-x', '+X'], after: 'fn “a”\nX\n' },
     { name: 'empty-file insertion', before: '', body: ['+hello'], after: 'hello\n' },
-    { name: 'insertion after an unterminated final line', before: 'hello', body: ['+world'], after: 'hello\nworld\n' },
-    { name: 'insertion before the final empty source line', before: 'hello\n\n', body: ['+world'], after: 'hello\nworld\n' },
-    { name: 'insertion into a one-newline file', before: '\n', body: ['+hello'], after: 'hello\n' },
-    { name: 'anchored pure insertion still appends at EOF', before: 'fn\nx\ny\n', body: ['@@ fn', '+last'], after: 'fn\nx\ny\nlast\n' },
+    { name: 'insertion after an unterminated final line keeps it unterminated', before: 'hello', body: ['+world'], after: 'hello\nworld' },
+    { name: 'insertion after a trailing blank source line keeps the blank line', before: 'hello\n\n', body: ['+world'], after: 'hello\n\nworld\n' },
+    { name: 'insertion into a one-newline file keeps its blank line', before: '\n', body: ['+hello'], after: '\nhello\n' },
+    { name: 'anchored insertion marked as end of file appends at EOF', before: 'fn\nx\ny\n', body: ['@@ fn', '+last', '*** End of File'], after: 'fn\nx\ny\nlast\n' },
+    { name: 'touching hunk ranges are not an overlap', before: 'x\ny\n', body: ['-x', '+X', '@@', '-y', '+Y', '*** End of File'], after: 'X\nY\n' },
+    { name: 'edit away from EOF keeps an unterminated file unterminated', before: 'a\nb', body: ['-a', '+A'], after: 'A\nb' },
+    { name: 'edit away from EOF keeps several trailing newlines', before: 'a\nb\n\n\n', body: ['-a', '+A'], after: 'A\nb\n\n\n' },
+    { name: 'fuzzy context keeps the file indentation', before: 'def f():\n    x = 1\n    y = 2\n', body: [' def f():', '-x = 1', '+    x = 3', ' y = 2'], after: 'def f():\n    x = 3\n    y = 2\n' },
+    { name: 'fuzzy context keeps trailing whitespace', before: '  keep\t\nold\n', body: [' keep', '-old', '+new'], after: '  keep\t\nnew\n' },
+    { name: 'fuzzy context keeps Unicode punctuation', before: 'say “hi”\nold\n', body: [' say "hi"', '-old', '+new'], after: 'say “hi”\nnew\n' },
+    { name: 'trailing empty context retry keeps matched context bytes', before: ' a\nb\n', body: [' a', '-b', '+B', ''], after: ' a\nB\n' },
+    { name: 'a hunk deep in a large file stays within the search budget', before: Array.from({ length: 100_000 }, (_, i) => `l${i}`).join('\n'), body: ['-l99999', '+z'], after: `${Array.from({ length: 99_999 }, (_, i) => `l${i}`).join('\n')}\nz` },
     { name: 'multiple pure insertions retain patch order', before: 'x\n', body: ['+first', '@@', '+second'], after: 'x\nfirst\nsecond\n' },
     { name: 'pure deletion retains surrounding lines', before: 'a\nb\nc\n', body: ['-b'], after: 'a\nc\n' },
     { name: 'deletion to empty text', before: 'a\n', body: ['-a'], after: '' },
-    { name: 'replacement adds a missing final newline', before: 'a', body: ['-a', '+b'], after: 'b\n' },
+    { name: 'replacement keeps a missing final newline', before: 'a', body: ['-a', '+b'], after: 'b' },
     { name: 'EOF prefers the tail over an earlier exact match', before: 'x\nx \n', body: ['-x', '+X', '*** End of File'], after: 'x\nX\n' },
     { name: 'EOF may search before the sequential cursor', before: 'x\n', body: ['@@ x', '-x', '+X', '*** End of File'], after: 'X\n' },
-    { name: 'overlapping EOF hunks retain upstream replacement order', before: 'x\n', body: ['-x', '+first', '@@', '-x', '+second', '*** End of File'], after: 'first\n' },
     { name: 'trailing empty context retries without both sentinels', before: 'a\n', body: ['-a', '+b', ''], after: 'b\n' },
     { name: 'trailing empty old line can retry without trimming the insertion', before: 'a\n', body: ['-a', '-', '+b'], after: 'b\n' },
     { name: 'empty retry pattern matches the cursor', before: '', body: ['-', '+b'], after: 'b\n' },
     { name: 'empty retry after an anchor matches its cursor', before: 'a\n', body: ['@@ a', '-', '+b'], after: 'a\nb\n' },
-    { name: 'explicit context is replaced from patch text in NormalizeToLf', before: '  context\r\nold\n', body: [' context', '-old', '+new'], after: 'context\nnew\n' },
+    { name: 'fuzzy context keeps the file bytes, including a CR', before: '  context\r\nold\n', body: [' context', '-old', '+new'], after: '  context\r\nnew\n' },
     { name: 'CRLF input retains CR on untouched lines', before: 'a\r\nb\r\n', body: ['-a', '+A'], after: 'A\nb\r\n' },
     { name: 'appending does not normalize existing CRLF', before: 'a\r\n', body: ['+b'], after: 'a\r\nb\n' },
     { name: 'lone CR remains an ordinary character', before: 'a\rb\n', body: ['-a\rb', '+c'], after: 'c\n' },
@@ -101,6 +108,10 @@ describe('applyHunks', () => {
     { name: 'combining marks are not Unicode-normalized', before: 'é\n', body: ['-é', '+b'], failure: { hunkLineNumber: 3, stage: 'oldLines', searchStart: 0, pattern: ['é'] } },
     { name: 'interior EN QUAD is outside the punctuation mapping', before: 'a\u2000b\n', body: ['-a b', '+b'], failure: { hunkLineNumber: 3, stage: 'oldLines', searchStart: 0, pattern: ['a b'] } },
     { name: 'lone CR does not split source lines', before: 'a\rb', body: ['-a', '-b', '+c'], failure: { hunkLineNumber: 3, stage: 'oldLines', searchStart: 0, pattern: ['a', 'b'] } },
+    { name: 'identical EOF hunks overlap', before: 'x\n', body: ['-x', '+first', '@@', '-x', '+second', '*** End of File'], failure: { hunkLineNumber: 5, stage: 'overlap', searchStart: 0, pattern: ['x'] } },
+    { name: 'partially overlapping EOF hunks conflict', before: 'a\nb\nc\n', body: ['-b', '-c', '+X', '@@', '-c', '+Y', '*** End of File'], failure: { hunkLineNumber: 6, stage: 'overlap', searchStart: 2, pattern: ['c'] } },
+    { name: 'an anchored insertion without an end marker is rejected', before: 'fn\nx\ny\n', body: ['@@ fn', '+last'], failure: { hunkLineNumber: 3, stage: 'insertion', searchStart: 0, pattern: ['fn'] } },
+    { name: 'an adversarial repeated search exceeds the work budget', before: 'x\n'.repeat(20_000), body: [...Array.from({ length: 5_000 }, () => '-x'), '-y'], failure: { hunkLineNumber: 3, stage: 'budget', searchStart: 0, pattern: [...Array.from({ length: 5_000 }, () => 'x'), 'y'] } },
   ])('$name', ({ before, body, failure }) => {
     const hunks = update(...body)
     const originalHunks = JSON.stringify(hunks)
@@ -111,8 +122,8 @@ describe('applyHunks', () => {
   })
 
   it.each([
-    ['', ''], ['a', 'a\n'], ['a\n', 'a\n'], ['a\n\n', 'a\n'],
-  ])('empty hunk list applies NormalizeToLf reconstruction to %j', (before, after) => {
+    ['', ''], ['a', 'a'], ['a\n', 'a\n'], ['a\n\n', 'a\n\n'],
+  ])('empty hunk list returns %j unchanged', (before, after) => {
     const operations = parsePatch('*** Begin Patch\n*** End Patch')
     const hunks = operations.flatMap(operation => operation.kind === 'update' ? operation.hunks : [])
     expect(applyHunks(before, hunks)).toEqual({ ok: true, after })

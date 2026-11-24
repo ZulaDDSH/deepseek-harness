@@ -19,6 +19,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { readdirSync } from 'node:fs'
 import { spawn } from 'node:child_process'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
@@ -57,6 +58,8 @@ interface Behavior {
   stderrNote?: string
   /** Let a short-lived descendant retain stdio and emit one final ACP update plus stderr line after this parent exits. */
   lateInheritedOutput?: boolean
+  ignoreEof?: boolean
+  holdPipesAfterExit?: boolean
   /** Session logs to persist on stdin EOF and, when selected, on cancellation. */
   logs?: ScriptedLog[]
   /** Leave a stray FILE directly under the sessions root (harvest must skip it). */
@@ -251,6 +254,10 @@ function flushLogsAndExit(): void {
     writeFileSync(join(sessionsRoot, 'bucket-noise', 'notes.txt'), 'not a session log\n')
   }
   if (behavior.deleteSessionsRoot === true) rmSync(sessionsRoot, { recursive: true, force: true })
+  if (behavior.ignoreEof === true) { setTimeout(() => { process.exit(0) }, 20_000); return }
+  if (behavior.holdPipesAfterExit === true) {
+    spawn(process.execPath, ['-e', 'setTimeout(() => {}, 4000)'], { cwd: tmpdir(), detached: true, stdio: ['ignore', 'inherit', 'inherit'] }).unref()
+  }
   if (behavior.lateInheritedOutput === true) {
     const frame = JSON.stringify({
       jsonrpc: '2.0',

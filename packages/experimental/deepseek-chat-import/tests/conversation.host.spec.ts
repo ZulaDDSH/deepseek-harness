@@ -264,7 +264,7 @@ describe('convertConversation', () => {
       truncated: false,
     })
     expect(resultText(results[0]?.data.message.content)).toContain('- [Route A](https://a.example/route) — Take bus 1')
-    expect(results[1]?.data.meta).toEqual({ url: 'https://a.example/route', statusCode: 200, truncated: false })
+    expect(results[1]?.data.meta).toEqual({ url: 'https://a.example/route', finalUrl: null, statusCode: null, truncated: false })
     expect(resultText(results[1]?.data.message.content)).toContain('Route A\n\nThe page content is not included in the DeepSeek chat export.')
     expect(results[2]?.data).not.toHaveProperty('meta')
     expect(results[2]?.data.message.content).toEqual([{ type: 'text', text: 'Error: the page could not be opened.' }])
@@ -521,6 +521,7 @@ describe('convertConversation', () => {
     }
     const file = conversation([message(1, null, 'USER', [files, ask('Explain these')]), message(2, 1, 'ASSISTANT', [answer('ok')])])
     const lost = syntheticFile('img-2', 'lost.png', 12)
+    const note = (name: string, bytes: number): string => `[Not imported: the export does not include the contents of the attached file "${name}" (${bytes} bytes).]`
     const report = syntheticFile('doc-1', 'report.pdf', 2048)
     expect(report.attachmentId).toBe(`sha256:${createHash('sha256').update('deepseek-chat-export:doc-1').digest('hex')}`)
     // Without a stored image every file is a card; the ids are deterministic in the export file ids.
@@ -530,7 +531,7 @@ describe('convertConversation', () => {
         { type: 'file', attachment: syntheticFile('img-1', 'chart.png', 10) },
         { type: 'file', attachment: lost },
         { type: 'file', attachment: report },
-        { type: 'text', text: 'Explain these' },
+        { type: 'text', text: ['Explain these', note('chart.png', 10), note('lost.png', 12), note('report.pdf', 2048)].join('\n') },
       ],
     })
     const image: ImageAttachmentRef = {
@@ -543,13 +544,13 @@ describe('convertConversation', () => {
         { type: 'image', attachment: image },
         { type: 'file', attachment: lost },
         { type: 'file', attachment: report },
-        { type: 'text', text: 'Explain these' },
+        { type: 'text', text: ['Explain these', note('lost.png', 12), note('report.pdf', 2048)].join('\n') },
       ],
     })
     const imageOnly = conversation([message(1, null, 'USER', [{ type: 'FILE', files: [files.files[0]] }])])
     expect(history(convert(imageOnly, new Map([['img-1', image]])).events)[0]?.content).toEqual([{ type: 'image', attachment: image }])
     const cardOnly = conversation([message(1, null, 'USER', [{ type: 'FILE', files: [files.files[2]] }])])
-    expect(history(convert(cardOnly).events)[0]?.content).toEqual([{ type: 'file', attachment: report }])
+    expect(history(convert(cardOnly).events)[0]?.content).toEqual([{ type: 'file', attachment: report }, { type: 'text', text: note('report.pdf', 2048) }])
   })
 
   it('names a synthetic file card by the sanitized leaf name and defaults a missing size to zero', () => {

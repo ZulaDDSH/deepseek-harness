@@ -304,6 +304,16 @@ export function isInstallPending(phase: InstallState['phase']): boolean {
   return phase === 'starting' || phase === 'running' || phase === 'cancelling' || phase === 'applying' || phase === 'unconfirmed'
 }
 
+type Settled<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } }
+
+async function settled<T>(call: () => Promise<Settled<T>>): Promise<Settled<T>> {
+  try {
+    return await call()
+  } catch (error) {
+    return { ok: false, error: { message: error instanceof Error ? error.message : String(error) } }
+  }
+}
+
 /**
  * Offer the configured mainland mirror after a confirmed GitHub connection failure.
  * @param install - the installation and the Host's failure attribution.
@@ -939,7 +949,7 @@ export class PluginManagerController {
     if (this.disposed || versions[packageName]?.phase === 'checking' || (update?.phase === 'running' && update.packageName === packageName)) return
     this.patchVersions(packageName, { phase: 'checking' })
     // The generated Remote takes every business argument before its optional signal; `{}` asks the Host's own plan.
-    const answer = await this.ctx.remote.pluginManager.listVersions(packageName, {})
+    const answer = await settled(() => this.ctx.remote.pluginManager.listVersions(packageName, {}))
     const list: PluginVersionList = answer.ok ? answer.value : { status: 'refused', problem: 'unknown', reason: answer.error.message, attempts: [] }
     this.patchVersions(packageName, { phase: 'done', list, checkedAt: Date.now() })
   }
@@ -957,8 +967,8 @@ export class PluginManagerController {
     const running: UpdateState = { ...update, phase: 'running', steps: [], requestId, result: null }
     this.patch({ update: running })
     const { source } = update
-    const answer = await this.ctx.remote.pluginManager.updateBundle(update.packageName, update.to,
-      source.kind === 'registry' ? { registry: source.registry, requestId } : { spec: source.spec, requestId })
+    const answer = await settled(() => this.ctx.remote.pluginManager.updateBundle(update.packageName, update.to,
+      source.kind === 'registry' ? { registry: source.registry, requestId } : { spec: source.spec, requestId }))
     // Nothing closes or replaces a running update before its answer; after disposal `patch` publishes nothing.
     const current = this.getSnapshot().update as UpdateState
     this.patch({ update: { ...current, phase: 'done', ...answer.ok ? { result: answer.value } : { lost: answer.error.message } } })
@@ -1298,11 +1308,11 @@ export class PluginManagerController {
     // The Host announces `plugin-manager/changed` while the run is still on
     // the wire, and every such event reads again; those reads must not cancel
     // the run's settlement.
-    const result = await this.ctx.remote.pluginManager.installBundle(spec, {
+    const result = await settled(() => this.ctx.remote.pluginManager.installBundle(spec, {
       enabled: subject.selection ?? false, requestId, registry,
       ...subject.saveExact === undefined ? {} : { saveExact: subject.saveExact },
       ...approvedBuilds === undefined ? {} : { approvedBuilds: [...approvedBuilds] },
-    })
+    }))
     if (this.disposed || this.request !== request) return
     if (!result.ok) {
       request.replyLost = true
@@ -1318,7 +1328,7 @@ export class PluginManagerController {
     const request = this.request
     if (request === undefined || !request.replyLost || request.recovering) return
     request.recovering = true
-    const result = await this.ctx.remote.pluginManager.waitForInstall(request.requestId)
+    const result = await settled(() => this.ctx.remote.pluginManager.waitForInstall(request.requestId))
     if (this.disposed || this.request !== request) return
     request.recovering = false
     if (!result.ok) {
@@ -1423,7 +1433,7 @@ export class PluginManagerController {
     const acknowledged = request.acknowledged
     cancellation.waitingForStart = false
     this.patchInstall({ phase: 'cancelling', failure: null })
-    const result = await this.ctx.remote.pluginManager.cancelInstall(request.requestId)
+    const result = await settled(() => this.ctx.remote.pluginManager.cancelInstall(request.requestId))
     if (this.disposed || this.request !== request || request.cancellation !== cancellation) return
     if (!result.ok) {
       cancellation.waitingForStart = !request.acknowledged

@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useRef } from 'react'
+import { browserStorage } from '@deepseek-ai/dsh-client-store'
 import type { ConversationWidthControlsProps } from '../contract/slots.ts'
 import css from './ConversationRoot.module.css'
 
@@ -12,12 +13,15 @@ const WHEEL_DELTA_LINE = 1
 const WHEEL_DELTA_PAGE = 2
 const FALLBACK_WHEEL_LINE_PX = 16
 
+let sessionWidth: number | null = null
+
 /** Read a valid persisted width preference, or null when absent or corrupt. */
 function readWidthPreference(): number | null {
-  const raw = localStorage.getItem(WIDTH_PREF_KEY)
-  if (raw === null) return null
+  if (sessionWidth !== null) return sessionWidth
+  let raw: string | null = null
+  try { raw = browserStorage()?.getItem(WIDTH_PREF_KEY) ?? null } catch { raw = null }
   const value = Number(raw)
-  return Number.isFinite(value) && value > 0 ? value : null
+  return raw !== null && Number.isFinite(value) && value > 0 ? value : null
 }
 
 /** Resolve the width displayed for one measured Conversation column. */
@@ -162,7 +166,12 @@ export function ConversationWidthControls({ container, phase }: ConversationWidt
   }, [container])
   const onCommit = useCallback((width: number): void => {
     if (container === null) return
-    localStorage.setItem(WIDTH_PREF_KEY, `${resolveContentWidth(container.offsetWidth, width)}`)
+    const resolved = resolveContentWidth(container.offsetWidth, width)
+    const storage = browserStorage()
+    try {
+      if (storage === undefined) sessionWidth = resolved
+      else { storage.setItem(WIDTH_PREF_KEY, `${resolved}`); sessionWidth = null }
+    } catch { sessionWidth = resolved }
   }, [container])
   const onEnd = useCallback((): void => {
     if (container !== null) publishWidths(container)

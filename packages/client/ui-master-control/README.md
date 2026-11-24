@@ -45,4 +45,4 @@ An imported session starts a new DSH request history; it does not inherit a vend
 
 ### Dev Note
 
-Implementation anchors and durable behavior notes live in [code notes](../../../docs/code-notes/deepseek-harness.md).
+Implementation anchors and durable behavior notes live in [code notes](https://github.com/ZulaDDSH/CodeNotes/blob/main/Deepseek%20Harness/deepseek-harness.md).

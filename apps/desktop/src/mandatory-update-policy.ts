@@ -1,5 +1,6 @@
 /** Mandatory-update policy, independent of local business traffic and updater artifacts. */
 
+import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { valid } from 'semver'
 import type { AccountClientMetadata } from '@deepseek-ai/dsh-deepseek-account'
 import { platformClientHeaders } from '@deepseek-ai/dsh-deepseek-account/client-metadata'
@@ -32,6 +33,29 @@ export interface DesktopPolicyState {
   readonly detail?: string
   readonly page?: string
   readonly error?: 'unavailable' | 'authentication-required'
+}
+
+export interface DesktopPolicyStore {
+  read(): unknown
+  write(value: unknown): void
+}
+
+export function fileDesktopPolicyStore(path: string): DesktopPolicyStore {
+  return {
+    read() {
+      try {
+        const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+        return parsed
+      } catch { return undefined }
+    },
+    write(value) {
+      try {
+        const temp = `${path}.tmp`
+        writeFileSync(temp, JSON.stringify(value ?? null))
+        renameSync(temp, path)
+      } catch { return }
+    },
+  }
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -128,7 +152,7 @@ function parsePolicy(body: unknown, ok: boolean, config: DesktopPolicyConfig): D
 
 /** Owns one installed-client context, its in-flight request, and polling schedule. */
 export class DesktopMandatoryUpdatePolicy {
-  private current: DesktopPolicyState = { blocking: false, checking: false }
+  private current: DesktopPolicyState
   private pending: Promise<DesktopPolicyState> | undefined
   private pendingChannel: DesktopPolicyIdentity['channel'] | undefined
   private controller: AbortController | undefined
@@ -136,6 +160,7 @@ export class DesktopMandatoryUpdatePolicy {
   private disposed = false
   private failures = 0
   private nextCheck = -Infinity
+  private readonly persistKey: string
 
   /**
    * @param config - Resolved deployment settings.
@@ -152,9 +177,27 @@ export class DesktopMandatoryUpdatePolicy {
     private readonly request: typeof fetch = fetch,
     private readonly client: () => AccountClientMetadata,
     private readonly random: () => number = Math.random,
+    private readonly store?: DesktopPolicyStore,
   ) {
     if (valid(this.client().version) === null || valid(identity.bundledDshVersion) === null
       || (identity.platform === 'win32' && identity.arch !== 'x64')) throw new Error('desktop policy: invalid installed client identity')
+    this.persistKey = `${config.origin}|${identity.bundledDshVersion}`
+    this.current = this.restore()
+  }
+
+  private restore(): DesktopPolicyState {
+    const saved = record(this.store?.read())
+    if (saved?.key !== this.persistKey || saved.blocking !== true) return { blocking: false, checking: false }
+    const title = text(saved.title, 256)
+    const detail = text(saved.detail, 16_384)
+    const page = desktopPolicyPage(saved.page, this.config.allowedPageOrigins)
+    return { blocking: true, checking: false,
+      ...(title === undefined ? {} : { title }), ...(detail === undefined ? {} : { detail }), ...(page === undefined ? {} : { page }) }
+  }
+
+  private persist(state: DesktopPolicyState): void {
+    const { title, detail, page } = state
+    this.store?.write(state.blocking ? { key: this.persistKey, blocking: true, title, detail, page } : undefined)
   }
 
   /** Platform headers for one check; the calling UI's language and UTC offset are read now. */
@@ -203,6 +246,7 @@ export class DesktopMandatoryUpdatePolicy {
         }
         const state = parsePolicy(body, response.ok, this.config)
         this.failures = 0
+        this.persist(state)
         this.setState(state)
       } catch {
         // Transport, JSON, and protocol failures retain any previously established block.

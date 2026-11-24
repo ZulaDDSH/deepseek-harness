@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { c as createTar } from 'tar'
@@ -264,6 +264,31 @@ it('writes the index and icons once, keeps the cache beside the input, and remov
   expect((JSON.parse(readFileSync(other, 'utf8')) as { description: string }).description).toBe('D')
   writeFileSync(list, 'http://example.com/o/r\n')
   expect(await main(['--input', list, '--output', other, '--title', 'T'])).toBe(2)
+})
+
+it('prunes icons only after the index is written and never removes icons another index in the directory references', async () => {
+  const server = await registry({
+    'dsh-a': { '1.0.0': { time: '2026-06-01T00:00:00.000Z', manifest: BUNDLE, tarball: await pack({ 'package.json': bundleManifest('dsh-a', '1.0.0', { icon: 'i.png' }), 'i.png': new Uint8Array(20000) }) } },
+  })
+  const lists = scratch()
+  const out = join(scratch(), 'site')
+  const list = join(lists, 'plugins.txt')
+  writeFileSync(list, 'dsh-a\n')
+  const args = (name: string) => ['--input', list, '--output', join(out, name), '--title', 'T', '--registry', server.url]
+  expect(await main(args('a.json'))).toBe(0)
+  const icon = (JSON.parse(readFileSync(join(out, 'a.json'), 'utf8')) as { plugins: { icon: string }[] }).plugins[0]?.icon ?? ''
+  writeFileSync(join(out, 'b.json'), readFileSync(join(out, 'a.json')))
+  writeFileSync(list, 'dsh-gone\n')
+  expect(await main(args('a.json'))).toBe(1)
+  expect(existsSync(join(out, icon))).toBe(true)
+  rmSync(join(out, 'b.json'))
+  rmSync(join(out, 'a.json'))
+  mkdirSync(join(out, 'a.json'))
+  expect(await main(args('a.json'))).toBe(2)
+  expect(existsSync(join(out, icon))).toBe(true)
+  rmSync(join(out, 'a.json'), { recursive: true })
+  expect(await main(args('a.json'))).toBe(1)
+  expect(existsSync(join(out, icon))).toBe(false)
 })
 
 it('refreshes optional metrics outside source caches and keeps plugins on metric outages', async () => {

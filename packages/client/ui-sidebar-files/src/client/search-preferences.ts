@@ -10,7 +10,7 @@
  * holds whatever an earlier build or the reader wrote: each entry is read
  * through {@link readSearchPreferences} rather than trusted.
  */
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { browserStorage, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   changedSearchPreferences, defaultSearchPreferences, readSearchPreferences, type WorkspaceSearchPreferences,
@@ -72,6 +72,7 @@ export interface WorkspaceSearchPreferenceBook {
    * @param patch - any of the exclusion rules, the hidden-entry choice, and the `.gitignore` choice.
    */
   readonly update: (cwd: string, patch: Partial<WorkspaceSearchPreferences>) => void
+  readonly refresh: () => void
 }
 
 /**
@@ -99,9 +100,20 @@ export function createSearchPreferenceBook(store: SnapshotStore<unknown>): Works
     sources.set(key, created)
     return created
   }
+  const refresh = (): void => {
+    try {
+      const raw = browserStorage()?.getItem(SEARCH_PREFERENCES_KEY)
+      if (raw === null || raw === undefined || raw === JSON.stringify(store.getSnapshot())) return
+      store.set(JSON.parse(raw))
+    } catch {
+      return
+    }
+  }
   return {
     source,
+    refresh,
     update(cwd, patch) {
+      refresh()
       const preferences = { ...source(cwd).getSnapshot(), ...patch }
       const key = workspaceKey(cwd)
       const stored = store.getSnapshot()

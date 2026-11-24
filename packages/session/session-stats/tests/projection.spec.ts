@@ -230,6 +230,34 @@ describe('sessionStats wall-time fold (controlled timestamps)', () => {
     ])).toEqual(totals({ turns: 1, steps: 1, llmMs: 4_000, ttftMs: 200, ttftSteps: 1 }))
   })
 
+  it('times decode over the final attempt only when a delayed retry reports usage', () => {
+    expect(fold([
+      at(1_000, 'step/start', { turn: 1, step: 1 }),
+      attemptAt(2_000, [{
+        time: 1_100, chunk: { type: 'text-delta', index: 0, text: 'partial' },
+      }]),
+      at(2_000, 'llm/retry', { turn: 1, step: 1 }),
+      messageAt(12_000, [{
+        time: 10_000, chunk: { type: 'text-delta', index: 0, text: 'y' },
+      }], { inputTokens: 10, outputTokens: 100 }),
+      at(12_100, 'step/end', { turn: 1, step: 1 }),
+    ])).toEqual(totals({
+      turns: 1, steps: 1, llmMs: 11_000, ttftMs: 100, ttftSteps: 1, decodeMs: 2_000, decodeTokens: 100,
+    }))
+  })
+
+  it('accrues no decode figures when the final stream has no token despite usage', () => {
+    expect(fold([
+      at(1_000, 'step/start', { turn: 1, step: 1 }),
+      attemptAt(2_000, [{
+        time: 1_100, chunk: { type: 'text-delta', index: 0, text: 'partial' },
+      }]),
+      at(2_000, 'llm/retry', { turn: 1, step: 1 }),
+      messageAt(5_000, [], { inputTokens: 10, outputTokens: 100 }),
+      at(5_100, 'step/end', { turn: 1, step: 1 }),
+    ])).toEqual(totals({ turns: 1, steps: 1, llmMs: 4_000, ttftMs: 100, ttftSteps: 1 }))
+  })
+
   it('ignores empty deltas, non-token chunks, and chunks outside the open step', () => {
     expect(fold([
       // Attempt before any step/start: no open boundary.

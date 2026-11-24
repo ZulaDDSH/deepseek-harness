@@ -2,7 +2,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { AttachmentId } from '@deepseek-ai/dsh-attachment/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -18,6 +18,91 @@ import LocalAttachmentStore, {
   DEFAULT_MAX_IMAGES_PER_MESSAGE,
   DEFAULT_MAX_MESSAGE_IMAGE_BYTES,
 } from '../src/index.ts'
+
+describe('local attachment file limits', () => {
+  it('refuses a verbatim file or stream above the configured per-file limit', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-local-file-limit-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome: home, maxFileBytes: 4 })
+      await expect(service.saveFile({ data: new Uint8Array(5) })).rejects.toMatchObject({ code: 'FILE_TOO_LARGE' })
+      await expect(service.saveFileStream({ data: (async function* () { yield new Uint8Array(5) })() }))
+        .rejects.toMatchObject({ code: 'FILE_TOO_LARGE' })
+      await expect(service.saveFile({ data: new Uint8Array(4) })).resolves.toMatchObject({ bytes: 4 })
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('local attachment file handles', () => {
+  it('offers a host path only while the stored file exists with its recorded length', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-local-file-handle-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome: home })
+      const ref = await service.saveFile({ data: Uint8Array.of(1, 2, 3, 4), name: 'a.bin' })
+      const path = service.fileHostPath(ref)
+      expect(path).toBeDefined()
+      await chmod(path as string, 0o600)
+      await writeFile(path as string, Uint8Array.of(9, 9))
+      expect(service.fileHostPath(ref)).toBeUndefined()
+      await rm(path as string)
+      expect(service.fileHostPath(ref)).toBeUndefined()
+      expect(() => service.fileHostPath({ ...ref, attachmentId: brandString<AttachmentId>('invalid') })).toThrow()
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('hands out a host path for a freshly saved file above the synchronous verification limit', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-local-file-handle-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome: home, maxHostPathVerifyBytes: 8 })
+      const ref = await service.saveFile({ data: new Uint8Array(32).fill(7), name: 'big.bin' })
+      const streamed = await service.saveFileStream({
+        data: (async function* (): AsyncIterable<Uint8Array> { yield new Uint8Array(32).fill(9) })(),
+        name: 'streamed.bin',
+      })
+      expect(service.fileHostPath(ref)).toBeDefined()
+      expect(service.fileHostPath(streamed)).toBeDefined()
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('withholds a host path above the synchronous verification limit once the stored file changed identity', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-local-file-handle-'))
+    try {
+      const small = new LocalAttachmentStore(new Context(), { dshHome: home, maxHostPathVerifyBytes: 8 })
+      const ref = await small.saveFile({ data: new Uint8Array(32).fill(7), name: 'big.bin' })
+      const path = small.fileHostPath(ref)!
+      await chmod(path, 0o600)
+      await utimes(path, new Date(0), new Date(1000))
+      expect(small.fileHostPath(ref)).toBeUndefined()
+      const large = new LocalAttachmentStore(new Context(), { dshHome: home })
+      expect(large.fileHostPath(ref)).toBe(path)
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('withholds a host path whose stored bytes changed without changing length, and restores it when the bytes return', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-local-file-handle-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome: home })
+      const original = Uint8Array.of(1, 2, 3, 4)
+      const ref = await service.saveFile({ data: original, name: 'a.bin' })
+      const path = service.fileHostPath(ref) as string
+      expect(path).toBeDefined()
+      await chmod(path, 0o600)
+      await writeFile(path, Uint8Array.of(9, 9, 9, 9))
+      expect(service.fileHostPath(ref)).toBeUndefined()
+      await writeFile(path, original)
+      expect(service.fileHostPath(ref)).toBe(path)
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+})
 
 describe('local attachment service', () => {
   it('resolves every omitted admission limit explicitly', () => {
@@ -93,13 +178,13 @@ describe('local attachment service', () => {
       const fileRef = await service.saveFile({ data: fileData, name: 'notes.bin' })
       const filePath = service.fileHostPath(fileRef)
       expect(filePath).toContain(join('files', String(fileRef.attachmentId).slice(7, 9)))
-      await expect(readFile(filePath)).resolves.toEqual(Buffer.from(fileData))
+      await expect(readFile(filePath!)).resolves.toEqual(Buffer.from(fileData))
 
       const streamRef = await service.saveFileStream({
         data: (async function* (): AsyncIterable<Uint8Array> { yield fileData })(),
         name: 'stream.bin',
       })
-      await expect(readFile(service.fileHostPath(streamRef))).resolves.toEqual(Buffer.from(fileData))
+      await expect(readFile(service.fileHostPath(streamRef)!)).resolves.toEqual(Buffer.from(fileData))
       const streamed: Uint8Array[] = []
       for await (const chunk of service.readFileStream(streamRef)) streamed.push(chunk)
       expect(Buffer.concat(streamed)).toEqual(Buffer.from(fileData))

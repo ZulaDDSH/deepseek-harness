@@ -83,3 +83,7 @@ declare module '@deepseek-ai/dsh-llm' {
     }
   }
 }
+
+export interface WebhookRuntimeConfig {
+  readonly journalFile?: string | false
+}

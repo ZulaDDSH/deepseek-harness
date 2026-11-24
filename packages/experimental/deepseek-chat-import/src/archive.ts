@@ -5,8 +5,8 @@
  */
 
 import { setImmediate as nextTurn } from 'node:timers/promises'
-import { Unzip, UnzipInflate, unzip } from 'fflate'
-import type { FlateError, Unzipped, UnzipFile, UnzipFileInfo } from 'fflate'
+import { Inflate, Unzip, unzip } from 'fflate'
+import type { AsyncFlateStreamHandler, FlateError, Unzipped, UnzipDecoder, UnzipFile, UnzipFileInfo } from 'fflate'
 import type { DeepseekChatImportFailureReason } from './types.ts'
 
 /** One entry the archive directory lists. */
@@ -52,8 +52,14 @@ export class ExportSourceError extends Error {
    * @param reason - failure category shown to the user.
    * @param message - English diagnostic.
    * @param options - underlying cause.
+   * @param sessionIds - Sessions the import had already written when it failed.
    */
-  constructor(readonly reason: DeepseekChatImportFailureReason, message: string, options?: ErrorOptions) {
+  constructor(
+    readonly reason: DeepseekChatImportFailureReason,
+    message: string,
+    options?: ErrorOptions,
+    readonly sessionIds: readonly string[] = [],
+  ) {
     super(message, options)
   }
 }
@@ -80,9 +86,7 @@ export interface ExportArchive {
    * each accepted entry to be handled and yields between archive chunks.
    *
    * Inflation is synchronous, so one archive chunk's output is produced before
-   * the pass yields again. An entry that declares a small size but inflates
-   * past the per-entry limit keeps inflating until the entry ends: the limit
-   * then stops the bytes being kept, not the work being done.
+   * the pass yields again; an entry that inflates past its limit is cut off after that chunk.
    * @param handler - per-entry decision, consumption, and rejection report.
    * @param signal - cancellation, checked between chunks.
    * @returns completes after the last entry.
@@ -107,13 +111,34 @@ export interface ExportArchive {
 }
 
 /** Bytes consumed from the archive before the pass yields to the event loop. */
-const SLICE_BYTES = 64 * 1024
+const SLICE_BYTES = 16 * 1024
+
+class BoundedInflate implements UnzipDecoder {
+  static readonly compression = 8
+  ondata: AsyncFlateStreamHandler = () => {}
+  private stopped = false
+  private readonly inflater = new Inflate((chunk, final) => { this.ondata(null, chunk, final) })
+
+  push(chunk: Uint8Array, final: boolean): void {
+    if (this.stopped) return
+    try {
+      this.inflater.push(chunk, final)
+    } catch (error) {
+      this.ondata(error as FlateError, new Uint8Array(0), final)
+    }
+  }
+
+  terminate(): void {
+    this.stopped = true
+  }
+}
 
 /** One accepted entry whose chunks are still arriving. */
 interface Inflating {
   readonly info: ExportEntryInfo
   readonly chunks: Uint8Array[]
   received: number
+  done: boolean
   /** Set when the decoder itself failed, such as on a damaged deflate stream. */
   error: ExportEntryError | undefined
 }
@@ -194,8 +219,9 @@ async function streamEntries(
       : { info: entry.info, error: failure })
   }
   const inflate = (file: UnzipFile, info: ExportEntryInfo): void => {
-    const entry: Inflating = { info, chunks: [], received: 0, error: undefined }
+    const entry: Inflating = { info, chunks: [], received: 0, done: false, error: undefined }
     file.ondata = (dataError: FlateError | null, chunk: Uint8Array, final: boolean) => {
+      if (entry.done) return
       if (dataError !== null) {
         entry.error ??= new ExportEntryError(`${info.name} cannot be decompressed`, false, { cause: dataError })
       } else if (chunk.length > 0) {
@@ -204,15 +230,24 @@ async function streamEntries(
         // as oversized instead of being delivered.
         if (entry.received <= maxEntryBytes) entry.chunks.push(chunk)
       }
-      if (final) finish(entry)
+      if (final || dataError !== null || entry.received > Math.min(maxEntryBytes, info.originalSize)) {
+        entry.done = true
+        finish(entry)
+        if (!final) file.terminate()
+      }
     }
     file.start()
   }
+  const seen = new Set<string>()
   const reader = new Unzip((file) => {
     const info = directory.get(file.name)
     if (info === undefined) {
       throw new ExportSourceError('unreadable-archive', `the archive contains ${file.name}, which its directory does not list`)
     }
+    if (seen.has(file.name)) {
+      throw new ExportSourceError('unreadable-archive', `the archive carries more than one data record for ${file.name}`)
+    }
+    seen.add(file.name)
     const error = entrySizeError(info, maxEntryBytes)
     if (error !== undefined) {
       handler.reject(info, error)
@@ -220,7 +255,7 @@ async function streamEntries(
     }
     if (handler.select(info)) inflate(file, info)
   })
-  reader.register(UnzipInflate)
+  reader.register(BoundedInflate)
   const deliver = async (): Promise<void> => {
     for (const item of finished.splice(0)) {
       if ('error' in item) handler.reject(item.info, item.error)

@@ -48,6 +48,7 @@ function selection(settings: { provider: string; model: string; reasoningEffort?
  */
 export class AgentDefaultModelConfig extends Service {
   private saves: Promise<void> = Promise.resolve()
+  private submitted = 0
 
   static Config = z.object({
     provider: z.string().required().volatile(),
@@ -78,13 +79,14 @@ export class AgentDefaultModelConfig extends Service {
    * editor keeps its composition entry. Saves commit in submission order; a failed
    * save rejects its caller without blocking later saves.
    * @param next - resolved selection accepted by an entry point.
-   * @returns fulfillment after the optional profile write settles.
+   * @returns whether the profile was written; false when no configuration editor or entry exists.
    */
-  async saveSelection(next: ModelSelection): Promise<void> {
+  async saveSelection(next: ModelSelection): Promise<boolean> {
+    this.submitted++
     const entry = this.ownerContext.fiber.entry
-    if (entry === undefined) return
+    if (entry === undefined) return false
     const editor = this.ctx.get('configEditor')
-    if (editor === undefined) return
+    if (editor === undefined) return false
     const config = {
       provider: next.provider, model: next.model,
       ...next.reasoningEffort === undefined ? {} : { reasoningEffort: String(next.reasoningEffort) },
@@ -92,6 +94,18 @@ export class AgentDefaultModelConfig extends Service {
     const saved = this.saves.then(() => editor.edit(entry, () => config))
     this.saves = saved.catch(() => {})
     await saved
+    return true
+  }
+
+  async saveInitialSelection(resolve: () => Promise<ModelSelection | undefined>): Promise<void> {
+    const seen = this.submitted
+    const entry = this.ownerContext.fiber.entry
+    const saved = this.ctx.get('configEditor')?.configuration()
+      .find(row => row.entry.options.id === entry?.options.id)?.override
+    if (saved !== undefined && Object.keys(saved).length > 0) return
+    const next = await resolve()
+    if (next === undefined || this.submitted !== seen) return
+    await this.saveSelection(next)
   }
 }
 

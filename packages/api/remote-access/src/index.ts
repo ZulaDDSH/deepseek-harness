@@ -87,8 +87,12 @@ class AccessFollower {
   private dirty = false
   private wake: (() => void) | undefined
 
+  readonly key: string
+
   /** @param principal - the generation's caller identity; never the owner. */
-  constructor(readonly principal: Principal) {}
+  constructor(readonly principal: Principal) {
+    this.key = canonicalJson(principal)
+  }
 
   /** Mark the generation stale and wake its reader. */
   touch(): void {
@@ -176,7 +180,7 @@ export class RemoteAccessService extends TypertRemoteService {
     this.reported.clear()
     const key = principal === undefined ? undefined : canonicalJson(principal)
     for (const follower of this.followers) {
-      if (key === undefined || canonicalJson(follower.principal) === key) follower.touch()
+      if (key === undefined || follower.key === key) follower.touch()
     }
   }
 
@@ -285,14 +289,31 @@ export class RemoteAccessService extends TypertRemoteService {
         const next = this.grantsFor(principal)
         const previous = sent
         sent = next
+        const before = new Map(previous.map(grant => [resourceKey(grant.resource), grant]))
+        const after = new Set(next.map(grant => resourceKey(grant.resource)))
         for (const grant of next) {
-          const before = previous.find(other => sameResource(other.resource, grant.resource))
-          if (before === undefined || !sameActions(before.actions, grant.actions)) yield { type: 'upsert', grant }
+          const old = before.get(resourceKey(grant.resource))
+          if (old === undefined || !sameActions(old.actions, grant.actions)) yield { type: 'upsert', grant }
         }
         for (const grant of previous) {
-          if (!next.some(other => sameResource(other.resource, grant.resource))) yield { type: 'remove', resource: grant.resource }
+          if (!after.has(resourceKey(grant.resource))) yield { type: 'remove', resource: grant.resource }
         }
       }
+    } finally {
+      this.followers.delete(follower)
+    }
+  }
+
+  async *changes(principal: Principal, signal: AbortSignal): AsyncIterable<void> {
+    const generation = AbortSignal.any([signal, this.lifetime.signal])
+    if (String(principal.kind) === 'owner') {
+      await abortion(generation)
+      return
+    }
+    const follower = new AccessFollower(principal)
+    this.followers.add(follower)
+    try {
+      while (await follower.changed(generation)) yield
     } finally {
       this.followers.delete(follower)
     }
@@ -358,18 +379,22 @@ export class RemoteAccessService extends TypertRemoteService {
     const bindings = this.bindingsOf(entry, principal, 'a snapshot')
     if (bindings === undefined) return []
     const grants: RemoteAccessGrant[] = []
-    const seen: RemoteAccessResource[] = []
-    for (const { resource } of bindings) {
-      if (seen.some(other => sameResource(other, resource))) continue
-      seen.push(resource)
+    const groups = new Map<string, ErasedBinding[]>()
+    for (const binding of bindings) {
+      const key = resourceKey(binding.resource)
+      const group = groups.get(key)
+      if (group === undefined) groups.set(key, [binding])
+      else group.push(binding)
+    }
+    for (const group of groups.values()) {
+      const resource = group[0]!.resource
       const candidates = new Set<RemoteAccessAction>()
-      for (const binding of bindings) {
-        if (!sameResource(binding.resource, resource)) continue
+      for (const binding of group) {
         for (const action of binding.role.actions) {
           if (!action.startsWith('event:')) candidates.add(action)
         }
       }
-      const actions = [...candidates].filter(action => this.evaluate(entry, bindings, action, resource, undefined).kind === 'allow').sort()
+      const actions = [...candidates].filter(action => this.evaluate(entry, group, action, resource, undefined).kind === 'allow').sort()
       if (actions.length > 0) grants.push(Object.freeze({ resource, actions: Object.freeze(actions) }))
     }
     return grants
@@ -407,6 +432,10 @@ function sameResource(
   right: { readonly kind: string; readonly id?: unknown },
 ): boolean {
   return left.kind === right.kind && left.id === right.id
+}
+
+function resourceKey(resource: { readonly kind: string; readonly id?: unknown }): string {
+  return JSON.stringify([resource.kind, resource.id ?? null])
 }
 
 function sameActions(left: readonly string[], right: readonly string[]): boolean {

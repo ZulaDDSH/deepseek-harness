@@ -37,11 +37,16 @@ function fakeContext(secret = 'fixture-secret'): {
 }
 
 /** Start a real Node server around the package-owned route handler. */
-async function serve(ctx: Context, maxBodyBytes = 1024): Promise<string> {
+async function serve(
+  ctx: Context,
+  maxBodyBytes = 1024,
+  extra: { maxConcurrentRequests?: number; bodyTimeoutMs?: number; replayWindowMs?: number } = {},
+): Promise<string> {
   const handler = createGitHubWebhookHandler(ctx, {
     source: 'primary',
     secretEnv: credentialRef('DSH_GITHUB_WEBHOOK_SECRET'),
     maxBodyBytes,
+    ...extra,
   })
   const server = createServer((request, response) => { void handler(request, response) })
   servers.push(server)
@@ -138,7 +143,7 @@ describe('GitHub webhook HTTP handler', () => {
     expect((await post(base, body, { secret: 'first', delivery: 'first' })).status).toBe(202)
     fake.setSecret('second')
     expect((await post(base, body, { secret: 'first', delivery: 'stale' })).status).toBe(401)
-    expect((await post(base, body, { secret: 'second', delivery: 'second' })).status).toBe(202)
+    expect((await post(base, JSON.stringify({ ping: 2 }), { secret: 'second', delivery: 'second' })).status).toBe(202)
     expect(fake.dispatch).toHaveBeenCalledTimes(2)
   })
 
@@ -174,6 +179,74 @@ describe('GitHub webhook HTTP handler', () => {
     expect(fake.dispatch).not.toHaveBeenCalled()
   })
 
+  it('does not dispatch a replayed signed body even when the delivery or event headers change', async () => {
+    const fake = fakeContext()
+    const base = await serve(fake.ctx)
+    const body = JSON.stringify({ action: 'ready_for_review', number: 1 })
+    expect((await post(base, body, { delivery: 'a' })).status).toBe(202)
+    expect((await post(base, body, { delivery: 'a' })).status).toBe(202)
+    expect((await post(base, body, { delivery: 'b', event: 'issues' })).status).toBe(202)
+    expect(fake.dispatch).toHaveBeenCalledOnce()
+    expect((await post(base, JSON.stringify({ action: 'ready_for_review', number: 2 }), { delivery: 'c' })).status).toBe(202)
+    expect(fake.dispatch).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not remember a body that failed verification or dispatch', async () => {
+    const fake = fakeContext()
+    fake.dispatch.mockImplementationOnce(() => { throw new Error('closing') })
+    const base = await serve(fake.ctx)
+    const body = JSON.stringify({ n: 1 })
+    expect((await post(base, body, { signature: 'sha256=bad' })).status).toBe(401)
+    expect((await post(base, body)).status).toBe(503)
+    expect((await post(base, body)).status).toBe(202)
+    expect(fake.dispatch).toHaveBeenCalledTimes(2)
+  })
+
+  it('dispatches repeated bodies when the replay window is disabled or has passed', async () => {
+    const fake = fakeContext()
+    const off = await serve(fake.ctx, 1024, { replayWindowMs: 0 })
+    const body = JSON.stringify({ n: 1 })
+    await post(off, body)
+    await post(off, body)
+    expect(fake.dispatch).toHaveBeenCalledTimes(2)
+    const short = await serve(fake.ctx, 1024, { replayWindowMs: 20 })
+    await post(short, body)
+    await new Promise(resolve => setTimeout(resolve, 60))
+    await post(short, body)
+    expect(fake.dispatch).toHaveBeenCalledTimes(4)
+  })
+
+  it('rejects missing required headers without reading the body', async () => {
+    const fake = fakeContext()
+    const handler = createGitHubWebhookHandler(fake.ctx, {
+      source: 'primary',
+      secretEnv: credentialRef('DSH_GITHUB_WEBHOOK_SECRET'),
+      maxBodyBytes: 1024,
+    })
+    const read = vi.fn()
+    const request = {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      headersDistinct: {},
+      [Symbol.asyncIterator]() { read(); return { next: async () => ({ done: true, value: undefined }) } },
+    } as IncomingMessage
+    const writeHead = vi.fn()
+    const response = { setHeader: vi.fn(), writeHead, end: vi.fn() } as unknown as ServerResponse
+    await handler(request, response)
+    expect(writeHead).toHaveBeenCalledWith(400, expect.any(Object))
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('answers 429 beyond the concurrent request limit and recovers afterwards', async () => {
+    const fake = fakeContext()
+    const base = await serve(fake.ctx, 1024, { maxConcurrentRequests: 1 })
+    const slow = postChunked(base, ['{'], 300)
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect((await post(base, '{}')).status).toBe(429)
+    await slow
+    expect((await post(base, '{}')).status).toBe(202)
+  })
+
   it('rejects duplicate required headers', async () => {
     const fake = fakeContext()
     const handler = createGitHubWebhookHandler(fake.ctx, {
@@ -193,8 +266,8 @@ describe('GitHub webhook HTTP handler', () => {
       async * [Symbol.asyncIterator]() { yield Buffer.from('{}') },
     } as unknown as IncomingMessage
     const writeHead = vi.fn()
-    const response = { setHeader: vi.fn(), writeHead, end: vi.fn() } as unknown as ServerResponse
-    await handler(request, response)
+    const response: Partial<ServerResponse> = { setHeader: vi.fn(), writeHead, end: vi.fn() }
+    await handler(request, response as ServerResponse)
     expect(writeHead).toHaveBeenCalledWith(400, expect.any(Object))
     expect(fake.dispatch).not.toHaveBeenCalled()
   })

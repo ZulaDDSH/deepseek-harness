@@ -15,6 +15,7 @@ export function assertNever(value: never, context?: string): never {
 }
 
 const LIVE_TOOL_DETAIL_MAX_CHARS = 160
+const LIVE_TOOL_DETAIL_SCAN_CHARS = 1024
 const LIVE_TOOL_DETAIL_SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 const LIVE_TOOL_DETAIL_KEYS = [
   'title', 'description', 'objective', 'task', 'task_name', 'name', 'question', 'questions', 'prompt', 'message',
@@ -32,9 +33,22 @@ export function normalizeLiveToolDetail(value: unknown): string {
     : Array.isArray(value) && value.every(item => typeof item === 'string')
       ? value.join(', ')
       : ''
-  const normalized = text.replace(/\s+/g, ' ').trim()
+  let normalized = ''
+  let pendingSpace = false
+  let index = 0
+  for (; index < text.length && normalized.length <= LIVE_TOOL_DETAIL_SCAN_CHARS; index++) {
+    const char = text.charAt(index)
+    if (/\s/.test(char)) {
+      pendingSpace = normalized !== ''
+    } else {
+      if (pendingSpace) normalized += ' '
+      pendingSpace = false
+      normalized += char
+    }
+  }
+  const cut = normalized.length > LIVE_TOOL_DETAIL_SCAN_CHARS && index < text.length
   const chars = Array.from(LIVE_TOOL_DETAIL_SEGMENTER.segment(normalized), part => part.segment)
-  return chars.length <= LIVE_TOOL_DETAIL_MAX_CHARS
+  return chars.length <= LIVE_TOOL_DETAIL_MAX_CHARS && !cut
     ? normalized
     : `${chars.slice(0, LIVE_TOOL_DETAIL_MAX_CHARS - 1).join('').trimEnd()}…`
 }
@@ -56,6 +70,15 @@ function questionDetail(value: unknown): string {
  * @returns the first recognised task-describing argument, or the tool name.
  */
 export function liveToolDetail(name: string, argsRaw: string): string {
+  if (lastLiveToolDetail?.name === name && lastLiveToolDetail.argsRaw === argsRaw) return lastLiveToolDetail.detail
+  const detail = computeLiveToolDetail(name, argsRaw)
+  lastLiveToolDetail = { name, argsRaw, detail }
+  return detail
+}
+
+let lastLiveToolDetail: { name: string; argsRaw: string; detail: string } | undefined
+
+function computeLiveToolDetail(name: string, argsRaw: string): string {
   let args: unknown
   try {
     args = JSON.parse(argsRaw)
@@ -243,7 +266,7 @@ export function deepEqualJson(a: unknown, b: unknown): boolean {
   const right = b as Record<string, unknown>
   const keys = Object.keys(left)
   if (keys.length !== Object.keys(right).length) return false
-  return keys.every(key => key in right && deepEqualJson(left[key], right[key]))
+  return keys.every(key => Object.prototype.hasOwnProperty.call(right, key) && deepEqualJson(left[key], right[key]))
 }
 
 /**

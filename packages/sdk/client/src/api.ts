@@ -248,6 +248,11 @@ export class HarnessSession {
     return this.harness.client.setWorkingDirectory(this.id, path)
   }
 
+  async cancel(): Promise<boolean> {
+    await this.harness.start()
+    return this.harness.client.cancelSession(this.id)
+  }
+
   /**
    * Run text or content blocks through native prompt-or-command routing.
    * @param input - prompt or command text, optionally accompanied by image content blocks; image-only input is an ordinary prompt.

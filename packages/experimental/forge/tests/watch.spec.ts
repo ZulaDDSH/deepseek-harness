@@ -69,6 +69,20 @@ describe('forge watch', () => {
     expect(context.forge.latest(ref(2))).toBeUndefined()
   })
 
+  it('polls a watched change request after an action whose provider throws', async () => {
+    const provider = new FakeProvider()
+    provider.results.set(key, snapshot(ref(1)))
+    const context = await setup(provider)
+    collect(context)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(provider.fetches).toHaveLength(1)
+
+    Object.assign(provider, { markReady: async () => { throw new Error('host reset the connection') } })
+    await expect(context.forge.markReady(ref(1), new AbortController().signal)).rejects.toThrow('host reset the connection')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(provider.fetches).toHaveLength(2)
+  })
+
   it('keeps polling a change request watched through ctx.forge for many rounds', async () => {
     // A round that ran on the previous round's receiver would nest one more shadow each time,
     // and such a chain overflows the stack within a few hundred rounds.

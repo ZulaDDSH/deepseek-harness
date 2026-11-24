@@ -8,11 +8,12 @@ import type { ToolExecutor, ToolBatchInput, ToolBatchResult } from './executor.t
 import './events.ts'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import { projectToolSchema } from './schema.ts'
+import { ToolExecutionPipeline } from './pipeline.ts'
 import { assertSupportedJsonSchema } from './json-schema.ts'
 import { RUN_CODE_NAME, ToolActivationError } from './contracts.ts'
 import type {
   ToolDefinition, ToolRestriction, ToolExecution, ToolGuard, ToolGuardDenial,
-  ResolvedToolSet, ToolActivationContext, ToolRegistrationOptions,
+  ResolvedToolSet, ToolActivationContext, ToolRegistrationOptions, ToolExecutionInput, ToolPreflightResult,
 } from './contracts.ts'
 
 declare module '@deepseek-ai/dsh-system-prompt' {
@@ -374,6 +375,10 @@ export class ToolsService extends Service {
    */
   async execute(input: ToolBatchInput): Promise<ToolBatchResult> {
     return this.selectExecutor(input.agent).execute(input)
+  }
+
+  async preflight(input: ToolExecutionInput): Promise<ToolPreflightResult> {
+    return await new ToolExecutionPipeline(this.ctx).preflight(input)
   }
 
   /**

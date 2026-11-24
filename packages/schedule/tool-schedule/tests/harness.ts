@@ -23,10 +23,11 @@ export class PromptRuntime extends PtcRuntime {
  * Agent.
  * @param ctx - Host context already carrying the `tools` and `schedule` services.
  * @param agent - Exact Agent whose dispatches may reach the tools.
+ * @param config - Tool mount options.
  * @returns The scope owning the registrations, for disposal.
  */
-export async function mountToolSchedule(ctx: Context, agent: Agent): Promise<Scope> {
+export async function mountToolSchedule(ctx: Context, agent: Agent, config?: ToolSchedule.Config): Promise<Scope> {
   const scope = createScope(ctx, agent)
-  await scope.ctx.plugin(ToolSchedule)
+  await scope.ctx.plugin(ToolSchedule, config)
   return scope
 }

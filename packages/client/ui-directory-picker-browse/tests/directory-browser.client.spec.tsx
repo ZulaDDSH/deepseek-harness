@@ -97,7 +97,7 @@ function mount(overrides: Partial<Parameters<typeof DirectoryBrowser>[0]> = {}) 
     onOpen,
     onClose,
     busy: false,
-    t: (key: string, params?: Record<string, unknown>) => (params === undefined ? key : `${key}:${String(params.name)}`),
+    t: (key: string, params?: Record<string, unknown>) => (params === undefined ? key : `${key}:${Object.values(params).map(String).join(':')}`),
     ...overrides,
   }
   const view = render(<DirectoryBrowser {...props} />)
@@ -1104,6 +1104,24 @@ describe('DirectoryBrowser', () => {
     expect(document.activeElement?.getAttribute('aria-current')).toBe('true')
   })
 
+  it('keeps the POSIX separator for a home whose name contains a backslash', async () => {
+    const odd = '/home/we\\ird'
+    const posixListing: DirectoryListing = {
+      path: odd,
+      home: odd,
+      crumbs: [{ name: '/', path: '/', hidden: false }, { name: 'home', path: '/home', hidden: false }, { name: 'we\\ird', path: odd, hidden: false }],
+      entries: [{ name: 'sub', path: `${odd}/sub`, hidden: false }, { name: 'other', path: `${odd}/other`, hidden: false }],
+      truncated: false,
+    }
+    mount({ listDirectory: vi.fn(async () => posixListing) })
+    await waitFor(() => { expect(screen.getAllByRole('listitem')).toHaveLength(2) })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    expect(input.value).toBe(`${odd}/`)
+    fireEvent.change(input, { target: { value: `${odd}/s` } })
+    expect(screen.getByRole('listitem').textContent).toBe('sub')
+  })
+
   it('seeds and filters with backslashes on a Windows-rooted listing', async () => {
     const ROOT = 'C:\\'
     const windowsListing: DirectoryListing = {
@@ -1609,16 +1627,18 @@ describe('DirectoryBrowser', () => {
     expect(screen.getByRole('dialog', { name: 'browser.title' })).toBeTruthy()
   })
 
-  it('surfaces a post-create relist failure on the browser surface', async () => {
+  it('says the folder was created when only the post-create relist fails, then recovers on navigation', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
-    // Creation succeeds, but relisting the target fails afterwards.
     b.listDirectory.mockRejectedValueOnce(new Error('level vanished'))
     const input = screen.getByLabelText('browser.folderName')
     fireEvent.change(input, { target: { value: 'fresh' } })
     fireEvent.keyDown(input, { key: 'Enter' })
-    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('level vanished') })
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('browser.createdRelistFailed:fresh:level vanished') })
+    expect(b.createDirectory).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'browser.home' }))
+    await waitFor(() => { expect(screen.queryByRole('alert')).toBeNull() })
   })
 
   it('drops a stale child listing that resolves after a crumb jump', async () => {

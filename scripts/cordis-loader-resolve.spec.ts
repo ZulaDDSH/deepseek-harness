@@ -12,7 +12,8 @@ import { createResolve } from '../vendor/loader/src/resolve.ts'
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
   const mkdir = vi.fn(actual.mkdir)
-  return { ...actual, mkdir, default: { ...actual, mkdir } }
+  const writeFile = vi.fn(actual.writeFile)
+  return { ...actual, mkdir, writeFile, default: { ...actual, mkdir, writeFile } }
 })
 
 async function fixture() {
@@ -93,6 +94,41 @@ describe('Loader project resolution', () => {
     expect(await tree.import('node:path')).toMatchObject({ join })
     await expect(tree.import('fixture-dep')).rejects.toThrow()
     expect(existsSync(join(root, '.cordis'))).toBe(false)
+  })
+
+  it('retries a failed helper write once the retry interval has passed', async () => {
+    const { root, baseUrl } = await fixture()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    onTestFinished(() => { vi.useRealTimers() })
+    vi.mocked(fs.mkdir).mockClear()
+    const denied = vi.mocked(fs.mkdir).mockRejectedValueOnce(Object.assign(new Error('read-only project'), { code: 'EACCES' }))
+    onTestFinished(() => { denied.mockReset() })
+    expect(await createResolve(baseUrl)).toBeUndefined()
+    expect(await createResolve(baseUrl)).toBeUndefined()
+    expect(fs.mkdir).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(5000)
+    const resolve = await createResolve(baseUrl)
+    expect(resolve).toBeTypeOf('function')
+    expect(resolve?.('fixture-dep')).toContain('fixture-dep')
+    expect(existsSync(join(root, '.cordis', 'resolve.mjs'))).toBe(true)
+    expect(await createResolve(baseUrl)).toBe(resolve)
+  })
+
+  it('shares one retry among concurrent callers and imports a repaired helper again', async () => {
+    const { baseUrl } = await fixture()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    onTestFinished(() => { vi.useRealTimers() })
+    const write = vi.mocked(fs.writeFile)
+    const original = write.getMockImplementation()!
+    write.mockImplementation((file, data, options) => original(file, String(file).includes('resolve.mjs') ? 'export default (' : data, options))
+    onTestFinished(() => { write.mockReset() })
+    await expect(createResolve(baseUrl)).rejects.toThrow()
+    await expect(createResolve(baseUrl)).rejects.toThrow()
+    write.mockImplementation(original)
+    vi.advanceTimersByTime(5000)
+    const [a, b] = await Promise.all([createResolve(baseUrl), createResolve(baseUrl)])
+    expect(a).toBeTypeOf('function')
+    expect(a).toBe(b)
   })
 
   it('retains native import without a file-backed package scope', async () => {

@@ -60,6 +60,8 @@ export type SubagentErrorCode =
   | 'STRUCTURED_OUTPUT_PENDING_INPUT'
   /** The operation was cancelled by its caller. */
   | 'CANCELLED'
+  /** Constraint: an external child's startup handshake did not finish before the startup deadline. */
+  | 'STARTUP_TIMEOUT'
   /** A cold child cannot be restored from its persisted state. */
   | 'NOT_RESUMABLE'
   /** The child was not started as continuable and accepts no follow-up. */

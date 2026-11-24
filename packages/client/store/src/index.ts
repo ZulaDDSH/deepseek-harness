@@ -138,6 +138,11 @@ export function createSnapshotStore<T>(
   }
 }
 
+// Constraint: reading the localStorage property itself can throw, so every access goes through here.
+export function browserStorage(): Storage | undefined {
+  try { return typeof localStorage === 'undefined' ? undefined : localStorage } catch { return undefined }
+}
+
 /**
  * Whole-value JSON persistence to localStorage. Hand-rolled instead of the
  * zustand persist middleware: its write path spreads state into an object
@@ -154,9 +159,10 @@ function attachPersistence<T>(
   // Non-browser runs (node e2e booting the client tree) have no localStorage:
   // persistence silently disables — same contract as a storage failure, minus
   // the per-store console noise a ReferenceError would produce.
-  if (typeof localStorage === 'undefined') return
+  const storage = browserStorage()
+  if (storage === undefined) return
   try {
-    const raw = localStorage.getItem(name)
+    const raw = storage.getItem(name)
     if (raw !== null) {
       const parsed = JSON.parse(raw) as T
       api.setState(devFreeze(migrate === undefined ? parsed : migrate(parsed)), true)
@@ -168,7 +174,7 @@ function attachPersistence<T>(
   }
   api.subscribe((state) => {
     try {
-      localStorage.setItem(name, JSON.stringify(state))
+      storage.setItem(name, JSON.stringify(state))
     } catch (error) {
       console.error(`snapshot store '${name}' persistence failed:`, error)
     }
@@ -249,9 +255,10 @@ export function defineStore<T, A extends ActionsDecl<T>>(
         subscribe: fn => store.subscribe(fn),
         store,
         clearPersisted: () => {
-          if (persistKey === undefined || typeof localStorage === 'undefined') return
+          const storage = browserStorage()
+          if (persistKey === undefined || storage === undefined) return
           try {
-            localStorage.removeItem(persistKey)
+            storage.removeItem(persistKey)
           } catch {
             // Storage failures (private mode, quota teardown races) only skip
             // cleanup — the same non-fatal contract as attachPersistence.

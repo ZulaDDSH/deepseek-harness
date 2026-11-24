@@ -31,7 +31,7 @@ function registerUi(ctx: Context): void {
         if ('transport' in answer) return { ok: false, reason: 'upload-failed', message: answer.transport }
         // The pre-check limit above is not the Host's entry limit, so only that
         // check contributes a byte limit; a Host failure carries its own message.
-        if (!answer.ok) return { ok: false, reason: answer.error.reason, message: answer.error.message }
+        if (!answer.ok) return { ok: false, reason: answer.error.reason, message: answer.error.message, ...answer.error.sessionIds === undefined ? {} : { sessionIds: answer.error.sessionIds } }
         return { ok: true, result: answer.value }
       } finally {
         // Imported Sessions are written without a live Agent, so the list learns of them only by reloading,

@@ -11,8 +11,9 @@ import {
 } from '../history.ts'
 import { EventListener, ProjectionListener } from './listener.ts'
 import { SessionAssistantStreamsListener } from './assistant-stream.ts'
+import { OUTLINE_PAGE_LIMIT, outlinePage } from './outline.ts'
 import type {
-  SessionEventFrame, SessionEventsPage, SessionPageRequest,
+  SessionEventFrame, SessionEventsPage, SessionOutlinePage, SessionOutlineRequest, SessionPageRequest,
   SessionObserveEventRequest, SessionProjectionsRequest, SessionProjectionFrame,
   SessionAddress, SessionProjectionBaseline, SessionProjectionValues, SessionProjectionsValue, SessionWaitOutput, SessionHistoryRecord,
 } from '../types.ts'
@@ -41,6 +42,20 @@ export class HistoryController {
       return await this.usingObservation({ sessionId: addressId(request.address), projection: request.address.kind === 'subagent' }, signal, (observation) => {
         validateObservationAddress(request.address, observation)
         return history(observation, spec)
+      })
+    } catch (error: unknown) {
+      if (remoteErrorOf(error)?.code === 'session/not-found') rejectNotFound(request.address)
+      throw error
+    }
+  }
+
+  async outline(request: SessionOutlineRequest, signal: AbortSignal): Promise<SessionOutlinePage> {
+    validateOutlineRequest(request)
+    try {
+      return await this.usingObservation({ sessionId: addressId(request.address), projection: request.address.kind === 'subagent' }, signal, (observation) => {
+        validateObservationAddress(request.address, observation)
+        const end = Math.min(observation.cursor + 1, request.beforeSeq ?? observation.cursor + 1)
+        return outlinePage(observation.events, end, request.maxEntries ?? OUTLINE_PAGE_LIMIT)
       })
     } catch (error: unknown) {
       if (remoteErrorOf(error)?.code === 'session/not-found') rejectNotFound(request.address)
@@ -253,4 +268,15 @@ export function resolveHistoryRequest(request: SessionPageRequest): SessionPageR
   }
   validateHistoryWindow(request)
   return { ...request, maxMessages: request.maxMessages ?? DEFAULT_MAX_MESSAGES }
+}
+
+export function validateOutlineRequest(request: SessionOutlineRequest): void {
+  if (request.beforeSeq !== undefined
+    && (!Number.isSafeInteger(request.beforeSeq) || request.beforeSeq < 0 || Object.is(request.beforeSeq, -0))) {
+    throw new RemoteError('gateway/bad-request', 'beforeSeq must be a non-negative safe integer', {})
+  }
+  if (request.maxEntries !== undefined
+    && (!Number.isSafeInteger(request.maxEntries) || request.maxEntries <= 0 || request.maxEntries > OUTLINE_PAGE_LIMIT)) {
+    throw new RemoteError('gateway/bad-request', `maxEntries must be a positive safe integer no greater than ${String(OUTLINE_PAGE_LIMIT)}`, {})
+  }
 }

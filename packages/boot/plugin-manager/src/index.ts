@@ -1,4 +1,5 @@
 /** Current-profile plugin and bundle management over shared dsh plugin operations. */
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
@@ -111,6 +112,16 @@ const INSPECT_FIELDS = ['name', 'version', 'description', 'dsh'] as const
 const ANSI_SEQUENCE = /\x1b\[[0-9;]*m/g
 
 /** Preserve the exact observed diagnostic, including non-Error failures. */
+function registriesPath(dir: string): string { return join(dir, '.plugin-manager', 'registries.json') }
+
+function loadRegistries(dir: string): Map<string, Registry> {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(registriesPath(dir), 'utf8'))
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return new Map()
+    return new Map(Object.entries(parsed).filter((entry): entry is [string, Registry] => typeof entry[1] === 'string' || entry[1] === null))
+  } catch { return new Map() }
+}
+
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error) }
 
 /** An expected refusal keeps its code; anything else becomes an operation error carrying its exact diagnostic. */
@@ -362,12 +373,15 @@ export class PluginManager extends TypertRemoteService {
    * The registry each package was last installed from by this manager in this process. pnpm verifies lockfile tarball
    * URLs against its default registry unless they belong to a named registry, so a later removal names it again.
    */
-  private readonly installedFrom = new Map<string, Registry>()
+  private readonly installedFrom: Map<string, Registry>
   private readonly ownerEntryId: string | undefined
   private readonly packageOperations = new Set<Promise<unknown>>()
   private readonly profile: ProfileContext
   private readonly outputBytes: number
   private readonly lockWaitMs: number
+  private profileQueue: Promise<void> = Promise.resolve()
+  private readonly transaction = new AsyncLocalStorage<true>()
+  private readonly selectionSlots = new Map<string, number>()
   private readonly inspectTimeoutMs: number
   private readonly githubConnectionTimeoutMs: number
   private readonly gitTransportTimeoutMs: number
@@ -397,6 +411,7 @@ export class PluginManager extends TypertRemoteService {
     this.pnpmCommand = (config as Required<Config>).pnpmCommand
     this.versionListLimit = (config as Required<Config>).versionListLimit
     this.versionLookupConcurrency = (config as Required<Config>).versionLookupConcurrency
+    this.installedFrom = loadRegistries(this.profile.dir)
     this.configuredRegistries = {
       registry: config.registry === undefined ? null : normalizeRegistry(config.registry),
       fallbackRegistries: (config as Required<Config>).fallbackRegistries.map(normalizeRegistry),
@@ -804,22 +819,29 @@ export class PluginManager extends TypertRemoteService {
       }
     }
     // The removed version is installed again where it came from, else over the configured plan, as its removal asks.
-    const previousRegistry = this.installedFrom.get(name)
-    announce('removing')
-    const removal = await settled('remove', name, this.removeBundle(name))
-    if (removal.application === 'failed' || removal.application === 'cancelled') return { from, to: version, step: 'remove', result: removal }
-    announce('installing')
-    const result = await installTarget()
-    if (result.application !== 'failed' && result.application !== 'cancelled') return { from, to: version, step: 'install', result }
-    announce('restoring')
-    // A target that installed but failed to start is still a dependency; it goes before the removed version returns.
-    if (result.stage === 'enable') await settled('remove', name, this.removeBundle(name))
-    // The reinstallation carries no request id, so cancelling the update cannot leave the package removed.
-    const previous = target.kind === 'git' ? target.source : `${name}@${from}`
-    const restore = await settled('install', previous, this.installBundle(previous, {
-      saveExact, enabled, ...previousRegistry === undefined ? {} : { registry: previousRegistry },
-    }))
-    return { from, to: version, step: 'install', result, restore }
+    const replace = async (): Promise<PluginUpdateResult> => {
+      const slot = bundleSelection(readProfileManifest('dsh', this.profile.dir)).indexOf(name)
+      if (slot >= 0) this.selectionSlots.set(name, slot)
+      try {
+        const previousRegistry = this.installedFrom.get(name)
+        announce('removing')
+        const removal = await settled('remove', name, this.removeBundle(name))
+        if (removal.application === 'failed' || removal.application === 'cancelled') return { from, to: version, step: 'remove', result: removal }
+        announce('installing')
+        const result = await installTarget()
+        if (result.application !== 'failed' && result.application !== 'cancelled') return { from, to: version, step: 'install', result }
+        announce('restoring')
+        if (result.stage === 'enable') await settled('remove', name, this.removeBundle(name))
+        const previous = target.kind === 'git' ? target.source : `${name}@${from}`
+        const restore = await settled('install', previous, this.installBundle(previous, {
+          saveExact, enabled, ...previousRegistry === undefined ? {} : { registry: previousRegistry },
+        }))
+        return { from, to: version, step: 'install', result, restore }
+      } finally {
+        this.selectionSlots.delete(name)
+      }
+    }
+    return this.exclusive(() => this.transaction.run(true, replace))
   }
 
   /**
@@ -1178,6 +1200,7 @@ export class PluginManager extends TypertRemoteService {
         for (const file of bundlePatchPaths(dir, manifest.dsh.bundle)) loadOverlayPatches('dsh', file)
         version = manifest.version
         this.installedFrom.set(name, used)
+        await this.saveRegistries()
       } catch (error) {
         // pnpm has exited by now, so the files it rewrote go back as they were.
         await this.restoreFiles(files)
@@ -1239,6 +1262,19 @@ export class PluginManager extends TypertRemoteService {
   @Remote
   removeBundle(name: string): Promise<ChangeResult> {
     return this.change(async (result) => {
+      let deselected = false
+      const restoreSelection = async (): Promise<void> => {
+        if (!deselected) return
+        try {
+          const current = (await this.listBundles()).find(item => item.name === name)
+          if (current?.installed !== true || current.error !== undefined) throw new Error('the package is no longer intact')
+          await this.selectBundle(name, true)
+          Object.assign(result, await this.reload())
+          deselected = false
+        } catch (error) {
+          result.warnings = [...result.warnings ?? [], `${name} was left disabled after the failed removal: ${messageOf(error)}`]
+        }
+      }
       const installed = await this.configure(async () => {
         const bundle = (await this.listBundles()).find(item => item.name === name)
         if (bundle === undefined || !bundle.removable) throw new ManagementFailure('not-removable')
@@ -1250,10 +1286,12 @@ export class PluginManager extends TypertRemoteService {
         const contributions = bundle.error === undefined ? this.bundleRows(name) : []
         if (bundle.enabled) {
           await this.selectBundle(name, false)
+          deselected = true
           Object.assign(result, await this.reload())
         }
         if ([...this.ctx.loader.entries()].some(entry => entry.fiber?.uid != null
           && contributions.some(row => row.id === entry.options.id && row.name === entry.options.name))) {
+          await restoreSelection()
           throw new ManagementFailure('bundle-in-use')
         }
         return bundle.installed
@@ -1264,9 +1302,11 @@ export class PluginManager extends TypertRemoteService {
       const registry = this.installedFrom.has(name) ? this.installedFrom.get(name) : this.configuredRegistries.registry
       result.packageResult = await this.runPnpm(['remove', name, ...typeof registry === 'string' ? [`--config.registry=${registry}`] : []])
       if (result.packageResult.exitCode !== 0 || result.packageResult.timedOut === true) {
+        await this.configure(restoreSelection)
         throw new Error(result.packageResult.output)
       }
       this.installedFrom.delete(name)
+      await this.saveRegistries()
       Object.assign(result, await this.configure(() => this.publishAndReload()))
     }, { stage: 'remove', target: name }, 'remove')
   }
@@ -1359,6 +1399,19 @@ export class PluginManager extends TypertRemoteService {
     }
   }
 
+  private async saveRegistries(): Promise<void> {
+    try {
+      await writeFileAtomic(registriesPath(this.profile.dir), JSON.stringify(Object.fromEntries(this.installedFrom)), { mode: 0o600, dirMode: 0o700 })
+    } catch (_saveFailed) { /* the record only helps a later restart */ }
+  }
+
+  private exclusive<T>(work: () => Promise<T>): Promise<T> {
+    const previous = this.profileQueue
+    let release!: () => void
+    this.profileQueue = new Promise<void>((resolve) => { release = resolve })
+    return previous.then(work).finally(release)
+  }
+
   private async selectBundle(name: string, enabled: boolean): Promise<void> {
     const manifest = readProfileManifest('dsh', this.profile.dir)
     const previous = bundleSelection(manifest)
@@ -1375,7 +1428,8 @@ export class PluginManager extends TypertRemoteService {
     if (!enabled && previous.includes(name)) {
       if (this.protectsManager(name)) throw new ManagementFailure('management-required')
     }
-    const bundles = enabled ? [...previous, ...previous.includes(name) ? [] : [name]] : previous.filter(item => item !== name)
+    const bundles = enabled ? [...previous] : previous.filter(item => item !== name)
+    if (enabled && !previous.includes(name)) bundles.splice(this.selectionSlots.get(name) ?? bundles.length, 0, name)
     if (JSON.stringify(previous) === JSON.stringify(bundles)) return
     manifest.dsh = { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles } }
     await saveManifest(this.profile.dir, manifest)
@@ -1450,7 +1504,17 @@ export class PluginManager extends TypertRemoteService {
     return restart === undefined ? { warnings } : { warnings, restartReason: restart }
   }
 
-  private async change(
+  private change(
+    operation: (result: ChangeResult) => Promise<ChangeResult['application'] | void>,
+    request: Pick<ChangeResult, 'stage' | 'target' | 'enabled'>,
+    reason: PluginChange['reason'],
+    identity?: Pick<PluginOperation, 'target' | 'version'>,
+  ): Promise<ChangeResult> {
+    const run = (): Promise<ChangeResult> => this.changeLocked(operation, request, reason, identity)
+    return this.transaction.getStore() === true ? run() : this.exclusive(run)
+  }
+
+  private async changeLocked(
     operation: (result: ChangeResult) => Promise<ChangeResult['application'] | void>,
     request: Pick<ChangeResult, 'stage' | 'target' | 'enabled'>,
     reason: PluginChange['reason'],

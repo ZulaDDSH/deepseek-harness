@@ -6,7 +6,7 @@
  * GET/HEAD, and seat release on fiber disposal (HMR safety).
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -127,6 +127,25 @@ async function request(
 }
 
 describe('real Loader composition', () => {
+  it('refuses links that resolve outside the dist root and serves links that stay inside', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition()
+    const dist = join(root!, 'dist')
+    const outside = join(root!, 'outside')
+    await mkdir(outside)
+    await writeFile(join(outside, 'secret.txt'), 'SECRET')
+    await mkdir(join(dist, 'real'))
+    await writeFile(join(dist, 'real', 'inner.txt'), 'INNER')
+    await symlink(outside, join(dist, 'escape'), 'junction')
+    await symlink(join(dist, 'real'), join(dist, 'inside'), 'junction')
+    const port = loaded.webServer.port
+    expect(await request(port, '/escape/secret.txt')).toMatchObject({ status: 403, body: '' })
+    expect(await request(port, '/inside/inner.txt')).toMatchObject({ status: 200, body: 'INNER' })
+    expect(await request(port, '/real/inner.txt')).toMatchObject({ status: 200, body: 'INNER' })
+    const fileLink = join(dist, 'leak.txt')
+    const linked = await symlink(join(outside, 'secret.txt'), fileLink, 'file').then(() => true, () => false)
+    if (linked) expect(await request(port, '/leak.txt')).toMatchObject({ status: 403, body: '' })
+  })
+
   it('serves explicit index entries and files while preserving HTTP error semantics', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition()
     const unloaded = [...loaded.loader.entries()]

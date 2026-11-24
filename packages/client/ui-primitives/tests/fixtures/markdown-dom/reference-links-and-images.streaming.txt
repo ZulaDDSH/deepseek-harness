@@ -28,4 +28,5 @@
   <p>
     #text "[missing full][nope], [missing collapsed][], ![missing image][gone]."
   <p>
-    <img alt="ref image" class="_image_404681" decoding="async" loading="lazy" referrerpolicy="no-referrer" src="https://example.com/ref.png">
+    <button class="_remoteImage_404681" title="https://example.com/ref.png" type="button">
+      #text "ref image"

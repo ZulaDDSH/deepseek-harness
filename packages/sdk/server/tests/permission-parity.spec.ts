@@ -115,7 +115,7 @@ async function switchAndContinue(path: 'sdk' | 'native', cwd: string) {
     expect(changed?.result).toEqual({ kind: 'success', text: 'preset read-only' })
     const switchEvents = events.slice(beforeSwitch)
     expect(switchEvents.map(event => event.type)).toEqual([
-      'command/run', 'permission/preset', 'sandbox/mode', 'approval/policy', 'agent/inbox/spliced', 'command/done',
+      'command/run', 'permission/preset', 'sandbox/mode', 'approval/policy', 'agent/inbox/spliced', 'permission/preset', 'command/done',
     ])
     const beforeNoop = events.length
     const unchanged = await dispatch('/permission read-only')

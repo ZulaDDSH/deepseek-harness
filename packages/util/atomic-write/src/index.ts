@@ -12,7 +12,9 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto'
-import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { readlinkSync } from 'node:fs'
+import { link, lstat, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { hostname } from 'node:os'
 import { dirname } from 'node:path'
 import { setTimeout as wait } from 'node:timers/promises'
 import { HarnessError } from '@deepseek-ai/dsh-error'
@@ -73,7 +75,7 @@ export interface WriteFileAtomicOptions {
  * one filesystem. Windows replacement retries transient `EACCES`, `EBUSY`,
  * and `EPERM` failures for a bounded interval while the complete temp file
  * remains the rename source. On any remaining failure the temp file is
- * removed and the failure rethrown. Crash durability (fsync) is out of scope.
+ * removed and the failure rethrown. Ordering constraint: the temp file is synced before the rename and the directory after it.
  * @param filename - final path receiving the content.
  * @param content - complete next file content.
  * @param options - permission bits for the replacement inode.
@@ -83,15 +85,49 @@ export async function writeFileAtomic(filename: string, content: string | Uint8A
     recursive: true,
     ...options.dirMode === undefined ? {} : { mode: options.dirMode },
   })
-  // TODO(settings-atomic-durability): Use a replacement that fsyncs the file
-  // and parent directory and preserves owner-only permissions on Windows.
   const temp = `${filename}.${randomBytes(6).toString('hex')}.tmp`
   try {
-    await writeFile(temp, content, { mode: options.mode, flag: 'wx' })
+    const handle = await open(temp, 'wx', options.mode)
+    try {
+      await handle.writeFile(content)
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
     await renameAtomicTemp(temp, filename)
   } catch (error) {
     await rm(temp, { force: true })
     throw error
+  }
+  await syncDirectory(filename)
+}
+
+export class AtomicWriteSyncError extends HarnessError {
+  override readonly code: 'ATOMIC_WRITE_UNSYNCED'
+  readonly path: string
+
+  constructor(path: string, cause: unknown) {
+    super(`atomic-write: ${path} was replaced but its directory could not be synced: ${String(cause)}`, 'ATOMIC_WRITE_UNSYNCED', { cause })
+    this.name = 'AtomicWriteSyncError'
+    this.code = 'ATOMIC_WRITE_UNSYNCED'
+    this.path = path
+  }
+}
+
+const UNSUPPORTED_DIRECTORY_SYNC: ReadonlySet<string> = new Set(['EINVAL', 'ENOTSUP', 'ENOSYS', 'EISDIR', 'EPERM'])
+
+async function syncDirectory(filename: string): Promise<void> {
+  if (process.platform === 'win32') return
+  try {
+    const handle = await open(dirname(filename), 'r')
+    try {
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+  } catch (error) {
+    if (UNSUPPORTED_DIRECTORY_SYNC.has((error as NodeJS.ErrnoException | null)?.code ?? '')) return
+    throw new AtomicWriteSyncError(filename, error)
   }
 }
 
@@ -109,11 +145,33 @@ async function isLockContention(error: unknown, lockPath: string): Promise<boole
   }
 }
 
-/** Whether the holder a `<pid>\n` record names is proven gone: a signal probe finds no such process. */
+const LOCK_RECORD = /^(\d+)(?: (\S+))?\n$/
+
+let cachedHostId: string | undefined
+
+function localHostId(): string {
+  if (cachedHostId !== undefined) return cachedHostId
+  let namespace = ''
+  try {
+    namespace = readlinkSync('/proc/self/ns/pid')
+  } catch {
+    namespace = ''
+  }
+  cachedHostId = `${hostname()}${namespace}`.replace(/\s/g, '_')
+  return cachedHostId
+}
+
+function lockRecord(): string {
+  return `${String(process.pid)} ${localHostId()}\n`
+}
+
+/** Whether the holder a lock record names is proven gone: a signal probe on this host finds no such process. */
 function holderExited(record: string): boolean {
   // Any other content is being written or was cut short, which proves nothing about its holder.
-  if (!/^\d+\n$/.test(record)) return false
-  const pid = Number(record.trim())
+  const match = LOCK_RECORD.exec(record)
+  if (match === null) return false
+  if (match[2] !== undefined && match[2] !== localHostId()) return false
+  const pid = Number(match[1])
   // PID 0 addresses the caller's process group, and the probe accepts only positive int32 PIDs.
   if (pid === 0 || pid > 0x7fffffff) return false
   // This process is running; a runtime whose probe cannot see itself must not take over its own lock.
@@ -127,6 +185,20 @@ function holderExited(record: string): boolean {
   }
 }
 
+/** An unfinished record older than this must be abandoned, since a live writer finishes it in microseconds. */
+const INCOMPLETE_RECORD_GRACE_MS = 30_000
+
+/** Whether a lock or claim record proves its writer is gone: the PID exited or the record stayed incomplete past the grace. */
+async function isAbandoned(path: string, record: string): Promise<boolean> {
+  if (holderExited(record)) return true
+  if (LOCK_RECORD.test(record)) return false
+  try {
+    return Date.now() - (await stat(path)).mtimeMs > INCOMPLETE_RECORD_GRACE_MS
+  } catch {
+    return false
+  }
+}
+
 /** The lock file's content, or undefined when it cannot be read. */
 async function readLockRecord(lockPath: string): Promise<string | undefined> {
   try {
@@ -135,6 +207,25 @@ async function readLockRecord(lockPath: string): Promise<string | undefined> {
     // A lock that vanished, or that Windows is still deleting, proves nothing about a holder.
     void error
     return undefined
+  }
+}
+
+/** Removes a takeover claim whose claimant exited; a claim held by a live contender must stay. */
+async function breakAbandonedClaim(claim: string): Promise<void> {
+  const stale = await readLockRecord(claim)
+  if (stale === undefined || !await isAbandoned(claim, stale)) return
+  const tombstone = `${claim}.dead-${randomBytes(6).toString('hex')}`
+  try {
+    await rename(claim, tombstone)
+  } catch {
+    return
+  }
+  try {
+    if (await readLockRecord(tombstone) !== stale) await link(tombstone, claim)
+  } catch {
+    return
+  } finally {
+    await rm(tombstone, { force: true }).catch(() => undefined)
   }
 }
 
@@ -150,18 +241,21 @@ async function readLockRecord(lockPath: string): Promise<string | undefined> {
  */
 async function takeOverExitedLock(lockPath: string): Promise<boolean> {
   const record = await readLockRecord(lockPath)
-  if (record === undefined || !holderExited(record)) return false
+  if (record === undefined || !await isAbandoned(lockPath, record)) return false
   const claim = `${lockPath}.takeover-${createHash('sha256').update(record).digest('hex').slice(0, 16)}`
   try {
-    await writeFile(claim, `${process.pid}\n`, { mode: 0o600, flag: 'wx' })
+    await writeFile(claim, lockRecord(), { mode: 0o600, flag: 'wx' })
   } catch (error) {
     // Another contender owns the claim for this record, or Windows still deletes the claim it released.
     const code = (error as NodeJS.ErrnoException).code
-    if (code === 'EEXIST' || code === 'EPERM') return false
+    if (code === 'EEXIST' || code === 'EPERM') {
+      await breakAbandonedClaim(claim)
+      return false
+    }
     throw error
   }
   try {
-    if (await readLockRecord(lockPath) !== record || !holderExited(record)) return false
+    if (await readLockRecord(lockPath) !== record || !await isAbandoned(lockPath, record)) return false
     try {
       await rm(lockPath, { force: true })
     } catch (error) {
@@ -246,9 +340,8 @@ export class FileLockError extends HarnessError {
  * live process reused keeps its lock until an operator removes it. Takeover
  * proves only that the recorded process exited: an operation that starts other
  * writers must stop them with it or leave its successor a way to find them.
- * PIDs are compared on the contender's host, so writers on other hosts or in
- * other PID namespaces sharing the file are unsupported and could both hold
- * the lock. The parent directory must exist.
+ * A record from another host or PID namespace is never taken over, so such a
+ * lock is waited for until the deadline. The parent directory must exist.
  * @param filename - the file whose writers this lock serializes.
  * @param operation - the read-render-commit cycle to run while holding the lock.
  * @param options - acquisition options; omitted waits {@link DEFAULT_LOCK_WAIT_MS}.
@@ -267,7 +360,7 @@ export async function withFileLock<T>(
   for (;;) {
     options?.signal?.throwIfAborted()
     try {
-      await writeFile(lockPath, `${process.pid}\n`, { mode: 0o600, flag: 'wx' })
+      await writeFile(lockPath, lockRecord(), { mode: 0o600, flag: 'wx' })
       break
     } catch (error) {
       if (!await isLockContention(error, lockPath)) {

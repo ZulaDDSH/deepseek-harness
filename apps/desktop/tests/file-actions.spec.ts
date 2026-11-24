@@ -1,6 +1,6 @@
 /** Native original-byte saves and window-scoped IPC ownership. */
 import { EventEmitter } from 'node:events'
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -88,6 +88,66 @@ it.each(['cancelled', 'interrupted'] as const)('reports native %s without a comp
   if (state === 'cancelled') await expect(pending).resolves.toEqual({ status: 'cancelled' })
   else await expect(pending).rejects.toThrow('interrupted')
   expect(await readdir(root)).toEqual([])
+})
+
+it('keeps a file that replaced the reservation when the download is cancelled by navigation', async () => {
+  const root = await directory(), f = harness(root)
+  const pending = f.invoke(DESKTOP_IPC.fileSave, { url: 'https://images.example/a', name: 'photo.gif', mode: 'download' })
+  const download = f.item()
+  await rename(join(root, 'photo.gif'), join(root, 'moved.gif'))
+  await writeFile(join(root, 'photo.gif'), 'newer')
+  f.owner.webContents.emit('did-start-navigation', {}, 'dsh-app://app/', false, true)
+  await expect(pending).resolves.toEqual({ status: 'cancelled' })
+  download.emit('done', {}, 'cancelled')
+  expect(await readFile(join(root, 'photo.gif'), 'utf8')).toBe('newer')
+})
+
+it('keeps a replacement and tolerates a vanished reservation when the download is interrupted', async () => {
+  const root = await directory(), f = harness(root)
+  const first = f.invoke(DESKTOP_IPC.fileSave, { url: 'https://images.example/a', name: 'a.gif', mode: 'download' })
+  const replaced = f.item()
+  await rename(join(root, 'a.gif'), join(root, 'a-old.gif'))
+  await writeFile(join(root, 'a.gif'), 'newer')
+  replaced.emit('done', {}, 'interrupted')
+  await expect(first).rejects.toThrow('interrupted')
+  expect(await readFile(join(root, 'a.gif'), 'utf8')).toBe('newer')
+  const second = f.invoke(DESKTOP_IPC.fileSave, { url: 'https://images.example/b', name: 'b.gif', mode: 'download' })
+  const vanished = f.item()
+  await rm(join(root, 'b.gif'))
+  vanished.emit('done', {}, 'interrupted')
+  await expect(second).rejects.toThrow('interrupted')
+})
+
+it('cancels a started download that stops reporting progress and releases its reservation', async () => {
+  vi.useFakeTimers(); vi.stubEnv('DSH_DESKTOP_FILE_DOWNLOAD_STALL_TIMEOUT_MS', '1000')
+  const root = await directory(), f = harness(root)
+  const pending = f.invoke(DESKTOP_IPC.fileSave, { url: 'https://images.example/a', name: 'slow.gif', mode: 'download' })
+  const rejected = expect(pending).rejects.toThrow('stalled')
+  const download = f.item()
+  await vi.advanceTimersByTimeAsync(900)
+  download.emit('updated', {}, 'progressing')
+  await vi.advanceTimersByTimeAsync(900)
+  expect(download.cancel).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(200)
+  await rejected
+  expect(download.cancel).toHaveBeenCalledOnce()
+  download.emit('done', {}, 'cancelled')
+  expect(await readdir(root)).toEqual([])
+  expect(f.owner.listenerCount('closed')).toBe(0)
+})
+
+it('starts the stall deadline for a save dialog download only after progress begins', async () => {
+  vi.useFakeTimers(); vi.stubEnv('DSH_DESKTOP_FILE_DOWNLOAD_STALL_TIMEOUT_MS', '1000')
+  const f = harness(await directory())
+  const pending = f.invoke(DESKTOP_IPC.fileSave, { url: 'https://images.example/a', mode: 'saveAs' })
+  const rejected = expect(pending).rejects.toThrow('stalled')
+  const download = f.item()
+  await vi.advanceTimersByTimeAsync(5000)
+  expect(download.cancel).not.toHaveBeenCalled()
+  download.emit('updated', {}, 'progressing')
+  await vi.advanceTimersByTimeAsync(1000)
+  await rejected
+  expect(download.cancel).toHaveBeenCalledOnce()
 })
 
 it('uses the native save dialog and waits for completion before reporting success', async () => {

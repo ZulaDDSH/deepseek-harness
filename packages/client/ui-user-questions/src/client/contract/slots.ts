@@ -261,7 +261,7 @@ export class PendingQuestion {
   #engaged = false
   #held = false
   #closed = false
-  readonly #siblings: (() => readonly string[]) | undefined
+  readonly #siblings: (() => readonly string[] | undefined) | undefined
   readonly #listeners = new Set<() => void>()
   #snapshot: QuestionCardSnapshot
 
@@ -276,7 +276,7 @@ export class PendingQuestion {
     sessionId: SessionId,
     questions: readonly AskUserQuestionItem[],
     callId?: ToolCallId,
-    siblings?: () => readonly string[],
+    siblings?: () => readonly string[] | undefined,
     review?: readonly AskUserQuestionAnswerItem[],
   ) {
     this.sessionId = sessionId
@@ -309,8 +309,8 @@ export class PendingQuestion {
    * Draft keys that are still live in this Session, this card included.
    * @returns keys the draft store must keep; everything else is stale.
    */
-  liveKeys(): readonly string[] {
-    return this.#siblings?.() ?? [this.key]
+  liveKeys(): readonly string[] | undefined {
+    return this.#siblings === undefined ? [this.key] : this.#siblings()
   }
 
   /** Subscribe to card state changes. */

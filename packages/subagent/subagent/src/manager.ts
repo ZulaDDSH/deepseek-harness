@@ -15,7 +15,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import { type ReasoningEffortId, contentHasImage, createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
-import type { Session, SessionId, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
+import type { Session, SessionHeader, SessionId, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionObservation, SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
 import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
@@ -30,12 +30,13 @@ import {
 import { installSubagentArchiveAdmission } from './archive-admission.ts'
 import { foldSubagentDescriptor, snapshotSubagentDescriptor } from './descriptor.ts'
 import type { SubagentDescriptorData } from './descriptor.ts'
-import { catalogNames, establishCatalogChild, establishExternalCatalogChild } from './catalog.ts'
+import { establishCatalogChild, establishExternalCatalogChild } from './catalog.ts'
 import { SubagentError } from './error.ts'
 import type { LifecycleEmitter } from './lifecycle.ts'
 import { ROOT_AGENT_NAME, SiblingNameReservations, agentAddress, joinAgentPath, parentAgentPath } from './names.ts'
 import type { SiblingNameReservation } from './names.ts'
-import type { SubagentCatalogEntry, SubagentIdentityProjection } from './projection-types.ts'
+import type { SubagentIdentityProjection } from './projection-types.ts'
+import { assertExternalCwdWithinParentWorkspace } from './external-cwd.ts'
 import type { SubagentRunId } from './types.ts'
 import type {
   ContinuableCreateRequest, ContinuableCreateSpec, SubagentInterruptAuthority,
@@ -47,6 +48,15 @@ import type { StructuredAttachment } from './structured.ts'
 import type { SubagentDelivery } from './control-types.ts'
 import { ActivationPool, ChildLock, activationAgent, captureLocalResult, observeLocalFailure, requireLocalActivation } from './activation.ts'
 import type { Activation, ActivationResource, LocalActivation } from './activation.ts'
+
+// Constraint: bounds a silent provider handshake so it cannot hold a tree slot.
+const EXTERNAL_STARTUP_TIMEOUT_MS = 300_000
+const HANDLE_DISPOSE_ATTEMPTS = 3
+type CreationLink = {
+  readonly header: SessionHeader
+  readonly identity: { readonly seq: number } | null | undefined
+  readonly inheritedEventCount: number
+}
 
 /** Inputs shared by model steering and human prompt delivery. */
 type ChildDeliveryOptions = {
@@ -64,7 +74,7 @@ interface SubagentHost {
   /** Read the current descriptor identity through the service-owned projection. */
   identityOf(session: Session): SubagentIdentityProjection | undefined
   /** Read a live Session's direct-child catalog through the service-owned projection. */
-  catalogOf(session: Session): readonly SubagentCatalogEntry[]
+  catalogChildrenOf(session: Session): Map<SessionId, string | undefined>
   /** Publish lifecycle events through the owning service's scoped dispatcher. */
   readonly emitLifecycle: LifecycleEmitter
 }
@@ -151,6 +161,8 @@ export class SubagentManager {
   private readonly closingRoots = new Set<Agent>()
   /** Sibling names held by creations that have not committed their catalog entry. */
   private readonly names = new SiblingNameReservations()
+  private readonly committedNames = new WeakMap<Session, Set<string>>()
+  private readonly committedChildren = new WeakMap<Session, Map<SessionId, string | undefined>>()
   private draining = false
 
   /**
@@ -413,6 +425,7 @@ export class SubagentManager {
           () => {
             this.assertAdmitting(parent)
             establishCatalogChild(parent.session, childHeader, descriptor, reservation.name)
+            this.recordCommitted(parent.session, childHeader.id, reservation.name)
           },
         )
       })
@@ -460,6 +473,7 @@ export class SubagentManager {
       let activation: Activation | undefined
       try {
         const cwd = await this.resolveDirectory(spec, signal)
+        await assertExternalCwdWithinParentWorkspace(this.ctx, parent.session, cwd)
         activation = await this.materialize({
           kind: 'external',
           provider,
@@ -475,6 +489,7 @@ export class SubagentManager {
         signal.throwIfAborted()
         if (reservation !== undefined) {
           establishExternalCatalogChild(parent.session, activation.childId, spec.label, reservation.name)
+          this.recordCommitted(parent.session, activation.childId, reservation.name)
         }
         this.accept(activation)
         return this.receipt(activation)
@@ -530,7 +545,45 @@ export class SubagentManager {
 
   /** Claim a sibling name against the creator's committed catalog and in-flight siblings. */
   private reserveName(parent: Agent, requested: string | undefined): SiblingNameReservation {
-    return this.names.reserve(parent, catalogNames(this.host.catalogOf(parent.session)), requested)
+    return this.names.reserve(parent, this.committedCatalog(parent.session).names, requested)
+  }
+
+  private committedCatalog(session: Session): {
+    readonly names: Set<string>
+    readonly children: Map<SessionId, string | undefined>
+  } {
+    let names = this.committedNames.get(session)
+    let children = this.committedChildren.get(session)
+    if (names === undefined || children === undefined) {
+      children = this.host.catalogChildrenOf(session)
+      names = new Set([...children.values()].filter((name): name is string => name !== undefined))
+      this.committedNames.set(session, names)
+      this.committedChildren.set(session, children)
+    }
+    return { names, children }
+  }
+
+  private recordCommitted(session: Session, childId: SessionId, name: string): void {
+    this.committedNames.get(session)?.add(name)
+    this.committedChildren.get(session)?.set(childId, name)
+  }
+
+  private liveCreationParent(parentId: SessionId, childId: SessionId): {
+    readonly name: string | undefined
+    readonly link: CreationLink
+  } | undefined {
+    const parent = this.ctx.agents.get(parentId)
+    if (parent === undefined) return undefined
+    const children = this.committedCatalog(parent.session).children
+    if (!children.has(childId)) return undefined
+    return {
+      name: children.get(childId),
+      link: {
+        header: parent.session.header,
+        identity: this.host.identityOf(parent.session),
+        inheritedEventCount: parent.session.inheritedEventCount,
+      },
+    }
   }
 
   /** Path of an exact live tree member: `''` for the root, undefined for unnamed history. */
@@ -589,27 +642,39 @@ export class SubagentManager {
     const ancestors: SessionId[] = []
     const names: (string | undefined)[] = []
     const seen = new Set<SessionId>([source.header.id])
-    let { header, projections, inheritedEventCount } = source
+    let link: CreationLink = {
+      header: source.header,
+      identity: source.projections?.values.subagent,
+      inheritedEventCount: source.inheritedEventCount,
+    }
     const pathFromRoot = (): string | undefined => names.reduce<string | undefined>(joinAgentPath, '')
     while (true) {
       signal.throwIfAborted()
-      const parentId = header.parentSession
-      const identity = projections?.values.subagent
-      if (parentId === undefined || identity == null || identity.seq < inheritedEventCount) break
+      const parentId = link.header.parentSession
+      if (parentId === undefined || link.identity == null || link.identity.seq < link.inheritedEventCount) break
       if (seen.has(parentId)) throw new SubagentError('cyclic subagent creation ancestry', 'UNAUTHORIZED')
       seen.add(parentId)
-      using parent = await this.observeContinuation(parentId, signal)
-      const entry = parent.projections?.values.subagentCatalog?.find(entry => entry.id === header.id)
-      if (entry === undefined) {
-        throw new SubagentError('subagent is absent from its creator catalog', 'UNAUTHORIZED')
+      const live = this.liveCreationParent(parentId, link.header.id)
+      let name: string | undefined
+      let parentLink: CreationLink
+      if (live !== undefined) {
+        name = live.name
+        parentLink = live.link
+      } else {
+        const parent = await this.inspectCreationParent(parentId, link.header.id, signal)
+        if (!parent.present) {
+          throw new SubagentError('subagent is absent from its creator catalog', 'UNAUTHORIZED')
+        }
+        name = parent.name
+        parentLink = parent.link
       }
       ancestors.unshift(parentId)
-      names.unshift('name' in entry ? entry.name : undefined)
+      names.unshift(name)
       if (parentId === root?.id) return { root, ancestors, path: pathFromRoot() }
-      ;({ header, projections, inheritedEventCount } = parent)
+      link = parentLink
     }
-    if (root === undefined && ancestors.length > 0 && header.origin !== 'subagent') {
-      const owner = this.ctx.agents.get(header.id)
+    if (root === undefined && ancestors.length > 0 && link.header.origin !== 'subagent') {
+      const owner = this.ctx.agents.get(link.header.id)
       if (owner === undefined || this.rootOf(owner) !== owner) {
         throw new SubagentError('subagent tree root is not live', 'CONTINUATION_UNAVAILABLE')
       }
@@ -745,7 +810,38 @@ export class SubagentManager {
    * @returns the shared close transaction.
    */
   private dispose(activation: Activation): Promise<void> {
+    if (activation.closing !== undefined && activation.handleUndisposed) return this.redriveHandle(activation)
     return this.close(activation, () => this.finishDisposal(activation, true))
+  }
+
+  private redriveHandle(activation: Activation): Promise<void> {
+    const completion = Promise.withResolvers<void>()
+    activation.handleUndisposed = false
+    activation.closing = completion.promise
+    void this.disposeHandle(activation, undefined).then(completion.resolve, (error: unknown) => {
+      activation.handleUndisposed = true
+      completion.reject(new SubagentError(
+        `subagent "${activation.childId}" activation handle disposal failed: ${activationAgent(activation) === undefined ? failureMessage(error) : errorChain(error)}`,
+        'ACTIVATION_TEARDOWN_FAILED',
+        { cause: error },
+      ))
+    })
+    return completion.promise
+  }
+
+  private async disposeHandle(activation: Activation, started: Promise<void> | undefined): Promise<void> {
+    let lastError: unknown
+    for (let attempt = 0; attempt < HANDLE_DISPOSE_ATTEMPTS; attempt += 1) {
+      try {
+        await (attempt === 0 && started !== undefined
+          ? started
+          : activation.kind === 'local' ? activation.handle.dispose() : activation.run.dispose())
+        return
+      } catch (error: unknown) {
+        lastError = error
+      }
+    }
+    throw lastError
   }
 
   /** Close admission synchronously and share one release, including startup rollback. */
@@ -809,8 +905,18 @@ export class SubagentManager {
       const controller = new AbortController()
       const cancelStartup = (): void => { controller.abort(inputs.signal.reason) }
       inputs.signal.addEventListener('abort', cancelStartup, { once: true })
+      let timer: ReturnType<typeof setTimeout> | undefined
       try {
-        const run = await inputs.start(controller.signal)
+        const startup = inputs.start(controller.signal)
+        const deadline = new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            const error = new SubagentError(`external subagent "${provider}" did not finish provider start (initialize and session creation) within ${EXTERNAL_STARTUP_TIMEOUT_MS} ms`, 'STARTUP_TIMEOUT')
+            controller.abort(error)
+            void startup.then(late => late.dispose(), () => undefined)
+            reject(error)
+          }, EXTERNAL_STARTUP_TIMEOUT_MS)
+        })
+        const run = await Promise.race([startup, deadline])
         resource = { kind: 'external', run, controller }
         void run.result.catch(() => undefined)
         try { this.assertChildIdAvailable(run.id) } catch (error: unknown) {
@@ -818,6 +924,7 @@ export class SubagentManager {
           throw error
         }
       } finally {
+        clearTimeout(timer)
         inputs.signal.removeEventListener('abort', cancelStartup)
       }
     } else {
@@ -889,6 +996,7 @@ export class SubagentManager {
       delivery: inputs.delivery ?? 'parent',
       result: Promise.withResolvers<SubagentResult>(),
       closing: undefined,
+      handleUndisposed: false,
       accepted: false,
     }
     void activation.result.promise.catch(() => undefined)
@@ -1076,9 +1184,9 @@ export class SubagentManager {
       ))
     }
     try {
-      if (activation.kind === 'local') await activation.handle.dispose()
-      else await (externalDisposal ?? activation.run.dispose())
+      await this.disposeHandle(activation, externalDisposal)
     } catch (error: unknown) {
+      activation.handleUndisposed = true
       failures.push(new SubagentError(
         `subagent "${childId}" activation handle disposal failed: ${detail(error)}`,
         'ACTIVATION_TEARDOWN_FAILED',
@@ -1180,12 +1288,13 @@ export class SubagentManager {
           const message = createUserMessage({ content, source: options.source })
           this.sendWaking(root, message, options.delivery)
           options.onAccepted?.()
-          return { messageId: message.id }
+          return { messageId: message.id, agent: root }
         }
         const activation = this.resident.get(childId)
         if (activation === undefined) {
           const restored = await this.restoreTarget(root, childId, options.signal)
-          return { messageId: await this.submitMaterialized(restored, content, options, root) }
+          const messageId = await this.submitMaterialized(restored, content, options, root)
+          return { messageId, agent: requireLocalActivation(restored).handle.agent }
         }
         if (activation.root !== root) throw new SubagentError('target belongs to another subagent tree', 'UNAUTHORIZED')
         requireLocalActivation(activation)
@@ -1194,10 +1303,23 @@ export class SubagentManager {
         }
         if (activation.closing !== undefined) return { closing: activation.closing }
         const messageId = this.submitAdmitted(activation, content, options, root)
-        return { messageId }
+        return { messageId, agent: requireLocalActivation(activation).handle.agent }
       })
-      if ('messageId' in result) return result.messageId
+      if (result.closing === undefined) {
+        await this.flushAccepted(result.agent, childId)
+        return result.messageId
+      }
       await Promise.allSettled([result.closing])
+    }
+  }
+
+  private async flushAccepted(agent: Agent, childId: SessionId): Promise<void> {
+    try {
+      await agent.ctx.sessions.flush(agent.session)
+    } catch (error: unknown) {
+      this.ctx.logger.warn(
+        `subagent "${childId}" accepted a message whose durable flush failed; it runs now but may be lost on a crash: ${errorChain(error)}`,
+      )
     }
   }
 
@@ -1209,6 +1331,31 @@ export class SubagentManager {
     } catch (error: unknown) {
       signal.throwIfAborted()
       throw new SubagentError(`subagent "${childId}" is unavailable`, 'NOT_RESUMABLE', { cause: error })
+    }
+  }
+
+  private async inspectCreationParent(parentId: SessionId, childId: SessionId, signal: AbortSignal): Promise<{
+    readonly present: boolean
+    readonly name: string | undefined
+    readonly link: CreationLink
+  }> {
+    const query = this.requireSessionQuery()
+    try {
+      return await query.inspectSession(parentId, session => {
+        const children = this.committedCatalog(session).children
+        return {
+          present: children.has(childId),
+          name: children.get(childId),
+          link: {
+            header: session.header,
+            identity: this.host.identityOf(session),
+            inheritedEventCount: session.inheritedEventCount,
+          },
+        }
+      }, signal)
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      throw new SubagentError(`subagent "${parentId}" is unavailable`, 'NOT_RESUMABLE', { cause: error })
     }
   }
 

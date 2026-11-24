@@ -46,7 +46,7 @@ Typing `@` in a host UI returns up to `maxResults` ranked path candidates for th
 | Field | Default | Meaning |
 |---|---|---|
 | `maxResults` | `20` | Maximum ranked candidates returned for one query |
-| `maxEntries` | `50000` | Maximum files and directories indexed per agent workspace |
+| `maxEntries` | `50000` | Maximum files and directories indexed per agent workspace, and the most entries read from any one directory |
 | `excludedDirectories` | `['.git', 'node_modules', 'dist', 'build', 'out', 'coverage', 'target', '.next', '.nuxt', '.turbo', '.venv', '__pycache__', '.pytest_cache', '.mypy_cache', '.gradle']` | Directory basenames omitted from traversal and candidates |
 
 Every numeric value must be a positive safe integer, and every excluded name must be a non-empty basename without `/` or `\`.
@@ -123,7 +123,7 @@ The stable sentence joins the system-prompt prefix. Mounting or removing this pr
 These limits define when the provider is a poor fit. They are current package constraints.
 
 - **Host-local namespace** — the provider scans the Harness host filesystem, so remote or virtual `read` implementations require a provider whose namespace matches the tool.
-- **Bounded advisory index** — very large workspaces may omit paths after `maxEntries`, and excluded or unreadable directories do not appear. The default exclusions name only build outputs no ecosystem also uses for sources; `lib` is deliberately absent, so a workspace that builds into it adds that name through `excludedDirectories`.
+- **Bounded advisory index** — very large workspaces may omit paths after `maxEntries`, and excluded or unreadable directories do not appear. Hidden paths (names starting with `.`) are indexed only after the visible tree, so a large hidden directory cannot crowd visible files out of bare queries. A directory with more than `maxEntries` entries is read only up to that many entries in filesystem order (cancellable between entries), so its listing is incomplete and not deterministic; the index and live listings do not report this truncation. Names containing a backslash are never offered, because file addresses treat `` as a path separator. The default exclusions name only build outputs no ecosystem also uses for sources; `lib` is deliberately absent, so a workspace that builds into it adds that name through `excludedDirectories`.
 - **One invalidation of staleness** — a bare query answered right after a tool result reflects the tree as of the previous traversal; the following query sees the rebuild.
 - **No ignore-file semantics** — `.gitignore` and other project ignore files do not influence discovery; only configured directory basenames are excluded.
 

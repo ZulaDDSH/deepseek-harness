@@ -496,6 +496,28 @@ describe('runScenario', () => {
     )).rejects.toThrow(/agent stderr:\nfake agent requested startup failure/)
   })
 
+  it('kills an agent that ignores stdin EOF and still removes the generated workspace', { timeout: 15_000 }, async () => {
+    const { fixtureFile } = await scenario({ ignoreEof: true })
+    const parent = await mkdtemp(join(tmpdir(), 'acp-snap-parent-'))
+    tempDirs.push(parent)
+    await expect(runScenario(
+      { steps: boot },
+      { agent: AGENT, mode: 'replay', fixtureFile, workspaceParent: parent, shutdownTimeoutMs: 1_500 },
+    )).rejects.toThrow(/did not exit within 1500 ms of stdin close and was killed/)
+    expect(await readdir(parent)).toEqual([])
+  })
+
+  it('stops waiting for output a descendant keeps open and still removes the generated workspace', { timeout: 15_000 }, async () => {
+    const { fixtureFile } = await scenario({ holdPipesAfterExit: true })
+    const parent = await mkdtemp(join(tmpdir(), 'acp-snap-parent-'))
+    tempDirs.push(parent)
+    await expect(runScenario(
+      { steps: boot },
+      { agent: AGENT, mode: 'replay', fixtureFile, workspaceParent: parent, shutdownTimeoutMs: 1_000 },
+    )).rejects.toThrow(/output did not drain within 1000 ms/)
+    expect(await readdir(parent)).toEqual([])
+  })
+
   it('preserves launch-resolution errors when no child process exists', async () => {
     const { dir, fixtureFile } = await scenario({})
     vi.stubEnv('DSH_EXAMPLE_MODE', 'lib')

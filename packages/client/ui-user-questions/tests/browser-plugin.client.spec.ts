@@ -627,6 +627,23 @@ describe('apply', () => {
     await expect(card.answer(ANSWER)).rejects.toThrow('offline')
   })
 
+  it('keeps the draft of an open projected question that has no card yet in the live keys', async () => {
+    const openCall = brandString<ToolCallId>('call-open')
+    const b = await bench(true, [CONTINUED, { ...CONTINUED, callId: openCall, state: 'open' }])
+    const card = b.pending.getSnapshot().find(item => item.callId === CALL)!
+    expect(b.pending.getSnapshot().find(item => item.callId === openCall)).toBeUndefined()
+    expect(card.liveKeys()).toEqual([card.key, `question:${SESSION_ID}:${openCall}`])
+  })
+
+  it('offers no live keys for pruning until the Session projection has loaded', async () => {
+    const b = await bench(true, 'absent')
+    expect(b.panels()?.review(SESSION_ID, CALL, RECORD)).toBe(true)
+    const card = b.pending.getSnapshot()[0]!
+    expect(card.liveKeys()).toBeUndefined()
+    b.projection.set(view([]))
+    expect(card.liveKeys()).toEqual([card.key])
+  })
+
   it('queues an older answer while a later question is waiting', async () => {
     const currentCall = brandString<ToolCallId>('call-current')
     const b = await bench(true, [CONTINUED, { ...CONTINUED, callId: currentCall, state: 'open' }])

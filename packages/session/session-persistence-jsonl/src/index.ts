@@ -23,7 +23,7 @@ import pLimit, { type LimitFunction } from 'p-limit'
 import {
   SessionPersistence, SessionFormatUnsupportedError,
   SessionPersistenceCorruptionError,
-  SessionAlreadyExistsError, SessionPersistenceNotFoundError,
+  SessionAlreadyExistsError, SessionAlreadyOwnedError, SessionPersistenceNotFoundError,
   assertStoredId, materializeCreateHeader, sessionFormatVersionRefusal, validateStoredEvents,
   type SessionAccess, type SessionHandle,
   type SessionHandleReadResult,
@@ -88,6 +88,9 @@ export const JsonlCompressionSchema: z<JsonlCompression> = z.union([
   z.const('none'),
 ]).default(DEFAULT_COMPRESSION)
 
+const DEFAULT_RETENTION_INTERVAL_HOURS = 24
+const MAX_TIMER_DELAY_MILLIS = 2_147_483_647
+
 /** Default maximum listing filesystem operations in flight per backend. */
 const DEFAULT_LIST_CONCURRENCY = 3
 
@@ -109,6 +112,18 @@ export interface Config {
    * fingerprints). Defaults to 3.
    */
   listConcurrency?: number
+  retention?: JsonlRetention
+}
+
+export interface JsonlRetention {
+  maxAgeDays: number
+  intervalHours?: number
+}
+
+export interface JsonlRetentionReport {
+  readonly deleted: readonly SessionId[]
+  readonly skipped: readonly { readonly id: SessionId; readonly reason: 'in-use' | 'referenced-by-child' }[]
+  readonly failed: readonly { readonly id: SessionId; readonly message: string }[]
 }
 
 /** Logical header paired with the catalog's selected physical-generation classification. */
@@ -370,6 +385,66 @@ class JsonlSessionPersistence extends SessionPersistence {
         error instanceof SessionFormatUnsupportedMigrationError,
     }
     this.assertUsableRoot()
+    if (config.retention !== undefined) this.scheduleRetention(config.retention)
+  }
+
+  private scheduleRetention(retention: JsonlRetention): void {
+    const interval = retention.intervalHours ?? DEFAULT_RETENTION_INTERVAL_HOURS
+    if (!Number.isFinite(retention.maxAgeDays) || retention.maxAgeDays <= 0 || !Number.isFinite(interval) || interval <= 0) {
+      throw new Error(`${this.name}: retention.maxAgeDays and retention.intervalHours must be positive numbers`)
+    }
+    let running = false
+    const run = (): void => {
+      if (running) return
+      running = true
+      void this.sweepRetention().catch((error: unknown) => {
+        this.ctx.logger.warn(`${this.name}: retention sweep failed: ${String(error)}`)
+      }).finally(() => { running = false })
+    }
+    this.ctx.effect(() => {
+      const timer = setInterval(run, Math.min(interval * 3_600_000, MAX_TIMER_DELAY_MILLIS))
+      timer.unref()
+      queueMicrotask(run)
+      return () => { clearInterval(timer) }
+    }, `${this.name}: retention sweep`)
+  }
+
+  async sweepRetention(options?: { readonly now?: number; readonly signal?: AbortSignal }): Promise<JsonlRetentionReport> {
+    const retention = this.config.retention
+    if (retention === undefined) return { deleted: [], skipped: [], failed: [] }
+    const cutoff = (options?.now ?? Date.now()) - retention.maxAgeDays * 86_400_000
+    const snapshots = await this.list(options?.signal === undefined ? undefined : { signal: options.signal })
+    const expired: SessionId[] = []
+    const kept = new Set<SessionId>()
+    for (const snapshot of snapshots) {
+      const path = snapshot.location?.kind === 'jsonl' ? snapshot.location.path : undefined
+      const modified = path === undefined ? undefined : await stat(path).then(info => info.mtimeMs, () => undefined)
+      if (modified !== undefined && modified < cutoff) expired.push(snapshot.header.id)
+      else kept.add(snapshot.header.id)
+    }
+    const referenced = new Set<SessionId>()
+    for (const snapshot of snapshots) {
+      const parent = snapshot.header.parentSession
+      if (parent !== undefined && kept.has(snapshot.header.id)) referenced.add(parent)
+    }
+    const deleted: SessionId[] = []
+    const skipped: { id: SessionId; reason: 'in-use' | 'referenced-by-child' }[] = []
+    const failed: { id: SessionId; message: string }[] = []
+    for (const id of expired) {
+      options?.signal?.throwIfAborted()
+      if (referenced.has(id)) { skipped.push({ id, reason: 'referenced-by-child' }); continue }
+      try {
+        await this.deleteSession(id, options?.signal === undefined ? undefined : { signal: options.signal })
+        deleted.push(id)
+      } catch (error) {
+        if (error instanceof SessionAlreadyOwnedError) { skipped.push({ id, reason: 'in-use' }); continue }
+        if (error instanceof SessionPersistenceNotFoundError) continue
+        const message = error instanceof Error ? error.message : String(error)
+        failed.push({ id, message })
+        this.ctx.logger.warn(`${this.name}: retention could not delete session "${id}": ${message}`)
+      }
+    }
+    return { deleted, skipped, failed }
   }
 
   /**
@@ -496,6 +571,27 @@ class JsonlSessionPersistence extends SessionPersistence {
         throw new AggregateError([failure, releaseFailure], `session "${id}": write open failed and its lock release failed`)
       }
       throw failure
+    }
+  }
+
+  async deleteSession(id: SessionId, options?: { readonly signal?: AbortSignal }): Promise<void> {
+    options?.signal?.throwIfAborted()
+    await this.ensureRootEncoding()
+    this.tracker.claimWrite(id)
+    let lease: SessionWriteLease | undefined
+    try {
+      const resolved = await this.findLog(id, options?.signal)
+      if (resolved === undefined) throw new SessionPersistenceNotFoundError(id)
+      const dir = dirname(resolved.sourcePath)
+      lease = await this.acquireLease(id, undefined, dir)
+      options?.signal?.throwIfAborted()
+      await rm(dir, { recursive: true, force: true })
+    } finally {
+      try {
+        await lease?.release()
+      } finally {
+        this.tracker.releaseClaim(id)
+      }
     }
   }
 
@@ -1867,6 +1963,7 @@ export const Config: z<Config> = z.object({
   root: z.string().required(),
   compression: JsonlCompressionSchema,
   listConcurrency: z.natural().min(1).default(DEFAULT_LIST_CONCURRENCY),
+  retention: z.any(),
 })
 
 /**

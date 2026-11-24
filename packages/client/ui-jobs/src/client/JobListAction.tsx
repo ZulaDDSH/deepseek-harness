@@ -485,7 +485,7 @@ export function JobListAction({ sessionId, useJobs, watchRows, observe, killJob,
       return
     }
     setKillPhase({ key, state: 'pending' })
-    void killJob(sessionId, key).then((ok) => {
+    void killJob(sessionId, key).catch(() => false).then((ok) => {
       // An admitted kill stays pending: the unary response (HTTP) and the jobs
       // frames (control stream) have no cross-carrier ordering, so re-enabling
       // here could offer a duplicate kill while the row still reads `running`.

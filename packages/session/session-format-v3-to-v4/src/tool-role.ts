@@ -16,9 +16,11 @@ function extensionFields(
 
 function resultContent(value: SessionFormatJsonValue | undefined, subject: string): SessionFormatJsonValue[] {
   if (!Array.isArray(value)) throw new SessionFormatError(`${subject} tool-result content must be an array`)
-  if (value.some(block => isSessionFormatJsonObject(block) && block['type'] === 'tool-result')) {
+  const nested = value.find(block => isSessionFormatJsonObject(block) && block['type'] === 'tool-result')
+  if (nested !== undefined) {
+    const callId = isSessionFormatJsonObject(nested) ? JSON.stringify(nested['toolCallId']) : 'undefined'
     throw new SessionFormatUnsupportedMigrationError(
-      `${subject} contains a nested tool-result unsupported by this converter`,
+      `${subject} contains a nested tool-result (call ${callId}) unsupported by this converter`,
     )
   }
   return value as SessionFormatJsonValue[]

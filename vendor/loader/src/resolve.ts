@@ -17,7 +17,15 @@ const HELPER_FILES = {
   'resolve.mjs': 'export default (specifier) => import.meta.resolve(specifier)\n',
 }
 
-const cache: Dict<Promise<Resolve | undefined>> = Object.create(null)
+const RETRY_AFTER_MS = 5000
+
+interface Slot {
+  promise: Promise<Resolve | undefined>
+  attempt: number
+  failedAt?: number
+}
+
+const cache: Dict<Slot> = Object.create(null)
 
 /** Nearest ancestor of `dir` that owns a `package.json`, if any. */
 function findScope(dir: string) {
@@ -48,7 +56,7 @@ async function write(filename: string, content: string) {
   await fsPromises.rename(temp, filename)
 }
 
-async function _createResolve(scope: string): Promise<Resolve | undefined> {
+async function _createResolve(scope: string, attempt: number): Promise<Resolve | undefined> {
   const dir = path.join(scope, '.cordis')
   try {
     await fsPromises.mkdir(dir, { recursive: true })
@@ -59,7 +67,7 @@ async function _createResolve(scope: string): Promise<Resolve | undefined> {
     // Read-only filesystems are legitimate; the caller falls back to a native `import()`.
     return
   }
-  const helperUrl = url.pathToFileURL(path.join(dir, 'resolve.mjs')).href
+  const helperUrl = url.pathToFileURL(path.join(dir, 'resolve.mjs')).href + (attempt ? `?retry=${attempt}` : '')
   return (await import(/* @vite-ignore */ helperUrl)).default
 }
 
@@ -71,5 +79,19 @@ async function _createResolve(scope: string): Promise<Resolve | undefined> {
 export async function createResolve(baseUrl: string | undefined) {
   const scope = resolveScope(baseUrl)
   if (!scope) return
-  return await (cache[scope] ??= _createResolve(scope))
+  let slot = cache[scope]
+  if (!slot || (slot.failedAt !== undefined && Date.now() - slot.failedAt >= RETRY_AFTER_MS)) {
+    const attempt = slot ? slot.attempt + 1 : 0
+    const next: Slot = cache[scope] = { attempt, promise: undefined! }
+    const fail = () => { next.failedAt = Date.now() }
+    next.promise = _createResolve(scope, attempt).then((resolve) => {
+      if (!resolve) fail()
+      return resolve
+    }, (error) => {
+      fail()
+      throw error
+    })
+    slot = next
+  }
+  return await slot.promise
 }
