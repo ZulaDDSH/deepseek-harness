@@ -59,6 +59,7 @@ export const DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION = 8192
 export const DEFAULT_NORMALIZED_IMAGE_MAX_BYTES = 4 * 1024 * 1024
 const DEFAULT_MAX_FILE_BYTES = 1024 * 1024 * 1024
 const DEFAULT_MAX_STORED_FILE_BYTES = 20 * 1024 * 1024 * 1024
+const DEFAULT_MAX_HOST_PATH_VERIFY_BYTES = 64 * 1024 * 1024
 /** Conservative default number of simultaneous native image transformations per store. */
 export const DEFAULT_IMAGE_COMPRESSION_CONCURRENCY = 2
 /** Maximum configurable native image transformations per store. */
@@ -94,6 +95,8 @@ export interface Config {
   maxFileBytes?: number
   /** Stored verbatim file objects must not total more than this many bytes. Default: 20 GiB. */
   maxStoredFileBytes?: number
+  /** A stored file this process did not save must not exceed this many bytes to get a host path. Default: 64 MiB. */
+  maxHostPathVerifyBytes?: number
 }
 
 function abortReason(signal: AbortSignal): Error {
@@ -171,6 +174,7 @@ export class LocalAttachmentStore extends AttachmentStore {
       .default(DEFAULT_IMAGE_COMPRESSION_CONCURRENCY),
     maxFileBytes: z.number().step(1).min(1).default(DEFAULT_MAX_FILE_BYTES),
     maxStoredFileBytes: z.number().step(1).min(1).default(DEFAULT_MAX_STORED_FILE_BYTES),
+    maxHostPathVerifyBytes: z.number().step(1).min(0).default(DEFAULT_MAX_HOST_PATH_VERIFY_BYTES),
   })
 
   /** Absolute versioned storage root. */
@@ -182,6 +186,7 @@ export class LocalAttachmentStore extends AttachmentStore {
   readonly imageCompressionConcurrency: number
   private readonly cacheRoot: string
   private readonly fileQuota: FileStoreQuota
+  private readonly maxHostPathVerifyBytes: number
   private readonly compression: CompressionLimiter
   private readonly requestInflight = new Map<string, SharedRequest<RequestImageAttachment>>()
 
@@ -195,6 +200,7 @@ export class LocalAttachmentStore extends AttachmentStore {
       config.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES,
       config.maxStoredFileBytes ?? DEFAULT_MAX_STORED_FILE_BYTES,
     )
+    this.maxHostPathVerifyBytes = config.maxHostPathVerifyBytes ?? DEFAULT_MAX_HOST_PATH_VERIFY_BYTES
     this.imageLimits = Object.freeze({
       maxImageBytes: config.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES,
       maxImagesPerMessage: config.maxImagesPerMessage ?? DEFAULT_MAX_IMAGES_PER_MESSAGE,
@@ -277,7 +283,7 @@ export class LocalAttachmentStore extends AttachmentStore {
   }
 
   override fileHostPath(ref: FileAttachmentRef): string | undefined {
-    return verifiedStoredFilePath(this.root, ref)
+    return verifiedStoredFilePath(this.root, ref, this.maxHostPathVerifyBytes)
   }
 
   override async readImageRequest(

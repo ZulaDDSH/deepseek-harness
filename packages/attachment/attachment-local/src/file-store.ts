@@ -114,6 +114,7 @@ export async function saveFileVerbatim(
     await publishImmutableObject(root, objectPath, input.data, sha256)
     if (isNew) stored = ref.bytes
     await publishImmutableAlias(root, objectPath, storedFilePath(root, ref), sha256)
+    rememberSavedFile(root, ref)
   } finally {
     if (isNew) quota?.settle(ref.bytes, stored)
   }
@@ -160,6 +161,7 @@ export async function saveFileStreamVerbatim(
     storedFilePath(root, ref),
     stored.sha256,
   )
+  rememberSavedFile(root, ref)
   input.signal?.throwIfAborted()
   return ref
 }
@@ -208,8 +210,6 @@ export async function* readFileStreamVerbatim(
 }
 
 const VERIFIED_HOST_PATH_LIMIT = 512
-// constraint: fileHostPath is synchronous, so unverified files above this size get no host path; read them with readFileStream.
-export const MAX_SYNC_VERIFY_BYTES = 64 * 1024 * 1024
 const verifiedHostPathIdentities = new Map<string, string>()
 
 function storedFileIdentity(stat: Stats): string {
@@ -234,7 +234,7 @@ function digestFileSync(path: string): { sha256: string, bytes: number } {
   }
 }
 
-export function verifiedStoredFilePath(root: string, ref: FileAttachmentRef): string | undefined {
+export function verifiedStoredFilePath(root: string, ref: FileAttachmentRef, maxVerifyBytes: number): string | undefined {
   const path = storedFilePath(root, ref)
   const sha256 = ensureFileReference(ref)
   let stat: Stats
@@ -250,7 +250,7 @@ export function verifiedStoredFilePath(root: string, ref: FileAttachmentRef): st
   }
   const identity = storedFileIdentity(stat)
   if (verifiedHostPathIdentities.get(path) === identity) return path
-  if (stat.size > MAX_SYNC_VERIFY_BYTES) return undefined
+  if (stat.size > maxVerifyBytes) return undefined
   let digest: { sha256: string, bytes: number }
   try {
     digest = digestFileSync(path)
@@ -262,7 +262,22 @@ export function verifiedStoredFilePath(root: string, ref: FileAttachmentRef): st
     verifiedHostPathIdentities.delete(path)
     return undefined
   }
+  rememberVerifiedIdentity(path, identity)
+  return path
+}
+
+function rememberVerifiedIdentity(path: string, identity: string): void {
   if (verifiedHostPathIdentities.size >= VERIFIED_HOST_PATH_LIMIT) verifiedHostPathIdentities.clear()
   verifiedHostPathIdentities.set(path, identity)
-  return path
+}
+
+// constraint: call only after the alias was published and its bytes verified.
+function rememberSavedFile(root: string, ref: FileAttachmentRef): void {
+  const path = storedFilePath(root, ref)
+  try {
+    const stat = statSync(path)
+    if (stat.isFile() && stat.size === ref.bytes) rememberVerifiedIdentity(path, storedFileIdentity(stat))
+  } catch {
+    verifiedHostPathIdentities.delete(path)
+  }
 }

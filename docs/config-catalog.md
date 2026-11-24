@@ -541,7 +541,7 @@ export interface SearchLimits {
 
 ## `@deepseek-ai/dsh-attachment-local`
 
-- `source`: [`packages/attachment/attachment-local/src/index.ts:69`](../packages/attachment/attachment-local/src/index.ts)
+- `source`: [`packages/attachment/attachment-local/src/index.ts:70`](../packages/attachment/attachment-local/src/index.ts)
 
 ```ts config-catalog
 /** Local attachment backend configuration. */
@@ -573,6 +573,8 @@ export interface Config {
   maxFileBytes?: number
   /** Stored verbatim file objects must not total more than this many bytes. Default: 20 GiB. */
   maxStoredFileBytes?: number
+  /** A stored file this process did not save must not exceed this many bytes to get a host path. Default: 64 MiB. */
+  maxHostPathVerifyBytes?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-attachment-local -->
