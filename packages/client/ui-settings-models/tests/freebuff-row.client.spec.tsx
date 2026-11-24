@@ -10,7 +10,7 @@ import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { AuthorizationEntryView } from '@deepseek-ai/dsh-api-settings-controller/types'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { ModelsSection } from '../src/client/ModelsSection.tsx'
-import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
+import type { ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { ModelsSettingsStore } from '../src/client/store.ts'
 import type { ProviderRow } from '../src/client/store.ts'
 import type { AuthorizationOperations } from '../src/client/authorization-operations.ts'
@@ -20,8 +20,7 @@ import { settingsSchema } from './settings-schema.client.ts'
 
 afterEach(cleanup)
 
-const t: ModelsSectionInjected['t'] = (key, params) => Object.entries(params ?? {})
-  .reduce((copy, [name, value]) => copy.replace(`{${name}}`, value), en[key])
+const t = (key: keyof typeof en): string => en[key]
 
 const FreebuffConfig = Schema.object({ displayName: Schema.string() })
 const FLOW: AuthorizationEntryView = {
