@@ -8,7 +8,7 @@ import type { Duplex, Readable, Writable } from 'node:stream'
 import { finished, pipeline } from 'node:stream/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SubprocessHandle, SubprocessSpawnSpec, SubprocessTerminalHandle } from '@deepseek-ai/dsh-subprocess'
-import { logSpillFailure, OutputCollector, prepareManagedProcessBinding, type SpillFailureReporter } from '@deepseek-ai/dsh-subprocess-local/output'
+import { logSpillFailure, logSweepFailure, OutputCollector, prepareManagedProcessBinding, type SpillFailureReporter, type SweepFailureReporter } from '@deepseek-ai/dsh-subprocess-local/output'
 import { doneSchema, outputSnapshotFrameLimit, spawnSchema, type SshProcessId, type SshStreamEndpoint } from './schemas.ts'
 import { z } from 'zod'
 import { SSH_STREAM_TLS_OPTIONS } from './stream-security.ts'
@@ -96,12 +96,14 @@ export class RemoteProcesses {
 
   /** Spill failures reach the helper's logger; the remote caller then receives the tail without a spill path. */
   private readonly reportSpillFailure: SpillFailureReporter
+  private readonly reportSweepFailure: SweepFailureReporter
 
   constructor(
     private readonly ctx: Context, private readonly root: string,
     private readonly limit: number, private readonly preparationMs: number,
   ) {
     this.reportSpillFailure = logSpillFailure(ctx.logger, 'ssh helper')
+    this.reportSweepFailure = logSweepFailure(ctx.logger, 'ssh helper')
   }
 
   /**
@@ -222,9 +224,9 @@ export class RemoteProcesses {
       const mode = stdio[name]
       const socket = await (record.endpoints[name] as Endpoint).connected
       if (typeof mode === 'object') {
-        const binding = prepareManagedProcessBinding({ onSpillFailure: this.reportSpillFailure })
+        const binding = prepareManagedProcessBinding({ onSpillFailure: this.reportSpillFailure, onSweepFailure: this.reportSweepFailure })
         const collector = new OutputCollector(mode.maxBytes, name, mode.spill === undefined ? undefined : {
-          maxBytes: mode.spill.maxBytes, dir: binding.spillDir, onFailure: binding.onSpillFailure,
+          maxBytes: mode.spill.maxBytes, dir: binding.spillDir, onFailure: binding.onSpillFailure, onSweepFailure: binding.onSweepFailure,
         })
         collectors[name] = collector
         const forwarder = new CollectedOutputForwarder(socket, collector, mode.maxBytes)

@@ -314,6 +314,7 @@ export class ReactLoopAgent implements Agent {
       throw this.releaseClaim(claimed, signal, error)
     }
     if (prepared.kind === 'reject') this.discardClaim(claimed)
+    else for (const message of [...claimed['next-step'], ...claimed['next-turn']]) this.restoreCounts.delete(message.id)
     return prepared
   }
 

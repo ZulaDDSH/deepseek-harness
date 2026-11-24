@@ -31,7 +31,7 @@ import {
   spawnSubprocess,
   validateSubprocessSpec,
 } from './spawn.ts'
-import { logSpillFailure, prepareManagedProcessBinding } from './output.ts'
+import { logSpillFailure, logSweepFailure, prepareManagedProcessBinding } from './output.ts'
 import type { LocalSubprocessHandle, SpawnInternals } from './spawn.ts'
 import {
   confirmLinuxManager,
@@ -119,6 +119,8 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
 
   /** Spill failures reach the plugin logger; the log line is the only trace of why a result has no spill path. */
   private readonly reportSpillFailure = logSpillFailure(this.ctx.logger, 'subprocess-local')
+
+  private readonly reportSweepFailure = logSweepFailure(this.ctx.logger, 'subprocess-local')
 
   private terminateForHostExit(): void {
     for (const handle of this.live) {
@@ -235,7 +237,11 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     const env = targetEnvironment(spec)
     const containmentMode = this.selectContainmentMode('ordinary')
     let handle: LocalSubprocessHandle
-    const internals: SpawnInternals = { ...this.internals, onSpillFailure: this.reportSpillFailure }
+    const internals: SpawnInternals = {
+      ...this.internals,
+      onSpillFailure: this.reportSpillFailure,
+      onSweepFailure: this.reportSweepFailure,
+    }
     if (containmentMode === 'fallback') {
       handle = spawnSubprocess(spec, internals)
     } else {

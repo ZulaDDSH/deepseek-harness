@@ -57,6 +57,35 @@ describe('commandEvidence', () => {
     ['sudo python3 - <<EOF\nimport os\nEOF\ngh pr new', created],
     ['cat <<EOF | bash\ngh pr create\nEOF', created],
     ['echo ssh; cat <<EOF\nx\nEOF\ngh pr create', created],
+    ["bash -eo pipefail -c 'gh pr create --fill'", created],
+    ["bash -c -e 'gh pr create --fill'", created],
+    ["bash -co pipefail 'gh pr create --fill'", created],
+    ["bash -cB 'gh pr create --fill'", created],
+    ["bash -Oc extglob 'gh pr create --fill'", created],
+    ["bash --norc --noprofile -c 'gh pr create --fill'", created],
+    ["bash -c -- 'gh pr create --fill'", created],
+    ["bash +e -c 'gh pr create --fill'", created],
+    ["/bin/bash -c 'gh pr create --fill'", created],
+    ['bash -c "bash -c \'gh pr create --fill\'"', created],
+    ['gh.exe pr create --fill', created],
+    ['/usr/bin/gh pr create --fill', created],
+    ['"C:\\Program Files\\GitHub CLI\\gh.exe" pr create --fill', created],
+    ['gh pr create --title --help', created],
+    ['gh pr create -t "--dry-run" --fill', created],
+    ['gh pr create --fill --unknown-flag --help-me', created],
+    ['echo "$(gh pr create --fill)"', created],
+    ['echo `gh pr create --fill`', created],
+    ['url=$(gh pr create --fill)', created],
+    ['echo "$(echo "$(gh pr create --fill)")"', created],
+    ['/usr/bin/git push', pushed],
+    ['git --git-dir .git push', pushed],
+    ['git --git-dir=.git --work-tree . -C sub -c a=b --no-pager push origin', pushed],
+    ['git --namespace ns --config-env x=Y push', pushed],
+    ['echo "$(git push)"', pushed],
+    ['gh pr view 12 --json url && echo "$(git push)"', { urls: 'referenced', pushes: true, named: [] }],
+    ['/usr/bin/gh pr view 12', { urls: 'referenced', pushes: false, named: [] }],
+    ['gh.exe pr edit 12 --add-label x', { urls: 'referenced', pushes: false, named: [] }],
+    ['env GH_HOST=ghe.example gh pr checkout 12', { urls: 'referenced', pushes: false, named: [] }],
   ])('classifies %j', (command, evidence) => {
     expect(commandEvidence(command)).toEqual(evidence)
   })
@@ -79,8 +108,51 @@ describe('commandEvidence', () => {
     "bash script.sh -c 'gh pr create'",
     'cat <<A <<B\ngh pr create\nA\ngh pr new\nB',
     'echo bash && cat <<EOF\ngh pr create\nEOF',
+    'echo "git push"',
+    "echo 'git push origin main'",
+    'echo "gh pr view 1"',
+    'grep -n "gh pr edit" docs',
+    "printf '%s' 'gh pr checkout 1'",
+    'gh pr create --help',
+    'gh pr create -h',
+    'gh pr new --dry-run',
+    'gh pr create --dry-run --fill',
+    'gh pr create --fill --help',
+    "bash -c 'gh pr create --dry-run'",
+    "echo '$(gh pr create --fill)'",
+    'echo "\\$(gh pr create --fill)"',
+    "echo '`gh pr create --fill`'",
+    'echo "$(echo gh pr create)"',
+    "bash -x script.sh -c 'gh pr create'",
+    "bash -cZ 'gh pr create'",
+    "bash -c --version 'gh pr create'",
+    'bash -c',
+    'bash -c -o',
+    "bash --unknown -c 'gh pr create'",
+    "bash - -c 'gh pr create'",
+    'git --git-dir .git status',
+    'git --git-dir push',
+    'git -C push status',
+    'git push-all',
   ])('ignores %j', (command) => {
     expect(commandEvidence(command)).toBeUndefined()
+  })
+
+  it('cannot tell an echoed URL line from the URL gh printed', () => {
+    const text = ['https://github.com/octo/demo/pull/9', 'https://github.com/octo/demo/pull/10'].join('\n')
+    expect(commandEvidence('gh pr create --fill && echo https://github.com/octo/demo/pull/9')).toEqual(created)
+    expect(createdChangeRequestUrls(text)).toEqual(['https://github.com/octo/demo/pull/9', 'https://github.com/octo/demo/pull/10'])
+  })
+
+  it('treats a heredoc for an unknown program as data', () => {
+    expect(commandEvidence('mytool <<EOF\ngh pr create\nEOF')).toBeUndefined()
+    expect(commandEvidence('docker exec -i c sh <<EOF\ngh pr create\nEOF')).toEqual(created)
+  })
+
+  it('classifies nested command substitutions in linear time', () => {
+    const started = performance.now()
+    expect(commandEvidence(`echo "${'$('.repeat(40_000)}gh pr create`)).toBeUndefined()
+    expect(performance.now() - started).toBeLessThan(1000)
   })
 
   it('classifies a long run of option letters in linear time', () => {
@@ -157,6 +229,27 @@ describe('pushedBranches', () => {
       { remote: 'github.com:octo/demo.git', branch: 'topic' },
       { remote: 'github.com:octo/demo.git', branch: 'stable' },
       { remote: 'github.com:octo/demo.git', branch: 'review' },
+    ])
+  })
+
+  it('reads porcelain output with the same exclusions', () => {
+    const text = [
+      'To github.com:octo/demo.git',
+      '*\trefs/heads/feat:refs/heads/feat\t[new branch]',
+      ' \trefs/heads/main:refs/heads/main\t1a2b3c4..5d6e7f8',
+      '+\trefs/heads/topic:refs/heads/topic\t1a2b3c4...5d6e7f8 (forced update)',
+      '=\trefs/heads/stable:refs/heads/stable\t[up to date]',
+      '!\trefs/heads/old:refs/heads/old\t[rejected] (fetch first)',
+      '-\t:refs/heads/gone\t[deleted]',
+      '*\trefs/tags/v1:refs/tags/v1\t[new tag]',
+      'Done',
+    ].join('\n')
+
+    expect(pushedBranches(text)).toEqual([
+      { remote: 'github.com:octo/demo.git', branch: 'feat' },
+      { remote: 'github.com:octo/demo.git', branch: 'main' },
+      { remote: 'github.com:octo/demo.git', branch: 'topic' },
+      { remote: 'github.com:octo/demo.git', branch: 'stable' },
     ])
   })
 

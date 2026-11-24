@@ -657,6 +657,10 @@ interface RegistryRead {
   done?: Promise<void>
 }
 
+function officialPackageNames(packages: readonly PackageView[]): ReadonlySet<string> {
+  return new Set(packages.filter(pkg => pkg.official).map(pkg => pkg.name))
+}
+
 /** Only the shipped public mirror can replace an unconfigured official npm default. */
 function eligibleMirror(registries: PluginRegistries): string | undefined {
   if (registries.registry !== null || registries.resolved === null) return undefined
@@ -1226,8 +1230,9 @@ export class PluginManagerController {
       }
     }
     if (this.ctx.get('productAnalytics')?.enabled) {
-      this.analyticsAttempt = { input: sanitizeInstallInput(spec), started: Date.now() }
-      this.ctx.get('productAnalytics')?.track('plugin_install_click', { input_value: sanitizeInstallInput(spec) })
+      const input = sanitizeInstallInput(spec, officialPackageNames(state.packages))
+      this.analyticsAttempt = { input, started: Date.now() }
+      this.ctx.get('productAnalytics')?.track('plugin_install_click', { input_value: input })
     }
     if (listed?.availability === 'installation' && listed.optional && listed.listedByDefault === false
       && !listed.enabled && listed.error === undefined && listed.readOnlyReason === undefined) {
@@ -1403,7 +1408,10 @@ export class PluginManagerController {
     const install = this.getSnapshot().install
     const pending = install.failure?.pendingBuilds
     if (install.phase !== 'failed' || install.subject === null || pending === undefined || pending.length === 0) return
-    if (this.ctx.get('productAnalytics')?.enabled) this.analyticsAttempt = { input: sanitizeInstallInput(install.subject.spec), started: Date.now() }
+    if (this.ctx.get('productAnalytics')?.enabled) {
+      const input = sanitizeInstallInput(install.subject.spec, officialPackageNames(this.getSnapshot().packages))
+      this.analyticsAttempt = { input, started: Date.now() }
+    }
     await this.startInstall(install.subject, pending)
   }
 

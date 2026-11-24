@@ -38,18 +38,41 @@ export interface AnonymousUserIdOptions {
   randomUUID?: () => string
   /** Longest wait in ms for the creation lock held by another process; defaults to 2000. */
   lockTimeoutMs?: number
+  /** Receives each unexpected file-system failure; the id is still returned. Defaults to one stderr line. */
+  onFailure?: AnonymousUserIdFailureReporter
+}
+
+/**
+ * Receives one unexpected file-system failure of the best-effort id persistence.
+ * @param message - one line naming the failed step.
+ * @param error - the `node:fs` failure, with its `code`, `syscall` and `path`.
+ */
+export type AnonymousUserIdFailureReporter = (message: string, error: unknown) => void
+
+function reportToStderr(message: string, error: unknown): void {
+  process.stderr.write(`${message}: ${String(error)}
+`)
+}
+
+const ABSENT_CODES: ReadonlySet<string> = new Set(['ENOENT', 'ENOTDIR'])
+const VANISHED_CODES: ReadonlySet<string> = new Set(['ENOENT'])
+const NO_CODES: ReadonlySet<string> = new Set()
+
+function surface(report: AnonymousUserIdFailureReporter, step: string, error: unknown, expected: ReadonlySet<string>): void {
+  if (expected.has((error as NodeJS.ErrnoException).code ?? '')) return
+  report(`dsh-anonymous-user-id: could not ${step}`, error)
 }
 
 /** Process-lifetime memo keyed by resolved file path, so distinct test homes never share an id. */
 const memo = new Map<string, AnonymousUserId>()
 
 /** Read a valid persisted id from the file, or `undefined` when absent/corrupt. */
-function readPersistedId(file: string): AnonymousUserId | undefined {
+function readPersistedId(file: string, report: AnonymousUserIdFailureReporter): AnonymousUserId | undefined {
   let text: string
   try {
     text = readFileSync(file, 'utf8')
-  } catch {
-    // Absent or unreadable: the caller mints and persists a fresh id.
+  } catch (error) {
+    surface(report, `read ${file}`, error, ABSENT_CODES)
     return undefined
   }
   const value = text.trim()
@@ -67,75 +90,86 @@ function sleepSync(ms: number): void {
 
 type LockState = 'held' | 'timeout' | 'unavailable'
 
-function statIfPresent(path: string): Stats | undefined {
+function statIfPresent(path: string, report: AnonymousUserIdFailureReporter): Stats | undefined {
   try {
     return statSync(path)
-  } catch (_vanished) {
+  } catch (error) {
+    surface(report, `stat ${path}`, error, VANISHED_CODES)
     return undefined
   }
 }
 
-function removeStaleLock(lockFile: string, seen: Stats): void {
-  const again = statIfPresent(lockFile)
-  if (again?.ino !== seen.ino || again.mtimeMs !== seen.mtimeMs) return
+function removeFile(path: string, report: AnonymousUserIdFailureReporter): void {
   try {
-    rmSync(lockFile, { force: true })
-  } catch (_removeFailed) {
-    return
+    rmSync(path, { force: true })
+  } catch (error) {
+    surface(report, `remove ${path}`, error, LOCK_CONTENTION_CODES)
   }
 }
 
+function removeStaleLock(lockFile: string, seen: Stats, report: AnonymousUserIdFailureReporter): void {
+  const again = statIfPresent(lockFile, report)
+  if (again?.ino !== seen.ino || again.mtimeMs !== seen.mtimeMs) return
+  removeFile(lockFile, report)
+}
+
 /** Take the exclusive-create lock file, retrying until `timeoutMs`; a lock older than the stale age is removed. */
-function acquireLock(lockFile: string, timeoutMs: number): LockState {
+function acquireLock(lockFile: string, timeoutMs: number, report: AnonymousUserIdFailureReporter): LockState {
   const deadline = Date.now() + timeoutMs
   for (;;) {
     try {
       writeFileSync(lockFile, `${process.pid}\n`, { encoding: 'utf8', flag: 'wx' })
       return 'held'
     } catch (error) {
-      if (!LOCK_CONTENTION_CODES.has((error as NodeJS.ErrnoException).code ?? '')) return 'unavailable'
+      if (!LOCK_CONTENTION_CODES.has((error as NodeJS.ErrnoException).code ?? '')) {
+        surface(report, `create ${lockFile}`, error, NO_CODES)
+        return 'unavailable'
+      }
     }
-    const seen = statIfPresent(lockFile)
-    if (seen !== undefined && Date.now() - seen.mtimeMs > LOCK_STALE_MS) removeStaleLock(lockFile, seen)
+    const seen = statIfPresent(lockFile, report)
+    if (seen !== undefined && Date.now() - seen.mtimeMs > LOCK_STALE_MS) removeStaleLock(lockFile, seen, report)
     if (Date.now() >= deadline) return 'timeout'
     sleepSync(LOCK_POLL_MS)
   }
 }
 
 /** Under the lock, adopt a valid persisted id or atomically publish `created`; never overwrites unlocked. */
-function publishId(file: string, created: AnonymousUserId, timeoutMs: number): AnonymousUserId {
+function publishId(file: string, created: AnonymousUserId, timeoutMs: number, report: AnonymousUserIdFailureReporter): AnonymousUserId {
   try {
     mkdirSync(dirname(file), { recursive: true })
-  } catch {
+  } catch (error) {
+    surface(report, `create ${dirname(file)}`, error, NO_CODES)
     return created
   }
   const lockFile = `${file}.lock`
-  const state = acquireLock(lockFile, timeoutMs)
+  const state = acquireLock(lockFile, timeoutMs, report)
   if (state === 'unavailable') return created
   try {
-    const existing = readPersistedId(file)
+    const existing = readPersistedId(file, report)
     if (existing !== undefined || state === 'timeout') return existing ?? created
     const temp = `${file}.${process.pid}.tmp`
     try {
       writeFileSync(temp, `${created}\n`, 'utf8')
       renameSync(temp, file)
-    } catch {
-      rmSync(temp, { force: true })
+    } catch (error) {
+      surface(report, `publish ${file}`, error, NO_CODES)
+      removeFile(temp, report)
     }
     return created
   } finally {
-    if (state === 'held') rmSync(lockFile, { force: true })
+    if (state === 'held') removeFile(lockFile, report)
   }
 }
 
-/** Return the harness home's anonymous user id, minting it under a cross-process lock on first use; an unwritable home still yields an in-memory id for the run. */
+/** Return the harness home's anonymous user id, minted under a cross-process lock on first use; an unwritable home gives a memory id. */
 export function getOrCreateAnonymousUserId(options: AnonymousUserIdOptions = {}): AnonymousUserId {
   const file = join(resolveDshHome(undefined, options.env ?? process.env), ANONYMOUS_USER_ID_FILE_NAME)
   const cached = memo.get(file)
   if (cached !== undefined) return cached
 
-  const id = readPersistedId(file)
-    ?? publishId(file, (options.randomUUID ?? randomUUID)() as AnonymousUserId, options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS)
+  const report = options.onFailure ?? reportToStderr
+  const id = readPersistedId(file, report)
+    ?? publishId(file, (options.randomUUID ?? randomUUID)() as AnonymousUserId, options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS, report)
   memo.set(file, id)
   return id
 }

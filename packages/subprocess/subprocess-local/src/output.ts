@@ -4,9 +4,9 @@ import { closeSync, mkdtempSync, openSync, rmdirSync, statSync, unlinkSync, writ
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { CollectedOutput } from '@deepseek-ai/dsh-subprocess'
-import { activeSpills, sweepSpillFilesThrottled } from './retention.ts'
+import { activeSpills, reportSweepFailureToStderr, sweepSpillFilesThrottled, type SweepFailureReporter } from './retention.ts'
 
-export { sweepSpillFiles } from './retention.ts'
+export { sweepSpillFiles, type SweepFailureReporter } from './retention.ts'
 
 /**
  * Receives one spill failure so the owner can log it through its own logger.
@@ -26,6 +26,7 @@ export interface SpillOptions {
   dir: string
   /** Owner-side report of a spill open or write failure. */
   onFailure: SpillFailureReporter
+  onSweepFailure?: SweepFailureReporter
 }
 
 let spillCounter = 0
@@ -40,10 +41,10 @@ let defaultSpillDir: string | undefined
  * file (spill files are retained as full-output recovery artifacts until an
  * external cleanup).
  */
-function privateSpillDir(): string {
+function privateSpillDir(onSweepFailure: SweepFailureReporter): string {
   if (defaultSpillDir === undefined || statSync(defaultSpillDir, { throwIfNoEntry: false })?.isDirectory() !== true) {
     defaultSpillDir = mkdtempSync(join(tmpdir(), 'dsh-subprocess-'))
-    sweepSpillFilesThrottled(defaultSpillDir)
+    sweepSpillFilesThrottled(defaultSpillDir, onSweepFailure)
   }
   return defaultSpillDir
 }
@@ -89,12 +90,27 @@ export function logSpillFailure(logger: { error(message: string, ...detail: unkn
   }
 }
 
+/**
+ * Build the reporter an owner passes as `onSweepFailure`: one warn-level log
+ * line naming the owner, the failed step and the entry, with the failure
+ * appended so its `code` and `syscall` reach the log.
+ * @param logger - the owner's plugin logger.
+ * @param owner - the component named in the line.
+ * @returns the reporter.
+ */
+export function logSweepFailure(logger: { warn(message: string, ...detail: unknown[]): void }, owner: string): SweepFailureReporter {
+  return (error, step, path) => {
+    logger.warn(`${owner} could not ${step} ${path}; the spill retention sweep continues.`, error)
+  }
+}
+
 /** Inputs a managed native process needs before its output streams are bound. */
 export interface ManagedProcessBinding {
   /** Directory receiving spill files. */
   spillDir: string
   /** Receives a spill open or write failure. */
   onSpillFailure: SpillFailureReporter
+  onSweepFailure: SweepFailureReporter
 }
 
 /**
@@ -106,11 +122,13 @@ export interface ManagedProcessBinding {
  * @returns binding inputs whose spill directory is ready for use.
  */
 export function prepareManagedProcessBinding(
-  internals: { spillDir?: string; onSpillFailure?: SpillFailureReporter } = {},
+  internals: { spillDir?: string; onSpillFailure?: SpillFailureReporter; onSweepFailure?: SweepFailureReporter } = {},
 ): ManagedProcessBinding {
+  const onSweepFailure = internals.onSweepFailure ?? reportSweepFailureToStderr
   return {
-    spillDir: internals.spillDir ?? privateSpillDir(),
+    spillDir: internals.spillDir ?? privateSpillDir(onSweepFailure),
     onSpillFailure: internals.onSpillFailure ?? reportSpillFailureToStderr,
+    onSweepFailure,
   }
 }
 
@@ -317,7 +335,7 @@ export class OutputCollector {
       this.spillFile = undefined
     }
     this.spillFd = undefined
-    sweepSpillFilesThrottled(defaultSpillDir)
+    sweepSpillFilesThrottled(defaultSpillDir, this.spill?.onSweepFailure ?? reportSweepFailureToStderr)
   }
 
   /**
