@@ -592,6 +592,70 @@ describe('continuable activation capacity', () => {
     expect(closingIdleWaits).toBe(3)
     expect(ended).toHaveBeenCalledTimes(1)
   })
+
+  it('retries a failed stop-path idle wait in the manager and settles the captured result', async () => {
+    const releaseRun = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('busy'), gate: releaseRun.promise }])
+    const { ctx, parent } = await setupWith(adapter, { maxActiveSubagents: 1 })
+    parkParent(ctx, parent)
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+    const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const activation = managerState(ctx).resident.get(started.childId)!
+    const { agent } = requireLocalActivation(activation).handle
+    const idleWait = agent.whenIdle.bind(agent)
+    let closingIdleWaits = 0
+    vi.spyOn(agent, 'whenIdle').mockImplementation(() => {
+      if (activation.closing !== undefined) closingIdleWaits += 1
+      if (closingIdleWaits === 1) return Promise.reject(new Error('idle wait failed'))
+      return idleWait()
+    })
+    releaseRun.resolve(undefined)
+    await expect(started.dispose()).resolves.toBeUndefined()
+    await expect(started.result).resolves.not.toMatchObject({ stopReason: 'error' })
+    expect(ended).toHaveBeenCalledTimes(1)
+    expect(ended.mock.calls[0]![0]).not.toMatchObject({ stopReason: 'error' })
+  })
+
+  it('reports a stop-path idle wait that keeps failing as a teardown failure after bounded attempts, once', async () => {
+    const releaseRun = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('busy'), gate: releaseRun.promise }])
+    const { ctx, parent } = await setupWith(adapter, { maxActiveSubagents: 1 })
+    parkParent(ctx, parent)
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+    const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const activation = managerState(ctx).resident.get(started.childId)!
+    const { handle } = requireLocalActivation(activation)
+    const { agent } = handle
+    const idleWait = agent.whenIdle.bind(agent)
+    const handleDispose = handle.dispose.bind(handle)
+    let handleDisposing = false
+    vi.spyOn(handle, 'dispose').mockImplementation(() => {
+      handleDisposing = true
+      return handleDispose()
+    })
+    let managerWaits = 0
+    vi.spyOn(agent, 'whenIdle').mockImplementation(() => {
+      if (activation.closing !== undefined && !handleDisposing) {
+        managerWaits += 1
+        return Promise.reject(new Error('idle wait failed'))
+      }
+      return idleWait()
+    })
+    releaseRun.resolve(undefined)
+    await expect(started.dispose()).rejects.toMatchObject({
+      code: 'ACTIVATION_TEARDOWN_FAILED', message: expect.stringContaining('idle wait failed') as string,
+    })
+    expect(managerWaits).toBe(3)
+    await expect(started.result).rejects.toThrow('idle wait failed')
+    expect(ended).toHaveBeenCalledTimes(1)
+    expect(ended.mock.calls[0]![0]).toMatchObject({ stopReason: 'error' })
+    await expect(started.dispose()).rejects.toMatchObject({ code: 'ACTIVATION_TEARDOWN_FAILED' })
+    expect(ended).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('SubagentRuntime.startActivation', () => {

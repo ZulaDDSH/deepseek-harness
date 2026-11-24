@@ -52,7 +52,7 @@ import type { Activation, ActivationResource, LocalActivation } from './activati
 
 // Constraint: bounds a silent provider handshake so it cannot hold a tree slot.
 const EXTERNAL_STARTUP_TIMEOUT_MS = 300_000
-const HANDLE_DISPOSE_ATTEMPTS = 3
+const TEARDOWN_ATTEMPTS = 3
 type CreationLink = {
   readonly header: SessionHeader
   readonly identity: { readonly seq: number } | null | undefined
@@ -808,12 +808,16 @@ export class SubagentManager {
   }
 
   private async disposeHandle(activation: Activation, started: Promise<void> | undefined): Promise<void> {
+    await this.attempts(attempt => attempt === 0 && started !== undefined
+      ? started
+      : activation.kind === 'local' ? activation.handle.dispose() : activation.run.dispose())
+  }
+
+  private async attempts(operation: (attempt: number) => Promise<void>): Promise<void> {
     let lastError: unknown
-    for (let attempt = 0; attempt < HANDLE_DISPOSE_ATTEMPTS; attempt += 1) {
+    for (let attempt = 0; attempt < TEARDOWN_ATTEMPTS; attempt += 1) {
       try {
-        await (attempt === 0 && started !== undefined
-          ? started
-          : activation.kind === 'local' ? activation.handle.dispose() : activation.run.dispose())
+        await operation(attempt)
         return
       } catch (error: unknown) {
         lastError = error
@@ -1147,8 +1151,7 @@ export class SubagentManager {
       } else {
         if (stop) {
           activation.handle.agent.cancel({ kind: 'parent' })
-          const idle = activation.handle.agent.whenIdle()
-          await idle
+          await this.attempts(() => activation.handle.agent.whenIdle())
           await this.flushFinalState(activation)
         }
         result = captureLocalResult(activation)
