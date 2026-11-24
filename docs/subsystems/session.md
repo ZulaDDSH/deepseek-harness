@@ -963,7 +963,8 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
 /**
  * Select one Session-local model after explicitly resuming the Session; save the default in the background.
  * @param request - Session identity and requested model selection.
- * @returns the normalized selection installed for the Session and the default-save outcome; `pending` carries a `defaultSaveId` for `defaultSaveOutcome`.
+ * @returns the normalized selection installed for the Session and the default-save outcome;
+ * `pending` carries a `defaultSaveId` for `defaultSaveOutcome`.
  */
 @Remote('selectModel') selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue>
 
