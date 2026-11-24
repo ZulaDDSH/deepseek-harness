@@ -497,7 +497,8 @@ export class AgentLoop extends Service implements AgentFactory {
     // Reverse teardown, memoized so every racing owner awaits one quiescence:
     // stop the machine, unwind the scope, drain and close the session's write
     // path, leave the registries, release bookkeeping.
-    let cancelled = false
+    let cancelAttempted = false
+    let cancelFailure: { readonly error: unknown } | undefined
     let idleConfirmed = false
     let scopeReleased = false
     let sessionClosed = false
@@ -522,14 +523,15 @@ export class AgentLoop extends Service implements AgentFactory {
         if (machine === undefined) await machineReady.promise
         /* v8 ignore next -- setup failure untracks this disposer before resolving without a machine. */
         if (machine !== undefined) {
-          if (!cancelled) {
+          if (!cancelAttempted) {
+            cancelAttempted = true
             try {
               machine.cancel({ kind: 'disposed' }, { keepInbox: !ready })
-              cancelled = true
             } catch (error: unknown) {
-              failures.push(error)
+              cancelFailure = { error }
             }
           }
+          if (cancelFailure !== undefined) failures.push(cancelFailure.error)
           // A failed queue write must not release resources underneath work.
           if (!idleConfirmed) {
             await machine.whenIdle()
@@ -551,7 +553,7 @@ export class AgentLoop extends Service implements AgentFactory {
       // live-event listeners must stay mounted through driver shutdown to
       // receive all closing events. A failed final drain is retained here
       // rather than logged away.
-      if (!sessionClosed && (cancelled || machine === undefined)) {
+      if (!sessionClosed) {
         try {
           await stored?.handle.close()
           sessionClosed = true
@@ -559,7 +561,7 @@ export class AgentLoop extends Service implements AgentFactory {
           failures.push(error)
         }
       }
-      if (!detached && (cancelled || machine === undefined)) {
+      if (!detached) {
         detached = true
         try {
           detachAgent?.()
@@ -582,16 +584,18 @@ export class AgentLoop extends Service implements AgentFactory {
     }
     let unfollowScope: (() => Promise<void> | void) | undefined
     let unfollowOwner: () => Promise<void> | void
-    let unfollowing = false
+    let unfollowAttempt: Promise<void> | undefined
     const dispose = async (): Promise<void> => {
+      const attempt = teardown()
       try {
-        await teardown()
+        await attempt
       } finally {
-        unfollowing = true
+        const settled = attempt.catch(() => undefined)
+        unfollowAttempt = settled
         try {
           await Promise.all([unfollowOwner(), unfollowScope?.()])
         } finally {
-          unfollowing = false
+          if (unfollowAttempt === settled) unfollowAttempt = undefined
         }
       }
     }
@@ -624,13 +628,13 @@ export class AgentLoop extends Service implements AgentFactory {
         if (!INACTIVE_STATES.has(loopCtx.fiber.state)) {
           unfollowScope = loopCtx.effect(function* () {
             yield created.scope.rawDispose
-            yield () => unfollowing ? undefined : teardown()
+            yield () => disposing ?? unfollowAttempt ?? teardown()
           }, `agentLoop.scope(${id})`)
         }
         yield async () => {
           abort.abort(new Error(`agent "${id}" setup aborted: owner disposed during setup`))
           try {
-            if (!unfollowing) await teardown()
+            await (disposing ?? unfollowAttempt ?? teardown())
           } finally {
             await unfollowScope?.()
           }

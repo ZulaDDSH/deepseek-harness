@@ -180,23 +180,24 @@ it('retries a failed idle wait from the failed step without appending to the clo
   }
 })
 
-it('retries a failed queue clear on the next dispose and keeps the Session open until it succeeds', async () => {
+it('releases the Agent and Session after a failed queue clear and keeps reporting the failure', async () => {
   const { ctx, agent, handle } = await harness()
   agent.inject(input('pending'))
-  let failures = 1
+  let clears = 0
   const stopRejecting = ctx.on('internal/dispatch', (_mode, name, args) => {
     if (name !== 'session/event') return
     const [session, event] = args as [Session, SessionEvent]
     if (session !== agent.session || event.type !== 'agent/inbox/spliced' || (event.data.removedCount ?? 0) === 0) return
-    if (failures === 0) return
-    failures -= 1
+    clears += 1
     throw new Error('queue clear failed')
   })
   try {
     await expect(handle.dispose()).rejects.toThrow('queue clear failed')
-    expect(failures).toBe(0)
-    await expect(handle.dispose()).resolves.toBeUndefined()
-    await expect(handle.dispose()).resolves.toBeUndefined()
+    expect(ctx.agents.get(agent.id)).toBeUndefined()
+    expect(ctx.sessions.get(agent.id)).toBeUndefined()
+    const attempts = clears
+    await expect(handle.dispose()).rejects.toThrow('queue clear failed')
+    expect(clears).toBe(attempts)
   } finally {
     stopRejecting()
   }
