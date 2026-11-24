@@ -47,6 +47,8 @@ The current release version appears at the bottom of General Settings in Web and
 
 The Coding Tools switch controls the shared `ui-settings.enabled` preference described by [ui-settings](../ui-settings/README.md#use-this-package). It is available in both Web and desktop, follows accepted changes immediately, and disables duplicate input while a write settles. A failed write displays localized retry guidance. On Desktop, a change made with this switch reports `code_work_view_toggle` with the new value through the optional [product analytics](../product-analytics/README.md) service, timestamped at the click. Only a write that changes a known value and leaves the preference at the requested value reports; requesting the current value, an unknown previous value, a failed write, and preference updates made elsewhere report nothing.
 
+The Product analytics switch sits in the Privacy group and exists only while the Host serves the `product-analytics` form, so Desktop shows it and ordinary Web does not. It is off by default; the row text lists the data categories and what is never sent. A failed write keeps the shown value and displays localized retry guidance. Turning it off stops new events at once; events already queued for delivery may still be sent.
+
 The General section holds the built-in Coding Tools and Current version rows alongside rows registered into `settings.general.item` by feature packages. Each registrant owns its row copy and behavior. The Appearance row, for example, lives in ui-theme.
 
 ### Finding and saving settings

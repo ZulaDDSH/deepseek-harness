@@ -10,6 +10,8 @@ import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import type { AccountNotificationId } from '@deepseek-ai/dsh-deepseek-account'
 import { DeepSeekAccount, type Config } from '../src/index.ts'
 
+const LIVE = new AbortController().signal
+
 const cleanups: Array<() => Promise<unknown>> = []
 afterEach(async () => {
   while (cleanups.length) await cleanups.pop()!()
@@ -53,8 +55,8 @@ it('routes only notification APIs to Harness while account APIs and pages stay o
   const client = { version: 'test', locale: 'en', timezoneOffsetSeconds: 0 }
   expect(await account.getProfile(client)).toMatchObject({ status: 'ready' })
   expect(await account.getBalance(client)).toMatchObject({ status: 'ready' })
-  expect((await account.getNotifications(client))?.notifications[0]?.id).toBe(id)
-  expect((await account.getNotificationContent(id, client))?.id).toBe(id)
+  expect((await account.getNotifications(client, LIVE))?.notifications[0]?.id).toBe(id)
+  expect((await account.getNotificationContent(id, client, LIVE))?.id).toBe(id)
   expect(await account.reportNotificationEvent(id, 'dismissed', client)).toBe(true)
   expect(requests).toEqual([
     'https://platform.deepseek.com/auth-api/v0/users/current',
@@ -81,7 +83,7 @@ it('keeps private grants and embedded pages on Platform while allowing a notific
     expect(init?.headers).toMatchObject({ 'x-deployment': 'base', 'x-account': 'account', 'x-dsh-auth-token': 'fixture-token' })
     return new Response(JSON.stringify({ code: 0, data: { biz_code: 0, biz_data: { notifications: [], next_poll_after: 600 } } }))
   })
-  await account.getNotifications({ version: 'test', locale: 'en', timezoneOffsetSeconds: 0 })
+  await account.getNotifications({ version: 'test', locale: 'en', timezoneOffsetSeconds: 0 }, LIVE)
   expect(fetcher).toHaveBeenCalledOnce()
 })
 

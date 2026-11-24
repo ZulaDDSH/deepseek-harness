@@ -350,3 +350,21 @@ it('publishes notification changes through one stable source and releases its su
   expect(source.getSnapshot()).toEqual([])
   expect(listener).not.toHaveBeenCalled()
 })
+
+it('gives each notification request the 30 s deadline, and polling resumes after one is never answered', async ({ start }) => {
+  vi.stubGlobal(NOTIFICATIONS_CONFIG_GLOBAL, { notificationPollIntervalMs: 1_000 })
+  vi.stubGlobal('dshDesktop', {})
+  const expired = new AbortController()
+  const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValueOnce(expired.signal)
+  const c = await start()
+  const reads = c.mock.remote.account.getNotifications
+  reads.mockImplementationOnce((_metadata, signal) => new Promise((_resolve, reject) => {
+    signal?.addEventListener('abort', () => { reject(signal.reason) })
+  }))
+  reads.mockResolvedValue(ok(null))
+  c.mock.streams.push('account/watch', { type: 'snapshot', state: stored })
+  await vi.waitFor(() => { expect(reads).toHaveBeenCalledOnce() })
+  expect(timeout).toHaveBeenCalledWith(30_000)
+  expired.abort()
+  await vi.waitFor(() => { expect(reads.mock.calls.length).toBeGreaterThanOrEqual(2) }, { timeout: 5_000 })
+}, 60_000)

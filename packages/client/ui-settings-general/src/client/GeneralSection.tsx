@@ -33,7 +33,7 @@ const GROUPS: readonly GeneralRowGroup[] = [
     items: ['transcript-view', 'performance-usage', 'link-opening', 'composer-enter', 'shortcuts'],
   },
   { id: 'advanced', labelKey: 'general.group.advanced', items: ['developer-tools'] },
-  { id: 'privacy', labelKey: 'general.group.privacy', items: ['session-log-deepseek'] },
+  { id: 'privacy', labelKey: 'general.group.privacy', items: ['session-log-deepseek', 'product-analytics'] },
 ]
 const ABOUT: GeneralRowGroup = { id: 'about', labelKey: 'general.group.about', items: ['current-version'] }
 

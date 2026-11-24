@@ -132,8 +132,12 @@ export class DeepSeekAccount extends TypertRemoteService {
   private lastProfile: { readonly token: string; readonly profile: Extract<AccountDetails['profile'], { status: 'ready' }> } | undefined
   private detailsLifetime = new AbortController()
   private notificationRead: {
-    readonly lifetime: AbortController; readonly token: string; readonly headers: string
+    readonly lifetime: AbortController
+    readonly token: string
+    readonly headers: string
     readonly read: Promise<AccountNotificationBatch>
+    readonly request: AbortController
+    callers: number
   } | undefined
   private closed = false
   private removing: Promise<AccountView> | undefined
@@ -258,19 +262,20 @@ export class DeepSeekAccount extends TypertRemoteService {
   /**
    * Query unconsumed account notifications in server order without reading profile data.
    * @param client - identity of the requesting UI for this call; its language selects the server-authored message.
-   * @returns notifications with their next query delay, or null if signed out or the grant changed during the query.
+   * @param signal - caller lifetime; cancelling it stops waiting and, once no caller waits, the account request.
+   * @returns notifications with their next query delay, or null if signed out, the grant changed, or the call was cancelled.
    */
   @Remote
-  async getNotifications(client: AccountClientMetadata): Promise<AccountNotificationBatch | null> {
+  async getNotifications(client: AccountClientMetadata, signal: AbortSignal): Promise<AccountNotificationBatch | null> {
     const lifetime = this.detailsLifetime
     const headers = this.detailHeaders(client)
     const stored = await this.readCurrentGrant(lifetime)
     if (stored === null) return null
     try {
-      const batch = await this.sharedNotificationRead(lifetime, stored.token, headers)
+      const batch = await this.sharedNotificationRead(lifetime, stored.token, headers, signal)
       return this.detailsLifetime === lifetime ? batch : null
     } catch (error) {
-      if (this.detailsLifetime !== lifetime) return null
+      if (this.detailsLifetime !== lifetime || signal.aborted) return null
       if (error instanceof AccountUnauthorizedError) {
         await this.expireCredential(stored.token, lifetime)
         return null
@@ -283,21 +288,22 @@ export class DeepSeekAccount extends TypertRemoteService {
    * Query localized content of a notification, including one already consumed.
    * @param id - notification whose content is requested.
    * @param client - identity of the requesting UI; its language selects the localized content.
-   * @returns content without changing consumption, or null if signed out or the grant changed.
+   * @param signal - caller lifetime; cancelling it stops the account request.
+   * @returns content without changing consumption, or null if signed out, the grant changed, or the call was cancelled.
    */
   @Remote
   async getNotificationContent(id: AccountNotificationId,
-    client: AccountClientMetadata): Promise<AccountNotification | null> {
+    client: AccountClientMetadata, signal: AbortSignal): Promise<AccountNotification | null> {
     const lifetime = this.detailsLifetime
     const headers = this.detailHeaders(client)
     const stored = await this.readCurrentGrant(lifetime)
     if (stored === null) return null
     try {
       const content = await readNotificationContent(this.harnessOrigin, stored.token, id,
-        AbortSignal.any([lifetime.signal, AbortSignal.timeout(this.requestTimeout)]), headers)
+        AbortSignal.any([lifetime.signal, signal, AbortSignal.timeout(this.requestTimeout)]), headers)
       return this.detailsLifetime === lifetime ? content : null
     } catch (error) {
-      if (this.detailsLifetime !== lifetime) return null
+      if (this.detailsLifetime !== lifetime || signal.aborted) return null
       if (error instanceof AccountUnauthorizedError) {
         await this.expireCredential(stored.token, lifetime)
         return null
@@ -350,17 +356,39 @@ export class DeepSeekAccount extends TypertRemoteService {
   }
 
   private sharedNotificationRead(lifetime: AbortController, token: string,
-    headers: Record<string, string>): Promise<AccountNotificationBatch> {
+    headers: Record<string, string>, signal: AbortSignal): Promise<AccountNotificationBatch> {
+    signal.throwIfAborted()
     const key = JSON.stringify(headers)
-    const current = this.notificationRead
-    if (current?.lifetime === lifetime && current.token === token && current.headers === key) return current.read
-    const read = readNotifications(this.harnessOrigin, token,
-      AbortSignal.any([lifetime.signal, AbortSignal.timeout(this.requestTimeout)]), headers)
-    const entry = { lifetime, token, headers: key, read }
-    this.notificationRead = entry
-    const settle = (): void => { if (this.notificationRead === entry) this.notificationRead = undefined }
-    void read.then(settle, settle)
-    return read
+    let entry = this.notificationRead
+    if (entry?.lifetime !== lifetime || entry.token !== token || entry.headers !== key) {
+      const request = new AbortController()
+      const read = readNotifications(this.harnessOrigin, token,
+        AbortSignal.any([lifetime.signal, request.signal, AbortSignal.timeout(this.requestTimeout)]), headers)
+      const created = { lifetime, token, headers: key, read, request, callers: 0 }
+      entry = created
+      this.notificationRead = created
+      const settle = (): void => { if (this.notificationRead === created) this.notificationRead = undefined }
+      void read.then(settle, settle)
+    }
+    const joined = entry
+    joined.callers += 1
+    let left = false
+    const leave = (): void => {
+      if (left) return
+      left = true
+      signal.removeEventListener('abort', leave)
+      joined.callers -= 1
+      if (joined.callers > 0) return
+      if (this.notificationRead === joined) this.notificationRead = undefined
+      joined.request.abort()
+    }
+    signal.addEventListener('abort', leave, { once: true })
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      const stop = (): void => { reject(signal.reason) }
+      if (signal.aborted) stop()
+      else signal.addEventListener('abort', stop, { once: true })
+    })
+    return Promise.race([joined.read, cancelled]).finally(leave)
   }
 
   private async getDetail<K extends keyof AccountDetails>(field: K, headers: Record<string, string>,

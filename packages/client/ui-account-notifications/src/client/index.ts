@@ -10,6 +10,9 @@ import { createNotificationController, type AccountNotice } from './notification
 import { en, zh, ja, es, fr, de, ru, pt } from './locales.ts'
 export type { AccountNotificationsInjected, AccountNotificationsProps } from './AccountNotifications.tsx'
 
+const REQUEST_DEADLINE_MS = 30_000
+const withDeadline = (signal: AbortSignal): AbortSignal => AbortSignal.any([signal, AbortSignal.timeout(REQUEST_DEADLINE_MS)])
+
 /** Services used for notification lifecycle and presentation. */
 export const inject = ['slots', 'locale', 'remote', 'remote.account', 'accountUi']
 
@@ -23,13 +26,13 @@ export function apply(ctx: Context): void {
   const controller = createNotificationController({
     locale: ctx.locale.getSnapshot().active,
     pollIntervalMs: config.notificationPollIntervalMs,
-    read: async (locale) => {
-      const result = await ctx.remote.account.getNotifications(ctx.accountUi.clientMetadata(locale))
+    read: async (locale, signal) => {
+      const result = await ctx.remote.account.getNotifications(ctx.accountUi.clientMetadata(locale), withDeadline(signal))
       if (!result.ok) throw new Error('account notification read failed')
       return result.value
     },
-    readContent: async (id, locale) => {
-      const result = await ctx.remote.account.getNotificationContent(id, ctx.accountUi.clientMetadata(locale))
+    readContent: async (id, locale, signal) => {
+      const result = await ctx.remote.account.getNotificationContent(id, ctx.accountUi.clientMetadata(locale), withDeadline(signal))
       if (!result.ok) throw new Error('account notification content read failed')
       return result.value
     },

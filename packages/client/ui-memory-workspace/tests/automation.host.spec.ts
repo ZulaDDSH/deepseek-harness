@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { createVolatile, updateVolatile, type Volatile } from '@deepseek-ai/cosmokit'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { link, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -19,6 +19,10 @@ import { SessionTurns, memoryPolicy, recallText, scrub, turnRecord, workspaceEnt
 
 function asText(value: unknown): string { return typeof value === 'string' ? value : JSON.stringify(value) }
 
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, writeFile: vi.fn(actual.writeFile), link: vi.fn(actual.link) }
+})
 vi.mock('@deepseek-ai/dsh-native-command', () => ({ runNativeCommand: vi.fn(async () => ({ stdout: '', stderr: '' })) }))
 
 const roots: Context[] = [], directories: string[] = [], databases: DatabaseSync[] = []
@@ -507,6 +511,146 @@ describe('Memory policy and first-message recall', () => {
     expect(execFileSync('git', ['rev-parse', '--git-dir'], { cwd: root, encoding: 'utf8' }).trim()).toBe('.git')
   })
 
+  it('binds case-distinct non-Git folders to distinct project roots named by a 16-hex canonical hash', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'dsh-memory-case-'))
+    directories.push(base)
+    const upper = join(base, 'Alpha', 'project')
+    const lower = join(base, 'alpha', 'project')
+    const { ctx, bindings } = await fixture({ search: '' })
+    await ctx.plugin(SystemPrompt)
+    inbox(ctx, session('upper', { cwd: upper }), 'first')
+    await assembled(ctx, 'upper')
+    inbox(ctx, session('lower', { cwd: lower }), 'second')
+    await assembled(ctx, 'lower')
+    expect(bindings).toHaveLength(2)
+    expect(bindings[0]).not.toBe(bindings[1])
+    for (const root of bindings) expect(basename(String(root))).toMatch(/^[0-9a-f]{16}$/)
+  })
+
+  it('keeps an existing legacy project root for the folder that first binds it and gives a case-distinct sibling its own', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-legacy-'))
+    directories.push(workspace)
+    const sibling = join(workspace, 'sibling')
+    const { ctx, bindings, directory } = await fixture({ search: '' })
+    const legacyName = (path: string): string => createHash('sha256')
+      .update(process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)).digest('hex').slice(0, 8)
+    const legacy = join(directory, 'dsh', 'memorix-roots', legacyName(workspace))
+    await mkdir(join(legacy, '.git'), { recursive: true })
+    await writeFile(join(legacy, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+    await ctx.plugin(SystemPrompt)
+    inbox(ctx, session('owner', { cwd: workspace }), 'first')
+    await assembled(ctx, 'owner')
+    inbox(ctx, session('owner-again', { cwd: workspace }), 'again')
+    await assembled(ctx, 'owner-again')
+    expect(bindings).toEqual([legacy])
+    expect(await readFile(join(legacy, '.git', 'dsh-workspace'), 'utf8')).toBe(realpathSync.native(workspace))
+    const claimed = join(directory, 'dsh', 'memorix-roots', legacyName(sibling))
+    await mkdir(join(claimed, '.git'), { recursive: true })
+    await writeFile(join(claimed, '.git', 'dsh-workspace'), join(workspace, 'Sibling'))
+    inbox(ctx, session('sibling', { cwd: sibling }), 'other')
+    await assembled(ctx, 'sibling')
+    expect(bindings[1]).not.toBe(claimed)
+    expect(basename(String(bindings[1]))).toMatch(/^[0-9a-f]{16}$/)
+    expect(await readFile(join(claimed, '.git', 'dsh-workspace'), 'utf8')).toBe(join(workspace, 'Sibling'))
+  })
+
+  it('gives two Hosts racing to bind the same legacy root the same answer', async () => {
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+    const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-race-'))
+    directories.push(workspace)
+    const first = await fixture({ search: '' })
+    const second = await fixture({ search: '' })
+    const home = join(first.directory, 'dsh')
+    vi.stubEnv('DSH_HOME', home)
+    const legacy = join(home, 'memorix-roots', createHash('sha256')
+      .update(process.platform === 'win32' ? resolve(workspace).toLowerCase() : resolve(workspace)).digest('hex').slice(0, 8))
+    await mkdir(join(legacy, '.git'), { recursive: true })
+    await writeFile(join(legacy, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+    vi.mocked(writeFile).mockImplementation(async (path, data, options) => {
+      if (!String(path).includes('dsh-workspace')) return actual.writeFile(path, data, options)
+      if (typeof options === 'object' && options !== null && 'flag' in options && options.flag === 'wx') {
+        await actual.writeFile(path, '', options)
+        await new Promise((done) => { setTimeout(done, 100) })
+        return actual.writeFile(path, data)
+      }
+      await new Promise((done) => { setTimeout(done, 100) })
+      return actual.writeFile(path, data, options)
+    })
+    try {
+      await first.ctx.plugin(SystemPrompt)
+      await second.ctx.plugin(SystemPrompt)
+      inbox(first.ctx, session('one', { cwd: workspace }), 'first')
+      inbox(second.ctx, session('two', { cwd: workspace }), 'second')
+      await Promise.all([assembled(first.ctx, 'one'), assembled(second.ctx, 'two')])
+    } finally {
+      vi.mocked(writeFile).mockImplementation(actual.writeFile)
+    }
+    expect(first.bindings).toEqual([legacy])
+    expect(second.bindings).toEqual([legacy])
+    expect(await readFile(join(legacy, '.git', 'dsh-workspace'), 'utf8')).toBe(realpathSync.native(workspace))
+    expect((await readdir(join(legacy, '.git'))).filter(name => name.startsWith('dsh-workspace.'))).toEqual([])
+  })
+
+  describe('legacy root marker', () => {
+    async function legacyRoot(directory: string, workspace: string): Promise<string> {
+      const legacy = join(directory, 'dsh', 'memorix-roots', createHash('sha256')
+        .update(process.platform === 'win32' ? resolve(workspace).toLowerCase() : resolve(workspace)).digest('hex').slice(0, 8))
+      await mkdir(join(legacy, '.git'), { recursive: true })
+      await writeFile(join(legacy, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+      return legacy
+    }
+
+    it('claims the legacy root with a plain create when the file system refuses hard links', async () => {
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+      const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-nolink-'))
+      directories.push(workspace)
+      const { ctx, bindings, directory } = await fixture({ search: '' })
+      const legacy = await legacyRoot(directory, workspace)
+      vi.mocked(link).mockRejectedValue(Object.assign(new Error('not permitted'), { code: 'EPERM' }))
+      try {
+        await ctx.plugin(SystemPrompt)
+        inbox(ctx, session('one', { cwd: workspace }), 'first')
+        await assembled(ctx, 'one')
+      } finally {
+        vi.mocked(link).mockImplementation(actual.link)
+      }
+      expect(bindings).toEqual([legacy])
+      expect(await readFile(join(legacy, '.git', 'dsh-workspace'), 'utf8')).toBe(realpathSync.native(workspace))
+      expect((await readdir(join(legacy, '.git'))).filter(name => name.startsWith('dsh-workspace.'))).toEqual([])
+    })
+
+    it('waits for an empty marker to be filled before comparing it', async () => {
+      const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-empty-'))
+      directories.push(workspace)
+      const { ctx, bindings, directory } = await fixture({ search: '' })
+      const legacy = await legacyRoot(directory, workspace)
+      const marker = join(legacy, '.git', 'dsh-workspace')
+      await writeFile(marker, '')
+      setTimeout(() => { void writeFile(marker, realpathSync.native(workspace)) }, 40)
+      await ctx.plugin(SystemPrompt)
+      inbox(ctx, session('one', { cwd: workspace }), 'first')
+      await assembled(ctx, 'one')
+      expect(bindings).toEqual([legacy])
+    })
+
+    it('removes stale temporary markers on the next claim and keeps fresh ones', async () => {
+      const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-orphan-'))
+      directories.push(workspace)
+      const { ctx, directory } = await fixture({ search: '' })
+      const legacy = await legacyRoot(directory, workspace)
+      const stale = join(legacy, '.git', 'dsh-workspace.00000000-0000-4000-8000-000000000001')
+      const fresh = join(legacy, '.git', 'dsh-workspace.00000000-0000-4000-8000-000000000002')
+      await writeFile(stale, 'x')
+      await writeFile(fresh, 'x')
+      const old = new Date(Date.now() - 10 * 60_000)
+      await utimes(stale, old, old)
+      await ctx.plugin(SystemPrompt)
+      inbox(ctx, session('one', { cwd: workspace }), 'first')
+      await assembled(ctx, 'one')
+      expect((await readdir(join(legacy, '.git'))).filter(name => name.startsWith('dsh-workspace.'))).toEqual([basename(fresh)])
+    })
+  })
+
   it('treats a Git repository at the home folder as no repository, as Memorix refuses to bind the home folder', async () => {
     const home = await mkdtemp(join(tmpdir(), 'dsh-memory-home-'))
     directories.push(home)
@@ -582,13 +726,13 @@ describe('Memory policy and first-message recall', () => {
     expect(calls[0]?.entityName).toBe(workspaceEntity(CWD))
   })
 
-  it('resolves the workspace path once per recall search and once per save', async () => {
+  it('resolves the workspace path once per recall search and once per save, plus once when the workspace first binds', async () => {
     const { ctx, calls } = await fixture()
     await ctx.plugin(SystemPrompt)
     const resolved = vi.spyOn(realpathSync, 'native')
     inbox(ctx, session('s1'), 'fix the login bug')
     await assembled(ctx, 's1')
-    expect(resolved).toHaveBeenCalledTimes(1)
+    expect(resolved).toHaveBeenCalledTimes(2)
     resolved.mockClear()
     const target = session('s2')
     prompt(ctx, target, 'fix it')
@@ -684,7 +828,7 @@ describe('Memory policy and first-message recall', () => {
   })
 
   it('skips a recall search that expired while queued behind another Memorix operation', async () => {
-    const release = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<undefined>()
     const searched: unknown[] = []
     const { ctx, db } = await fixture({ call: async (name, args) => {
       if (name === 'memorix_session_start') return { content: [{ type: 'text', text: PROJECT_ROOT_TEXT }] }
@@ -699,7 +843,7 @@ describe('Memory policy and first-message recall', () => {
     prompt(ctx, chat, 'blocking save'); reply(ctx, chat, 'ok'); done(ctx, chat)
     inbox(ctx, chat, 'first message')
     expect(await assembled(ctx, 's1')).toContain('older fallback narrative')
-    release.resolve()
+    release.resolve(undefined)
     await vi.waitFor(() => { expect(db.prepare('SELECT COUNT(*) AS n FROM observations').get()?.n).toBe(2) })
     await new Promise(resolve => setTimeout(resolve, 100))
     expect(searched).toEqual([])
