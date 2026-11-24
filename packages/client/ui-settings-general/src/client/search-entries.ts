@@ -16,6 +16,7 @@ const ROWS = [
   ['developer-tools', 'developerTools'],
   ['session-search', 'sessionSearch'],
   ['chat-memory', 'chatMemory'],
+  ['product-analytics', 'productAnalytics'],
   ['shortcuts', 'shortcuts'],
   ['composer-enter', 'composerEnter'],
   ['session-log-deepseek', 'sessionLog'],

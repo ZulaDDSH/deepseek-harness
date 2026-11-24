@@ -8,6 +8,7 @@ import { Session, type SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { CompactionId } from '@deepseek-ai/dsh-compaction/types'
 import Analytics from '../src/index.ts'
+import { liveConfig } from '../../../settings/settings/tests/live-config.ts'
 import { collectEnvironment, type EnvironmentAttributes } from '../src/environment.ts'
 
 vi.mock('../src/environment.ts', () => ({ collectEnvironment: vi.fn() }))
@@ -41,6 +42,28 @@ it('disabled collection does not read identity or submit an event', async () => 
   expect(collectEnvironment).not.toHaveBeenCalled()
   expect(b.getDeviceIdentity).not.toHaveBeenCalled()
   expect(b.emit).not.toHaveBeenCalled()
+})
+
+it('is off until configured and follows a live enable and disable without remounting', async () => {
+  const ctx = new Context()
+  cleanup.push(() => ctx.fiber.dispose())
+  const getDeviceIdentity = vi.fn().mockResolvedValue({ deviceId: 'login-device', userId: 'user-1' })
+  const emit = vi.fn<(record: ProductTelemetryRecord) => void>()
+  ctx.provide('deepseekAccount', { getDeviceIdentity } as never)
+  ctx.provide('webServer', {} as never)
+  ctx.provide('productTelemetry', { emit } as never)
+  const configuration = await liveConfig(ctx, Analytics, { appVersion: 'test-version' })
+  expect(ctx.productAnalytics.enabled()).toBe(false)
+  await ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: 100, attributes: {} })
+  expect(emit).not.toHaveBeenCalled()
+  await configuration.update({ enabled: true })
+  expect(ctx.productAnalytics.enabled()).toBe(true)
+  await ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: 100, attributes: {} })
+  expect(emit).toHaveBeenCalledOnce()
+  await configuration.update({ enabled: false })
+  expect(ctx.productAnalytics.enabled()).toBe(false)
+  await ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: 101, attributes: {} })
+  expect(emit).toHaveBeenCalledOnce()
 })
 
 it('reuses login identity and copies only approved common fields', async () => {

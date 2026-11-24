@@ -15,6 +15,7 @@ import type { DesktopChannelChangeResult, DesktopChannelState } from '../src/typ
 import { DeveloperToolsRow } from '../src/client/DeveloperToolsRow.tsx'
 import { SessionSearchRow } from '../src/client/SessionSearchRow.tsx'
 import { ChatMemoryRow } from '../src/client/ChatMemoryRow.tsx'
+import { ProductAnalyticsRow } from '../src/client/ProductAnalyticsRow.tsx'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { SettingsDocumentStore } from '../src/client/settings-document-store.ts'
@@ -299,6 +300,28 @@ it('describes chat memory as Host-side, possibly remote, partial and pattern-red
   expect(en['chatMemory.description']).toMatch(/saves can fail/)
   expect(en['chatMemory.description']).toMatch(/recognizable credential patterns only/)
   expect(zh['chatMemory.description']).toMatch(/主机/)
+})
+
+it('toggles product analytics, shows it off until the form loads, and keeps the setting when a write is refused', async () => {
+  const state = createSnapshotStore(false)
+  const setEnabled = vi.fn().mockRejectedValueOnce(new Error('offline')).mockImplementation(async (enabled: boolean) => { state.set(enabled) })
+  render(<ProductAnalyticsRow {...kit} t={t} useProductAnalytics={bindSnapshotSelector(state)} setEnabled={setEnabled} />)
+  const toggle = screen.getByRole('switch', { name: 'Product analytics' })
+  expect(toggle.getAttribute('aria-checked')).toBe('false')
+  fireEvent.click(toggle)
+  expect((await screen.findByRole('alert')).textContent).toBe('Could not save. Please try again.')
+  expect(toggle.getAttribute('aria-checked')).toBe('false')
+  fireEvent.click(toggle)
+  await waitFor(() => { expect(toggle.getAttribute('aria-checked')).toBe('true') })
+  expect(setEnabled).toHaveBeenLastCalledWith(true)
+})
+
+it('discloses the analytics data categories and what is never sent, in every dictionary', () => {
+  for (const text of [en['productAnalytics.description'], zh['productAnalytics.description']]) expect(text).toMatch(/ID/)
+  expect(en['productAnalytics.description']).toMatch(/Off by default/)
+  expect(en['productAnalytics.description']).toMatch(/Prompts, replies, API keys and account tokens are never included/)
+  expect(en['productAnalytics.description']).toMatch(/already queued/)
+  expect(zh['productAnalytics.description']).toMatch(/默认关闭/)
 })
 
 describe('current version', () => {

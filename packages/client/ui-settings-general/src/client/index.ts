@@ -42,6 +42,7 @@ import { CurrentVersionRow } from './CurrentVersionRow.tsx'
 import { DeveloperToolsRow, type DeveloperToolsRowInjected } from './DeveloperToolsRow.tsx'
 import { SessionSearchRow, type SessionSearchRowInjected } from './SessionSearchRow.tsx'
 import { ChatMemoryRow, type ChatMemoryRowInjected } from './ChatMemoryRow.tsx'
+import { ProductAnalyticsRow, type ProductAnalyticsRowInjected } from './ProductAnalyticsRow.tsx'
 import { SettingsDocumentAction } from './SettingsDocumentAction.tsx'
 import type { SettingsDocumentActionInjected } from './SettingsDocumentAction.tsx'
 import { SettingsDocumentStore } from './settings-document-store.ts'
@@ -71,6 +72,7 @@ const NS = 'settings'
 /** Host settings namespace of the session-query index; the row exists only while the Host serves it. */
 const SESSION_QUERY_NS = 'session-query-sqlite'
 const MEMORY_NS = 'ui-memory-workspace'
+const ANALYTICS_NS = 'product-analytics'
 
 /**
  * Required services (cordis fiber inject). The target slots are declared by
@@ -128,6 +130,20 @@ export function apply(ctx: ClientContext): void {
         },
       }),
     }, ChatMemoryRow))), 'ui-settings-general: chat memory row')
+  const productAnalytics = ctx.configForms.get<{ enabled: boolean }>(ANALYTICS_NS)
+  ctx.effect(() => ctx.configForms.whileServed([ANALYTICS_NS], () => ctx.slots.inject('settings.general.item', () =>
+    ctx.slots.register({
+      name: 'settings.general.item', id: 'product-analytics', order: 18, locale: NS,
+      inject: (): ProductAnalyticsRowInjected => ({
+        hooks: { productAnalytics: {
+          getSnapshot: () => productAnalytics.getSnapshot().value?.enabled ?? false,
+          subscribe: listener => productAnalytics.subscribe(listener),
+        } },
+        setEnabled: async (enabled) => {
+          if (!await productAnalytics.set('enabled', enabled)) throw new Error('Product analytics setting was not saved')
+        },
+      }),
+    }, ProductAnalyticsRow))), 'ui-settings-general: product analytics row')
   // Version information follows the core preferences.
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item', id: 'current-version', order: 100, locale: NS,

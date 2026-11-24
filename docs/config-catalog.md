@@ -697,7 +697,7 @@ export interface Config {
 - `source`: [`packages/client/product-analytics/src/index.ts:35`](../packages/client/product-analytics/src/index.ts)
 
 ```ts config-catalog
-/** Application-owned collection policy; no user settings surface. */
+/** Collection policy; off unless the user turns it on in General settings. */
 export interface Config {
   /** Live application collection policy; ordinary Web does not mount this service. */
   enabled: Volatile<boolean>

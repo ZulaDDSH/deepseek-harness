@@ -31,7 +31,7 @@ function boundAttributes<T extends Record<string, unknown>>(attributes: T): T {
   ])) as T
 }
 
-/** Application-owned collection policy; no user settings surface. */
+/** Collection policy; off unless the user turns it on in General settings. */
 export interface Config {
   /** Live application collection policy; ordinary Web does not mount this service. */
   enabled: Volatile<boolean>
@@ -53,7 +53,7 @@ declare module '@deepseek-ai/cordis' {
 export default class ProductAnalytics extends TypertRemoteService {
   static inject = ['deepseekAccount', 'productTelemetry']
   static Config = z.object({
-    enabled: z.boolean().default(true).volatile(), appVersion: z.string(),
+    enabled: z.boolean().default(false).volatile(), appVersion: z.string(),
     environmentQueryTimeoutMillis: z.number().step(1).min(1).max(2_147_483_647).default(5000),
     environmentQueryMaxOutputBytes: z.number().step(1).min(1).max(2_147_483_647).default(16384),
   })
@@ -135,7 +135,9 @@ export default class ProductAnalytics extends TypertRemoteService {
       })
       const [environment, identity] = await Promise.all([
         this.environment,
-        settleWithin(this.identityLookups < MAX_IDENTITY_LOOKUPS ? this.trackIdentity() : Promise.resolve(undefined), IDENTITY_DEADLINE_MILLIS),
+        settleWithin(
+          this.identityLookups < MAX_IDENTITY_LOOKUPS ? this.trackIdentity() : Promise.resolve(undefined), IDENTITY_DEADLINE_MILLIS,
+        ),
       ])
       if (!this.enabled() || generation !== this.policyGeneration) return
       const { missing_fields: missingFields, ...metadata } = environment
@@ -144,6 +146,7 @@ export default class ProductAnalytics extends TypertRemoteService {
       this.ctx.productTelemetry.emit({
         ...event, body: event.eventName,
         attributes: {
+          // oxlint-disable-next-line typescript/no-unnecessary-condition -- the RPC boundary may omit attributes.
           ...boundAttributes(event.attributes ?? {}),
           ...metadata,
           ...missing === '' ? {} : { missing_fields: missing },
