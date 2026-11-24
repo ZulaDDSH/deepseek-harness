@@ -112,6 +112,24 @@ describe('commandEvidence', () => {
     ['C:\\Git\\git.exe push', pushed],
     ['C:\\Tools\\gh.exe pr create --fill', created],
     ['gh pr create --title x `\n --body y', created],
+    ['ssh host -p 22 git push', pushed],
+    ['ssh host -o StrictHostKeyChecking=no gh pr create --fill', created],
+    ['sudo VAR=1 git push', pushed],
+    ['docker exec c git push', pushed],
+    ['docker exec -it -e A=1 -w /src c git push origin main', pushed],
+    ['podman run --rm -v .:/src img git push', pushed],
+    ['kubectl exec pod -- git push', pushed],
+    ['kubectl exec -n ns pod -c main -- gh pr create --fill', created],
+    ['wsl git push', pushed],
+    ['wsl.exe -d Ubuntu -- git push', pushed],
+    ['su -c "git push" deploy', pushed],
+    ['su deploy -c "gh pr create --fill"', created],
+    ['runuser -u deploy -- git push', pushed],
+    ['runuser -l deploy -c "git push"', pushed],
+    ['flock /tmp/lock git push', pushed],
+    ['flock -w 5 /tmp/lock -c "git push"', pushed],
+    ['echo x # note\ngit push', pushed],
+    ['echo "a # b" && git push', pushed],
     ['git push `\n origin feat', pushed],
     ['git push `\n origin feat `\n --force', pushed],
   ])('classifies %j', (command, evidence) => {
@@ -174,6 +192,17 @@ describe('commandEvidence', () => {
     'eval "echo git push"',
     'find . -name push -exec echo git push {} \\;',
     'gh pr create --help `\n --fill',
+    'git push --help',
+    'git push -h',
+    'git push origin feat --help',
+    'echo foo # $(gh pr create)',
+    'echo foo # git push',
+    "echo it # don't $(gh pr create --fill)",
+    'docker exec c git status',
+    'kubectl exec pod -- git status',
+    'kubectl exec pod git push',
+    'su -c "git status"',
+    'flock /tmp/lock git status',
   ])('ignores %j', (command) => {
     expect(commandEvidence(command)).toBeUndefined()
   })
@@ -193,6 +222,13 @@ describe('commandEvidence', () => {
     const started = performance.now()
     expect(commandEvidence(`echo "${'$('.repeat(40_000)}gh pr create`)).toBeUndefined()
     expect(performance.now() - started).toBeLessThan(1000)
+  })
+
+  it('classifies properly closed nested command substitutions without exponential work', () => {
+    const started = performance.now()
+    expect(commandEvidence(`echo ${'$('.repeat(25)}gh pr create${')'.repeat(25)}`)).toEqual(created)
+    expect(commandEvidence(`echo \`git push\` ${'$('.repeat(25)}echo${')'.repeat(25)}`)).toEqual(pushed)
+    expect(performance.now() - started).toBeLessThan(500)
   })
 
   it('classifies a long run of option letters in linear time', () => {
