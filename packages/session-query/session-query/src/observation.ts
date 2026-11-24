@@ -8,7 +8,7 @@ import type {
   SessionPersistenceRevision,
   SessionPersistenceSnapshot,
 } from '@deepseek-ai/dsh-session-persistence'
-import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
+import type { ProjectionCheckpoint, ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import { SESSION_QUERY_DEFAULT_PREPARED_SESSION_CACHE_SIZE, SessionQueryError } from './config.ts'
 import { readColdSessionLog, type ColdSessionLog } from './cold-read.ts'
@@ -46,6 +46,12 @@ export interface SessionObservationOptions {
   readonly signal?: AbortSignal
   /** Whether to compute every projection or leave projection state untouched. */
   readonly projectionMode?: 'all' | 'none'
+}
+
+export interface SessionCheckpointRows {
+  readonly header: SessionHeader
+  readonly inheritedEventCount: SessionLogOffsetType
+  readonly rows: ProjectionCheckpoint
 }
 
 /**
@@ -104,6 +110,20 @@ export class SessionObservationReader {
     } finally {
       observation[Symbol.dispose]()
     }
+  }
+
+  async inspectCheckpoint<T>(
+    sessionId: SessionId,
+    read: (checkpoint: SessionCheckpointRows) => T | undefined,
+    signal?: AbortSignal,
+  ): Promise<T | undefined> {
+    const persistence = this.ctx.get('sessionPersistence')
+    const cache = this.ctx.get('sessionProjectionCache')
+    if (persistence === undefined || cache === undefined || this.ctx.sessions.get(sessionId) !== undefined) return undefined
+    const { header } = await this.statSource(persistence, sessionId, signal)
+    if (this.ctx.sessions.get(sessionId) !== undefined) return undefined
+    const cached = cache.cachedRows(header)
+    return cached === undefined ? undefined : read({ header, ...cached })
   }
 
   /**

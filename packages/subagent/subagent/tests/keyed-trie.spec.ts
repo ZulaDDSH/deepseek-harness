@@ -50,4 +50,13 @@ describe('keyed trie', () => {
     for (let level = 0; level < 9; level++) nested = { [slot]: nested }
     expect(trieSchema.safeParse(nested).success).toBe(false)
   })
+
+  it('reads unchecked stored JSON as absent instead of throwing', () => {
+    const valid = trieSet({}, 'alpha', 'a')
+    const [slot, leaf] = Object.entries(valid)[0]!
+    const deep: unknown = Array.from({ length: 9 }).reduce<unknown>(node => ({ [slot]: node }), leaf)
+    const malformed: unknown[] = [undefined, null, 'x', 7, [], [['alpha']], { [slot]: 'alpha' }, { [slot]: [['alpha', 1]] }, { [slot]: [null] }, deep]
+    for (const root of malformed) expect(trieGet(root, 'alpha')).toBeUndefined()
+    expect(trieGet(valid, 'alpha')).toBe('a')
+  })
 })

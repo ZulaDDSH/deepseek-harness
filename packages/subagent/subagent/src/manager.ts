@@ -15,7 +15,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import { type ReasoningEffortId, contentHasImage, createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
-import type { Session, SessionHeader, SessionId, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
+import type { Session, SessionId, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionObservation, SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
 import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
@@ -32,6 +32,8 @@ import { foldSubagentDescriptor, snapshotSubagentDescriptor } from './descriptor
 import type { SubagentDescriptorData } from './descriptor.ts'
 import { catalogChild, catalogHasName, establishCatalogChild, establishExternalCatalogChild } from './catalog.ts'
 import type { SubagentCatalogState } from './catalog.ts'
+import { creationParentFromCheckpoint } from './creation-checkpoint.ts'
+import type { CreationLink, CreationParent } from './creation-checkpoint.ts'
 import { SubagentError } from './error.ts'
 import type { LifecycleEmitter } from './lifecycle.ts'
 import { ROOT_AGENT_NAME, SiblingNameReservations, agentAddress, joinAgentPath, parentAgentPath } from './names.ts'
@@ -53,11 +55,6 @@ import type { Activation, ActivationResource, LocalActivation } from './activati
 // Constraint: bounds a silent provider handshake so it cannot hold a tree slot.
 const EXTERNAL_STARTUP_TIMEOUT_MS = 300_000
 const TEARDOWN_ATTEMPTS = 3
-type CreationLink = {
-  readonly header: SessionHeader
-  readonly identity: { readonly seq: number } | null | undefined
-  readonly inheritedEventCount: number
-}
 
 /** Inputs shared by model steering and human prompt delivery. */
 type ChildDeliveryOptions = {
@@ -1315,13 +1312,11 @@ export class SubagentManager {
     }
   }
 
-  private async inspectCreationParent(parentId: SessionId, childId: SessionId, signal: AbortSignal): Promise<{
-    readonly present: boolean
-    readonly name: string | undefined
-    readonly link: CreationLink
-  }> {
+  private async inspectCreationParent(parentId: SessionId, childId: SessionId, signal: AbortSignal): Promise<CreationParent> {
     const query = this.requireSessionQuery()
     try {
+      const cached = await query.inspectCheckpoint(parentId, cut => creationParentFromCheckpoint(cut, childId), signal)
+      if (cached !== undefined) return cached
       return await query.inspectSession(parentId, (session) => {
         const child = catalogChild(this.host.catalogOf(session), childId)
         return {

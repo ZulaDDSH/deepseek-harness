@@ -169,6 +169,16 @@ export class SessionProjectionCache extends Service {
     return this.viewRecord(record, keys)
   }
 
+  cachedRows(
+    meta: SessionHeader,
+  ): { readonly rows: ProjectionCheckpoint; readonly inheritedEventCount: SessionLogOffset } | undefined {
+    const record = this.requireTable().get(meta.id)
+    if (record === undefined || !currentLifecycleMatches(record.identity, lifecycleIdentityOf(meta))) return undefined
+    const cut = record.identity.inheritedEventCount
+    if (cut === undefined && meta.isSeeded) return undefined
+    return { rows: record.rows, inheritedEventCount: cut ?? SessionLogOffset(0) }
+  }
+
   /**
    * Read only a predecessor checkpoint's title as a zero-I/O listing hint.
    *

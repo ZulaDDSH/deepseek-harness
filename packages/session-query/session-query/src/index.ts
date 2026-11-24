@@ -47,6 +47,7 @@ import {
 import { SessionCorpus } from './corpus.ts'
 import {
   SessionObservationReader,
+  type SessionCheckpointRows,
   type SessionObservation,
   type SessionObservationOptions,
 } from './observation.ts'
@@ -80,7 +81,7 @@ export {
   materializeSessionResultFilters,
 } from './filters.ts'
 export { assertSessionHeadersCompatible } from './sources.ts'
-export type { SessionObservation, SessionObservationOptions } from './observation.ts'
+export type { SessionCheckpointRows, SessionObservation, SessionObservationOptions } from './observation.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -154,6 +155,14 @@ export abstract class SessionQueryEngine extends Service {
    */
   inspectSession<T>(sessionId: SessionId, read: (session: Session) => T, signal?: AbortSignal): Promise<T> {
     return this._observations.inspect(sessionId, read, signal)
+  }
+
+  inspectCheckpoint<T>(
+    sessionId: SessionId,
+    read: (checkpoint: SessionCheckpointRows) => T | undefined,
+    signal?: AbortSignal,
+  ): Promise<T | undefined> {
+    return this._observations.inspectCheckpoint(sessionId, read, signal)
   }
 
   /**

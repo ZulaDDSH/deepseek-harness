@@ -264,6 +264,12 @@ The persisted projection cache service. Opens the `session_projcache` domain at 
  */
 cachedSnapshot( meta: SessionHeader, keys?: ProjectionKeySelection, ): ProjectionSnapshot | undefined
 
+/** Return the stored checkpoint rows and inherited cut of the record bound to a header's lifecycle, without running any wire view; the rows are the cache's own state and must not be mutated.
+ * @param meta - Stored Session header used as the lifecycle identity witness.
+ * @returns The rows and inherited cut, or undefined when no usable record exists or a seeded header's record stores no cut.
+ */
+cachedRows( meta: SessionHeader, ): { readonly rows: ProjectionCheckpoint; readonly inheritedEventCount: SessionLogOffset } | undefined
+
 /**
  * Read only a predecessor checkpoint's title as a zero-I/O listing hint.
  *
