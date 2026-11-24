@@ -71,6 +71,7 @@ describe('Inspector endpoint port selection', () => {
     expect(selectedPort).toBeGreaterThan(occupiedAddress.port)
     expect(new URL(inspector.endpoint.webSocketDebuggerUrl).port).toBe(String(selectedPort))
     expect(new URL(inspector.endpoint.client.endpoint).port).toBe(String(selectedPort))
-    await expect(fetch(new URL('json', inspector.endpoint.httpUrl)).then(response => response.status)).resolves.toBe(200)
+    const targetId = new URL(inspector.endpoint.webSocketDebuggerUrl).pathname.split('/').at(-1) ?? ''
+    await expect(fetch(new URL(`json?token=${targetId}`, inspector.endpoint.httpUrl)).then(response => response.status)).resolves.toBe(200)
   })
 })
