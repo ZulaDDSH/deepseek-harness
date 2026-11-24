@@ -37,8 +37,13 @@ export class PtcExecutor implements ToolExecutor {
     })
   }
 
-  describe(tools: readonly ToolDefinition[]): ToolModelInput {
-    if (this.calls.confinementUnavailable) return { schemas: tools.map(definition => projectToolSchema(definition, false)) }
+  describe(
+    tools: readonly ToolDefinition[],
+    known: ReadonlySet<string> = new Set(tools.map(definition => definition.name)),
+  ): ToolModelInput {
+    if (this.calls.confinementUnavailable) {
+      return { schemas: tools.map(definition => projectToolSchema(definition, false)), knownNames: [...known, RUN_CODE_NAME] }
+    }
     return { schemas: [projectToolSchema(this.requirePtcTransport(), false)], knownNames: [RUN_CODE_NAME] }
   }
 

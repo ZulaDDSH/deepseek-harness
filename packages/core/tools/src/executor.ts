@@ -71,9 +71,10 @@ export interface ToolExecutor {
   /**
    * Describe the model's callable tools.
    * @param tools - currently visible capability definitions, after scoped restrictions.
+   * @param known - pre-restriction capability names the tool order may reference.
    * @returns schemas and names used to validate tool ordering.
    */
-  describe(tools: readonly ToolDefinition[]): ToolModelInput
+  describe(tools: readonly ToolDefinition[], known?: ReadonlySet<string>): ToolModelInput
   /**
    * Execute a complete batch. With log, commit root call/result events to the
    * Agent's Session; without log, omit those events. Tool-owned events may still

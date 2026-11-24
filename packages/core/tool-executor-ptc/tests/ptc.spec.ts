@@ -3,6 +3,7 @@ import type { ToolExecutionInput } from '@deepseek-ai/dsh-tools'
 import * as PtcToolExecutor from '@deepseek-ai/dsh-tool-executor-ptc'
 import { PtcExecutor, CodeRunFailedError, CodeResetFailedError } from '../src/index.ts'
 import { jsonByteSize } from '../src/ptc.ts'
+import { createRunCodeTool } from '../src/run-code.ts'
 import { NativeToolExecutor } from '@deepseek-ai/dsh-tool-executor-native'
 import { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
@@ -2830,6 +2831,74 @@ describe('a host that cannot confine programs', () => {
       expect(calls).toHaveLength(1)
       const prompt = renderPrompt(await ctx.systemPrompt.assemble())
       expect(prompt).not.toContain('is the only tool you can call directly')
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('lets a tool order that names run_code assemble after the latch', async () => {
+    const { ctx, runtime } = await setup({ toolOrder: [RUN_CODE_NAME, '<unlisted-tools>'] })
+    try {
+      registerEcho(ctx, 'read')
+      runtime.behavior = unavailable
+      await ctx.systemPrompt.assemble()
+      await runCode(ctx, 'return 1')
+      const assembly = await ctx.systemPrompt.assemble()
+      expect(assembly.tools.map(tool => tool.name)).toContain('read')
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('still applies guards to a direct call after the latch', async () => {
+    const { ctx, runtime } = await setup()
+    try {
+      const calls = registerEcho(ctx, 'read')
+      ctx.tools.guard(execution => execution.name === 'read' ? { reason: 'denied by policy', info: { name: 'PolicyError', code: 'POLICY_DENIED' } } : undefined)
+      runtime.behavior = unavailable
+      await runCode(ctx, 'return 1')
+      const direct = await executeCall(ctx, { signal: testToolSignal, callId: brandString<ToolCallId>('call-guarded'), name: 'read', arguments: { value: 'x' } })
+      expect(direct.isError).toBe(true)
+      expect(direct.error?.info).toMatchObject({ code: 'POLICY_DENIED' })
+      expect(calls).toHaveLength(0)
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('serves a concurrent batch and a second agent directly after the latch', async () => {
+    const { ctx, runtime } = await setup()
+    try {
+      const calls = registerEcho(ctx, 'read')
+      runtime.behavior = unavailable
+      await runCode(ctx, 'return 1')
+      const other = await mintAgentScope(ctx, 'other-session')
+      const batch = await ctx.tools.execute({
+        calls: ['a', 'b'].map(id => ({ type: 'tool-call' as const, id: brandString<ToolCallId>(id), name: 'read', arguments: JSON.stringify({ value: id }) })),
+        signal: testToolSignal,
+      })
+      const second = await ctx.tools.execute({
+        calls: [{ type: 'tool-call', id: brandString<ToolCallId>('c'), name: 'read', arguments: JSON.stringify({ value: 'c' }) }],
+        signal: testToolSignal, agent: other.agent,
+      })
+      expect([...batch.results, ...second.results].map(entry => entry.result.isError)).toEqual([false, false, false])
+      expect(calls).toHaveLength(3)
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('does not latch when a registered program tool reports sandbox-unavailable', async () => {
+    const { ctx, executor, runtime } = await setup()
+    const programCtx = new Context()
+    onTestFinished(async () => { await programCtx.fiber.dispose() })
+    try {
+      await programCtx.plugin(FakeRuntime)
+      const program = programCtx.ptcRuntime as FakeRuntime
+      program.behavior = unavailable
+      registerEcho(ctx, 'read')
+      ctx.tools.register(createRunCodeTool(ctx, { name: 'program_run', description: 'Run a private program.', runtime: program, tools: [] }))
+      let nested = ''
+      runtime.behavior = async (request) => {
+        await request.bindings[0]!.functions.program_run!({ code: 'x', description: 'nested' }).catch((error: unknown) => { nested = String(error) })
+        return { output: [] }
+      }
+      await runCode(ctx, 'return 1')
+      expect(nested).toContain('sandbox-unavailable')
+      expect(nested).not.toContain('callable directly')
+      expect((executor as PtcExecutor).describe(ctx.tools.definitions()).schemas.map(tool => tool.name)).toEqual([RUN_CODE_NAME])
     } finally { await ctx.fiber.dispose() }
   })
 
