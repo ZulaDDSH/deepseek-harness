@@ -50,6 +50,11 @@ export interface BasicCompactionConfig extends CompactionPolicyConfig {
   modelPolicies?: ModelCompactPolicyConfig[]
   /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
+  /**
+   * Requires a mounted `toolResultPruner`; trims, before the pressure check, only results
+   * a later assistant response proves a model request consumed. Defaults to `false`.
+   */
+  proactiveToolResultPruning?: boolean
 }
 
 /** Exactly one validated retention form. */
@@ -73,6 +78,7 @@ interface ResolvedPolicyFields {
 export type ResolvedConfig = ResolvedPolicyFields & ResolvedRetention & {
   readonly modelPolicies: readonly Readonly<ModelCompactPolicyConfig>[]
   readonly auto: boolean
+  readonly proactiveToolResultPruning: boolean
 }
 
 /** Fully merged policy for one routed conversation target, before capacity scaling. */

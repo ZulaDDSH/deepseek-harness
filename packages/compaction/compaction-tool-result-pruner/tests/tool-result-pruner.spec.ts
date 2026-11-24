@@ -289,6 +289,25 @@ describe('ToolResultPruner session transaction', () => {
     expect(second).toEqual({ pruned: [], charsRemoved: 0 })
   })
 
+  it('can restrict a pass to results already consumed by a later model response', () => {
+    const session = Session.create(brandString<SessionId>('previously-consumed'))
+    appendToolStep(session, 1, 'old', [{ type: 'text', text: 'A'.repeat(100) }])
+    const unseen = appendToolStep(session, 2, 'fresh', [{ type: 'text', text: 'B'.repeat(100) }])
+    session.append('turn/start', { turn: 3 })
+
+    const result = service().pruneSession(session, { previouslyConsumed: true })
+
+    expect(result.pruned.map(entry => entry.callId)).toEqual([brandString<ToolCallId>('old')])
+    expect(session.surface.nodes).toContain(SessionSeq(unseen))
+  })
+
+  it('prunes nothing under the consumed restriction while no assistant response follows a result', () => {
+    const session = Session.create(brandString<SessionId>('no-later-assistant'))
+    appendToolStep(session, 1, 'only', [{ type: 'text', text: 'A'.repeat(100) }])
+
+    expect(service().pruneSession(session, { previouslyConsumed: true })).toEqual({ pruned: [], charsRemoved: 0 })
+  })
+
   it('replays to the identical pruned model messages', () => {
     const session = Session.create(brandString<SessionId>('replay'))
     appendToolStep(session, 1, 'a', [{ type: 'text', text: 'A'.repeat(100) }])

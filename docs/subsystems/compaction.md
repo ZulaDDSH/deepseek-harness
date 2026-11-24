@@ -121,6 +121,14 @@ interface PrunedEntry {
 ```
 
 ```ts type-equiv
+/** Optional eligibility policy for one pruning pass. */
+interface PruneSessionOptions {
+  /** Prune only results followed by a later assistant message on the current surface. */
+  readonly previouslyConsumed?: boolean
+}
+```
+
+```ts type-equiv
 /** Aggregate outcome of one stable-surface pruning pass. */
 interface PruneResult {
   /** Replacements in the snapshotted surface order. */
@@ -238,11 +246,12 @@ pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
  * shadowed node through the injected token meter, so pure consumers can
  * subtract it without per-node state.
  * @param session - session whose current surface is rewritten.
+ * @param options - optional eligibility policy limiting which results are pruned.
  * @returns landed replacements and aggregate Unicode-code-point savings.
  * @throws when the session rejects a replacement; replacements committed
  * earlier in the pass remain durable.
  */
-pruneSession(session: Session): PruneResult
+pruneSession(session: Session, options: PruneSessionOptions = {}): PruneResult
 ```
 
 Types: [ContentBlock](llm-streaming.md) · [Session](session.md)

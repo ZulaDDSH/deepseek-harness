@@ -83,9 +83,9 @@ Pruning measures `text` blocks by Unicode code point (non-text blocks cost zero)
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: `ToolResultPruner` service, `pruneSession` / `pruneContent` / `measureContent` |
+| [`src/index.ts`](src/index.ts) | Plugin entry: `ToolResultPruner` service, `pruneSession` (optionally limited to `previouslyConsumed` results) / `pruneContent` / `measureContent` |
 | [`src/config.ts`](src/config.ts) | `PRUNE_MARKER`, defaults, code-point counting, budget validation |
-| [`src/types.ts`](src/types.ts) | `ToolResultPruneConfig`, `ResolvedConfig`, `PrunedEntry`, `PruneResult` |
+| [`src/types.ts`](src/types.ts) | `ToolResultPruneConfig`, `ResolvedConfig`, `PrunedEntry`, `PruneResult`, `PruneSessionOptions` |
 
 </details>
 
