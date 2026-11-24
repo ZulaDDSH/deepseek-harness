@@ -2812,6 +2812,40 @@ describe('PTC standing file policy and sandbox outcomes', () => {
   })
 })
 
+describe('a host that cannot confine programs', () => {
+  const unavailable = async (): Promise<PtcRunResult> => ({ output: [], error: { kind: 'sandbox-unavailable', message: 'no sandbox backend' } })
+
+  it('serves every tool directly after the first run reports sandbox-unavailable', async () => {
+    const { ctx, executor, runtime } = await setup()
+    try {
+      const calls = registerEcho(ctx, 'read')
+      runtime.behavior = unavailable
+      expect((executor as PtcExecutor).describe(ctx.tools.definitions()).schemas.map(tool => tool.name)).toEqual([RUN_CODE_NAME])
+      const failed = await runCode(ctx, 'return 1')
+      expect(failed.isError).toBe(true)
+      expect(failed.content.map(block => block.type === 'text' ? block.text : '').join('')).toContain('every tool is now callable directly')
+      expect((executor as PtcExecutor).describe(ctx.tools.definitions()).schemas.map(tool => tool.name)).toContain('read')
+      const direct = await executeCall(ctx, { signal: testToolSignal, callId: brandString<ToolCallId>('call-direct'), name: 'read', arguments: { value: 'hi' } })
+      expect(direct.isError).toBeFalsy()
+      expect(calls).toHaveLength(1)
+      const prompt = renderPrompt(await ctx.systemPrompt.assemble())
+      expect(prompt).not.toContain('is the only tool you can call directly')
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('keeps code mode for ordinary program failures', async () => {
+    const { ctx, executor, runtime } = await setup()
+    try {
+      registerEcho(ctx, 'read')
+      runtime.behavior = async () => ({ output: [], error: { kind: 'exception', message: 'boom' } })
+      await runCode(ctx, 'throw new Error("boom")')
+      expect((executor as PtcExecutor).describe(ctx.tools.definitions()).schemas.map(tool => tool.name)).toEqual([RUN_CODE_NAME])
+      const direct = await executeCall(ctx, { signal: testToolSignal, callId: brandString<ToolCallId>('call-direct'), name: 'read', arguments: {} })
+      expect(direct.error?.info).toEqual({ name: 'ToolNotFoundError', code: 'UNKNOWN_TOOL' })
+    } finally { await ctx.fiber.dispose() }
+  })
+})
+
 describe('per-program execution controls', () => {
   async function controlledSetup(approval = true) {
     const state = await setup()

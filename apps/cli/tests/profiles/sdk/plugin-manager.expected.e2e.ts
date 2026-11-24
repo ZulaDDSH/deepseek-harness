@@ -139,7 +139,8 @@ it.for(['unavailable', 'approved', 'missing-pnpm'] as const)('reports the %s plu
     env.PATH = root
   }
   const harness = new DeepSeekHarness({ cwd: root, processCwd: root, dshHome: join(root, 'home'),
-    env, model: 'deepseek-v4-pro', approvalRequests: scenario === 'approved' })
+    env, model: 'deepseek-v4-pro', approvalRequests: scenario === 'approved',
+    patches: [fileURLToPath(new URL('../../../config/examples/native.yml', import.meta.url))] })
   let approvals = 0
   const abort = (): void => { void harness.close() }
   test.signal.addEventListener('abort', abort, { once: true })

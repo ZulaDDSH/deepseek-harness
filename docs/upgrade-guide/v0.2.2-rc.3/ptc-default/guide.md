@@ -7,13 +7,15 @@ description: "Web, Desktop, headless and SDK profiles now run tools through the 
 
 ## Change
 
-The `dsh-base` bundle now enables `tool-executor-ptc` and ships `tool-executor-native` with `disabled: true`. Every base-backed profile (`web`, `desktop`, `headless`, `sdk`) and every Web preset without its own executor row (`standard`, `cordis`, `lean`, `master`, `minimal`) sends the model one `run_code` tool plus a generated TypeScript SDK. The model reaches `bash`, file, subagent, web and other tools as `tools.<name>(...)` calls inside the program. Each nested call still passes approvals, hooks, guards and sandbox policy, and appears in the Session as a `tool/ptc-dispatch` event.
+The `dsh-base` bundle now enables `tool-executor-ptc` and ships `tool-executor-native` with `disabled: true`. Every base-backed profile (`web`, `desktop`, `headless`, `sdk`) and every Web preset without its own executor selection (`standard`, `cordis`, `lean`, `master`, `minimal`) sends the model one `run_code` tool plus a generated TypeScript SDK. The model reaches `bash`, file, subagent, web and other tools as `tools.<name>(...)` calls inside the program. Each nested call still passes approvals, hooks, guards and sandbox policy, and appears in the Session as a `tool/ptc-dispatch` event.
 
 A program stops after 120 seconds by default (600 seconds at most), including approval and nested tool waits. Recorded sessions, expected outputs and mock models that call a tool such as `bash` directly now receive `UNKNOWN_TOOL`; replace direct calls with `run_code` or select native execution.
 
-Two surfaces stay native: the `acp` profile, whose updates carry only top-level `tool/call` events and would leave nested permission requests unannounced, and `sdk-minimal`, which mounts no PTC runtime. The Web `ptc` preset is unchanged and keeps its own executor row.
+Two surfaces stay native: the `acp` profile, whose updates carry only top-level `tool/call` events and would leave nested permission requests unannounced, and `sdk-minimal`, which mounts no PTC runtime. The Web `ptc` preset keeps its own executor row and the `economy` preset keeps its `tool-presentation` row with `mode: ptc`; both are unchanged.
 
-A user patch that enables `tool-executor-native` without disabling `tool-executor-ptc` now fails startup, because one scope allows one executor.
+A host that cannot confine programs (no usable `bwrap`, Landlock, Seatbelt or Windows ACL runner) cannot start the `run_code` process. The first `run_code` that reports `sandbox-unavailable` makes the executor present every tool directly from the next step, so only the shell loses access, as under native execution.
+
+A user patch that enables `tool-executor-native` without disabling `tool-executor-ptc` leaves two executors in one scope; the second fails to register, and startup reports it because both executor rows are required.
 
 ## Migration
 
@@ -28,6 +30,6 @@ A user patch that enables `tool-executor-native` without disabling `tool-executo
 
 2. To keep native execution for one Web preset only, add a `tool-executor-native` row (`name: '@deepseek-ai/dsh-tool-executor-native'`) to that preset's `plugins` in the preset editor or its patch.
 3. If a patch enables both rows, disable `tool-executor-ptc` as above or remove the native row.
-4. Drop `--patch .../ptc.yml` unless you want its `apply_patch: false` tool set; PTC is already selected without it.
+4. Drop `--patch .../ptc.yml`: PTC is already the default and the base `tool-fs` row already sets `applyPatch: false`, so the overlay changes nothing.
 5. Move long-running commands into background jobs or raise `timeoutMs` on `run_code` up to 600000.
 6. Run a task and confirm the model request lists only `run_code`; with the native overlay it lists each tool schema.

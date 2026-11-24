@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## Summary
 
-Existing [agent presets](../../preset/agent-preset-registry/README.md) can keep using `dsh-agent-tool-presentation` to select whether models see every native tool schema or only `run_code` with a generated SDK. Each preset can choose independently, so native and PTC agents can share one process without sharing tool catalogs. Selecting `ptc` requires a compatible PTC runtime. The `mode` field is required when this package is present, while omitting the package keeps the deployment default, which the shipped bundles set to PTC.
+Existing [agent presets](../../preset/agent-preset-registry/README.md) can keep using `dsh-agent-tool-presentation` to select whether models see every native tool schema or only `run_code` with a generated SDK. Each preset can choose independently, so native and PTC agents can share one process without sharing tool catalogs. Selecting `ptc` requires a compatible PTC runtime. The `mode` field is required when this package is present, while omitting the package keeps the deployment default: PTC in the shipped base-backed profiles, and native in `acp-app` and `sdk-minimal`.
 
 ## Table of Contents
 

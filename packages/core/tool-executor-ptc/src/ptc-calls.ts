@@ -22,6 +22,8 @@ export class PtcCalls {
   private readonly calls = new Map<SessionId, Set<Call>>()
   private readonly resets = new Map<SessionId, Reset>()
   private disposed = false
+  /** Set once a run reports that the host cannot confine programs; the executor then serves tools directly. */
+  confinementUnavailable = false
 
   /**
    * Observe policy changes for the owning executor.

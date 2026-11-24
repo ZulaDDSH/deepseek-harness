@@ -22,6 +22,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import Subprocess from '@deepseek-ai/dsh-subprocess-local'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import * as PtcToolExecutor from '@deepseek-ai/dsh-tool-executor-ptc'
 import type {} from '@deepseek-ai/dsh-tool-executor-ptc/types'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
@@ -42,7 +43,7 @@ class ProgramModel extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
   /** Requests a test holds back until it has finished acting between two model steps. */
   readonly gates = new Map<number, Promise<void>>()
-  constructor(private readonly programs: readonly string[]) { super() }
+  constructor(private readonly programs: readonly string[], private readonly toolName = 'cua_run_code') { super() }
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text', 'image'] })
   }
@@ -53,7 +54,7 @@ class ProgramModel extends LlmAdapter {
     if (code !== undefined) {
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
       yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: brandString<ToolCallId>(`cua-program-${this.requests.length}`),
-        name: 'cua_run_code', arguments: JSON.stringify({ code, description: 'Inspect and increment the fixture counter' }) } }
+        name: this.toolName, arguments: JSON.stringify({ code, description: 'Inspect and increment the fixture counter' }) } }
       yield { type: 'finish', reason: { kind: 'tool-calls' } }
       return
     }
@@ -63,7 +64,7 @@ class ProgramModel extends LlmAdapter {
   }
 }
 
-async function setup(programs: readonly string[], platform = 'macos', selectorPid?: number, presetFree = false) {
+async function setup(programs: readonly string[], platform = 'macos', selectorPid?: number, presetFree = false, ptc = false) {
   const directory = await mkdtemp(join(tmpdir(), 'dsh-cua-run-code-'))
   const ctx = new Context()
   onTestFinished(async () => {
@@ -76,7 +77,7 @@ async function setup(programs: readonly string[], platform = 'macos', selectorPi
     tools: ToolRuntime, agents: AgentRegistry, agentLoop: AgentLoop, agentPresets: AgentPresets,
     fs: FileSystem, workingDirectory: WorkingDirectory, subprocess: Subprocess,
     sandbox: Sandbox, sandboxPolicy: SandboxPolicy, sharedRuntime: NodeRuntime,
-    attachments: LocalAttachmentStore, computerUse: ComputerUseRegistry, native: NativeToolExecutor,
+    attachments: LocalAttachmentStore, computerUse: ComputerUseRegistry, native: ptc ? PtcToolExecutor : NativeToolExecutor,
     standard: {
       inject: ['agentPresets'],
       async * apply(owner: Context) {
@@ -129,7 +130,7 @@ async function setup(programs: readonly string[], platform = 'macos', selectorPi
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await ctx.loader.await()
   for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-  const model = new ProgramModel(programs)
+  const model = new ProgramModel(programs, ptc ? 'run_code' : 'cua_run_code')
   ctx.llm.registerAdapter(['cua-fixture'], model)
   const handle = await ctx.agents.create({ sessionId: brandString<SessionId>('cua-standard-composition'), meta: { cwd: directory },
     agentOptions: { provider: 'cua-fixture', model: 'vision' },
@@ -204,6 +205,17 @@ it('runs cua_run_code programs for an Agent in a composition without presets', a
     .toMatchObject({ visits: 2, sameCua: true, app: 'fixture-app', window: '7' })
   expect(native.state.count).toBe(2)
   expect(agent.session.snapshotEvents().some(event => event.type === 'agent-preset/selected')).toBe(false)
+})
+
+it('reaches cua_run_code from inside run_code when the Host mounts the PTC executor', async () => {
+  const outer = 'const result = await tools.cua_run_code({ code: "inspect(\\"inner-ok\\")", description: "nested" }); inspect(JSON.stringify(result))'
+  const { model, agent, run } = await setup([outer], 'macos', undefined, true, true)
+  await run()
+  expect(model.requests[0]?.tools?.map(tool => tool.name)).toEqual(['run_code'])
+  expect(JSON.stringify(model.requests[0]?.messages)).toContain('cua_run_code')
+  const results = agent.session.deriveMessages().filter(message => message.role === 'tool')
+  expect(results.map(result => result.isError), JSON.stringify(results)).toEqual([false])
+  expect(JSON.stringify(results[0]!.content)).toContain('inner-ok')
 })
 
 it('releases one Agent program environment through ctx.cuaPrograms while keeping its application access', async () => {

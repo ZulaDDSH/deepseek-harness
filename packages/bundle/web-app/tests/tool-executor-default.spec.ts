@@ -61,4 +61,11 @@ it.for(['standard', 'cordis', 'lean', 'master', 'minimal'])('the %s preset inher
   const plugins = (row!.config as { plugins: { id: string }[] }).plugins.map(plugin => plugin.id)
   expect(plugins).not.toContain('tool-executor-native')
   expect(plugins).not.toContain('tool-executor-ptc')
+  expect(plugins).not.toContain('tool-presentation')
+})
+
+it('the ptc and economy presets select PTC themselves', () => {
+  const rows = (preset: string) => (loadOverlayPatches('executor default', join(bundles, `web-app/presets/${preset}.patch.yml`)).flatMap(patch => patch.insert ?? [])[0]!.config as { plugins: { id: string; config?: { mode?: string } }[] }).plugins
+  expect(rows('ptc').map(plugin => plugin.id)).toContain('tool-executor-ptc')
+  expect(rows('economy').find(plugin => plugin.id === 'tool-presentation')?.config?.mode).toBe('ptc')
 })

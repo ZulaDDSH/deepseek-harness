@@ -40,6 +40,10 @@ describe('dsh run with Agent Teams enabled', () => {
       await writeFile(join(profileDir, 'cordis.patch.yml'), [
         '- id: llm-deepseek',
         '  disabled: true',
+        '- id: tool-executor-ptc',
+        '  disabled: true',
+        '- id: tool-executor-native',
+        '  disabled: false',
         '- id: session-persistence-jsonl',
         '  config:',
         `    root: '${sessions}'`,

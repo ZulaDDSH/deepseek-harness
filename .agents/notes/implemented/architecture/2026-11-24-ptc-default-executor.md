@@ -13,7 +13,10 @@ Every shipped composition mounted `@deepseek-ai/dsh-tool-executor-native`, so mo
 - The `acp-app` bundle pins native, because the ACP bridge projects only top-level `tool/call` and `tool/result` events and nested PTC calls would raise permission requests for tool call ids the client was never told about.
 - `sdk-minimal` stays native: it is standalone and mounts no PTC runtime.
 - The Web presets `standard`, `cordis`, `lean`, `master`, and `minimal` state no executor row and inherit the base; the `ptc` preset keeps its own row.
-- No per-model or per-provider tool-set mechanism was added: no such selection exists, `run_code` carries images, structured subagent output, and approvals, and the caveats are documented in the PTC runtime subsystem doc.
+- No per-model or per-provider tool-set mechanism was added: no such selection exists, `run_code` carries images, structured subagent output, and approvals, and the caveats (time budget, single schema, `UNKNOWN_TOOL` on direct calls, nested approvals) are in the "Running as the default executor" section of the [PTC runtime subsystem doc](../../../../docs/subsystems/ptc-runtime.md).
+- A host that cannot confine programs keeps its non-shell tools. The runtime still fails closed with `sandbox-unavailable`, because a program has full Node authority, but the first such result latches `PtcCalls.confinementUnavailable`; from the next model step `PtcExecutor.describe` presents every tool schema, the `tools:ptc-only` and `tools:sdk` sections render empty, and direct calls are accepted. Only the shell then fails closed, as under native execution. The latch lasts for the executor's lifetime and does not apply to registered program tools such as `cua_run_code`.
+- The Web `ptc` preset keeps its own executor row and `economy` keeps its `tool-presentation` row with `mode: ptc`.
+- Under the default, `cua_run_code` is reached as `tools.cua_run_code(...)` inside a `run_code` program.
 - Test infrastructure that scripts native tool calls (keyless SDK e2e files, office skill e2e files, the web scaffold, the headless fixture patches, and the shared snapshot base compositions) pins native, because the replay fixtures cannot be re-recorded without a provider key.
 
 ## Alternatives considered
@@ -24,12 +27,16 @@ Every shipped composition mounted `@deepseek-ai/dsh-tool-executor-native`, so mo
 
 **Remove the native row.** Existing overlays such as `ptc.yml` and the 38 snapshot patches state both row ids, and the opt-out needs the row.
 
+**Run programs unconfined when confinement is unavailable.** Programs import `node:fs` and `node:child_process`, so an unconfined worker would hand the model a wider boundary than native execution ever gave it; falling back to direct tools keeps the fail-closed shell.
+
+**Probe confinement at startup.** The Windows runner is a sole candidate selected without a probe and refuses only when it executes, so a startup probe cannot see the failure; the first run reports it.
+
 **Re-record every snapshot under PTC.** Recording needs a provider key and fixtures replay only on macOS and Linux; the existing `ptc-*` scenarios already cover the PTC path.
 
 ## Consequences
 
-Default model requests carry one `run_code` schema plus the `tools:ptc-only` guidance instead of per-tool schemas, and direct calls to any other tool name return `UNKNOWN_TOOL`. Deployments that scripted direct tool calls must opt out with the native overlay, as the [upgrade guide](../../../../docs/upgrade-guide/v0.2.2-rc.3/ptc-default/guide.md) describes. The pinned test infrastructure means the default composition's PTC path is covered by the dedicated `ptc-*` scenarios and the executor-default spec, not by the generic snapshots.
+On a host without confinement the first `run_code` of the process fails and costs one model step before tools appear directly. Default model requests carry one `run_code` schema plus the `tools:ptc-only` guidance instead of per-tool schemas, and direct calls to any other tool name return `UNKNOWN_TOOL`. Deployments that scripted direct tool calls must opt out with the native overlay, as the [upgrade guide](../../../../docs/upgrade-guide/v0.2.2-rc.3/ptc-default/guide.md) describes. The pinned test infrastructure means the default composition's PTC path is covered by the dedicated `ptc-*` scenarios and the executor-default spec, not by the generic snapshots.
 
 ## Testing
 
-`packages/bundle/web-app/tests/tool-executor-default.spec.ts` composes each bundle and overlay and asserts which executor rows and the PTC runtime are enabled: PTC for base, headless, SDK app, and web app; native with `native.yml`; native again after `native.yml` then `ptc.yml` flips back; native for `acp-app`; native without a runtime for `sdk-minimal`; and no executor row in the inheriting presets.
+`packages/bundle/web-app/tests/tool-executor-default.spec.ts` composes each bundle and overlay and asserts which executor rows and the PTC runtime are enabled: PTC for base, headless, SDK app, and web app; native with `native.yml`; native again after `native.yml` then `ptc.yml` flips back; native for `acp-app`; native without a runtime for `sdk-minimal`; no executor or `tool-presentation` row in the inheriting presets, and the `ptc` and `economy` presets selecting PTC themselves. `packages/core/tool-executor-ptc/tests/ptc.spec.ts` pins the unconfined-host fallback (every tool callable directly after `sandbox-unavailable`, code mode kept after ordinary failures), and `packages/experimental/cua/tests/run-code-composition.spec.ts` runs a nested `cua_run_code` through the PTC executor.
