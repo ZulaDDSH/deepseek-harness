@@ -1,7 +1,7 @@
 /** @module Memory policy, per-turn chat saves, first-message recall and status for the connected Memorix server. */
 import { createHash, randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
-import { link, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { link, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { basename, dirname, join, parse, resolve } from 'node:path'
@@ -200,13 +200,53 @@ async function removeOrphanMarkers(directory: string): Promise<void> {
   }
 }
 
-async function markerNamesPath(marker: string, path: string): Promise<boolean> {
-  for (let attempt = 0; attempt < MARKER_READ_ATTEMPTS; attempt++) {
-    const content = await readFile(marker, 'utf8')
-    if (content !== '') return content === path
-    await sleep(MARKER_READ_RETRY_MS)
+/** undefined: the marker vanished or an empty stale one was removed, so the caller claims again. */
+async function markerNamesPath(marker: string, path: string): Promise<boolean | undefined> {
+  try {
+    for (let attempt = 0; attempt < MARKER_READ_ATTEMPTS; attempt++) {
+      const content = await readFile(marker, 'utf8')
+      if (content !== '') return content === path
+      await sleep(MARKER_READ_RETRY_MS)
+    }
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') return undefined
+    throw error
   }
-  return false
+  return await healEmptyMarker(marker, path)
+}
+
+/** Best effort: a heal that cannot run leaves the folder unclaimed, never failing the bind. */
+async function healEmptyMarker(marker: string, path: string): Promise<boolean | undefined> {
+  const taken = `${marker}.${randomUUID()}`
+  try {
+    const { mtimeMs } = await stat(marker)
+    const current = await readFile(marker, 'utf8')
+    if (current !== '') return current === path
+    if (Date.now() - mtimeMs < ORPHAN_MARKER_AGE_MS) return false
+    await rename(marker, taken)
+    const info = await stat(taken)
+    if (await readFile(taken, 'utf8') === '' && Date.now() - info.mtimeMs >= ORPHAN_MARKER_AGE_MS) await rm(taken, { force: true })
+    else await rename(taken, marker)
+    return undefined
+  } catch (error) {
+    return errorCode(error) === 'ENOENT' ? undefined : false
+  }
+}
+
+async function claimMarker(marker: string, staged: string, path: string): Promise<boolean | undefined> {
+  try {
+    await link(staged, marker)
+    return true
+  } catch (error) {
+    if (errorCode(error) === 'EEXIST') return await markerNamesPath(marker, path)
+  }
+  try {
+    await writeFile(marker, path, { flag: 'wx' })
+    return true
+  } catch (error) {
+    if (errorCode(error) !== 'EEXIST') throw error
+  }
+  return await markerNamesPath(marker, path)
 }
 
 /** A legacy root belongs to the first folder that binds it; only the plain-create fallback can expose an empty marker. */
@@ -218,19 +258,11 @@ async function legacyRootClaimed(root: string, path: string): Promise<boolean> {
   const staged = `${marker}.${randomUUID()}`
   await writeFile(staged, path)
   try {
-    try {
-      await link(staged, marker)
-      return true
-    } catch (error) {
-      if (errorCode(error) === 'EEXIST') return await markerNamesPath(marker, path)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const claimed = await claimMarker(marker, staged, path)
+      if (claimed !== undefined) return claimed
     }
-    try {
-      await writeFile(marker, path, { flag: 'wx' })
-      return true
-    } catch (error) {
-      if (errorCode(error) !== 'EEXIST') throw error
-    }
-    return await markerNamesPath(marker, path)
+    return false
   } finally {
     await rm(staged, { force: true })
   }

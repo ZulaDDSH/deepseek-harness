@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { createVolatile, updateVolatile, type Volatile } from '@deepseek-ai/cosmokit'
 import { DatabaseSync } from 'node:sqlite'
-import { link, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
+import { link, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -21,7 +21,7 @@ function asText(value: unknown): string { return typeof value === 'string' ? val
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
-  return { ...actual, writeFile: vi.fn(actual.writeFile), link: vi.fn(actual.link) }
+  return { ...actual, writeFile: vi.fn(actual.writeFile), link: vi.fn(actual.link), rename: vi.fn(actual.rename) }
 })
 vi.mock('@deepseek-ai/dsh-native-command', () => ({ runNativeCommand: vi.fn(async () => ({ stdout: '', stderr: '' })) }))
 
@@ -631,6 +631,112 @@ describe('Memory policy and first-message recall', () => {
       inbox(ctx, session('one', { cwd: workspace }), 'first')
       await assembled(ctx, 'one')
       expect(bindings).toEqual([legacy])
+    })
+
+    async function emptyMarker(directory: string, workspace: string, ageMs: number): Promise<{ legacy: string; marker: string }> {
+      const legacy = await legacyRoot(directory, workspace)
+      const marker = join(legacy, '.git', 'dsh-workspace')
+      await writeFile(marker, '')
+      const when = new Date(Date.now() - ageMs)
+      await utimes(marker, when, when)
+      return { legacy, marker }
+    }
+
+    it.each([['hard links', false], ['no hard links', true]])('heals an empty marker older than a minute and claims the root (%s)', async (_name, refuseLinks) => {
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+      const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-heal-'))
+      directories.push(workspace)
+      const { ctx, bindings, directory } = await fixture({ search: '' })
+      const { legacy, marker } = await emptyMarker(directory, workspace, 10 * 60_000)
+      if (refuseLinks) vi.mocked(link).mockRejectedValue(Object.assign(new Error('not permitted'), { code: 'EPERM' }))
+      try {
+        await ctx.plugin(SystemPrompt)
+        inbox(ctx, session('one', { cwd: workspace }), 'first')
+        await assembled(ctx, 'one')
+      } finally {
+        vi.mocked(link).mockImplementation(actual.link)
+      }
+      expect(bindings).toEqual([legacy])
+      expect(await readFile(marker, 'utf8')).toBe(realpathSync.native(workspace))
+      expect((await readdir(join(legacy, '.git'))).filter(name => name.startsWith('dsh-workspace.'))).toEqual([])
+    })
+
+    it('leaves a fresh empty marker alone and gives the folder its own root', async () => {
+      const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-fresh-'))
+      directories.push(workspace)
+      const { ctx, bindings, directory } = await fixture({ search: '' })
+      const { legacy, marker } = await emptyMarker(directory, workspace, 5_000)
+      await ctx.plugin(SystemPrompt)
+      inbox(ctx, session('one', { cwd: workspace }), 'first')
+      await assembled(ctx, 'one')
+      expect(bindings).toHaveLength(1)
+      expect(bindings[0]).not.toBe(legacy)
+      expect(await readFile(marker, 'utf8')).toBe('')
+    })
+
+    it('gives two Hosts racing to heal one stale empty marker the same answer', async () => {
+      const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-healrace-'))
+      directories.push(workspace)
+      const first = await fixture({ search: '' })
+      const second = await fixture({ search: '' })
+      vi.stubEnv('DSH_HOME', join(first.directory, 'dsh'))
+      const { legacy, marker } = await emptyMarker(first.directory, workspace, 10 * 60_000)
+      await first.ctx.plugin(SystemPrompt)
+      await second.ctx.plugin(SystemPrompt)
+      inbox(first.ctx, session('one', { cwd: workspace }), 'first')
+      inbox(second.ctx, session('two', { cwd: workspace }), 'second')
+      await Promise.all([assembled(first.ctx, 'one'), assembled(second.ctx, 'two')])
+      expect(first.bindings).toEqual([legacy])
+      expect(second.bindings).toEqual([legacy])
+      expect(await readFile(marker, 'utf8')).toBe(realpathSync.native(workspace))
+      expect((await readdir(join(legacy, '.git'))).filter(name => name.startsWith('dsh-workspace.'))).toEqual([])
+    })
+
+    it('does not fail the bind when the heal cannot run', async () => {
+      const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-healfail-'))
+      directories.push(workspace)
+      const { ctx, bindings, directory } = await fixture({ search: '' })
+      const { legacy, marker } = await emptyMarker(directory, workspace, 10 * 60_000)
+      vi.mocked(rename).mockRejectedValueOnce(Object.assign(new Error('busy'), { code: 'EBUSY' }))
+      await ctx.plugin(SystemPrompt)
+      inbox(ctx, session('one', { cwd: workspace }), 'first')
+      await assembled(ctx, 'one')
+      expect(bindings).toHaveLength(1)
+      expect(bindings[0]).not.toBe(legacy)
+      expect(await readFile(marker, 'utf8')).toBe('')
+    })
+
+    it('puts back a marker that another Host replaced with a fresh empty one while it was being healed', async () => {
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+      const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-swap-'))
+      directories.push(workspace)
+      const { ctx, bindings, directory } = await fixture({ search: '' })
+      const { legacy, marker } = await emptyMarker(directory, workspace, 10 * 60_000)
+      vi.mocked(rename).mockImplementationOnce(async (from, to) => {
+        await actual.rm(from)
+        await actual.writeFile(from, '')
+        return actual.rename(from, to)
+      })
+      await ctx.plugin(SystemPrompt)
+      inbox(ctx, session('one', { cwd: workspace }), 'first')
+      await assembled(ctx, 'one')
+      expect(bindings).toHaveLength(1)
+      expect(bindings[0]).not.toBe(legacy)
+      expect(await readFile(marker, 'utf8')).toBe('')
+      expect((await readdir(join(legacy, '.git'))).filter(name => name.startsWith('dsh-workspace.'))).toEqual([])
+    })
+
+    it('claims again when the marker disappears between the failed link and the read', async () => {
+      const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-gone-'))
+      directories.push(workspace)
+      const { ctx, bindings, directory } = await fixture({ search: '' })
+      const legacy = await legacyRoot(directory, workspace)
+      vi.mocked(link).mockRejectedValueOnce(Object.assign(new Error('exists'), { code: 'EEXIST' }))
+      await ctx.plugin(SystemPrompt)
+      inbox(ctx, session('one', { cwd: workspace }), 'first')
+      await assembled(ctx, 'one')
+      expect(bindings).toEqual([legacy])
+      expect(await readFile(join(legacy, '.git', 'dsh-workspace'), 'utf8')).toBe(realpathSync.native(workspace))
     })
 
     it('removes stale temporary markers on the next claim and keeps fresh ones', async () => {
