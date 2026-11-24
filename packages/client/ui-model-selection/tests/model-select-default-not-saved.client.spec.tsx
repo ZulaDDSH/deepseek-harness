@@ -114,6 +114,31 @@ describe('ModelSelect default-not-saved notice', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
+  it('retries the selection current at click time, not the one that raised the notice', async () => {
+    const { directory, select } = mountSeat(true)
+    chooseProModel()
+    const retry = await screen.findByRole('button', { name: zh['warning.defaultRetry'] })
+    await act(async () => {
+      directory.update((s) => { s.current = { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+    })
+    fireEvent.click(retry)
+
+    await vi.waitFor(() => { expect(select).toHaveBeenCalledTimes(2) })
+    expect(select.mock.calls[1]?.[0]).toMatchObject({ model: 'deepseek-v4-flash' })
+  })
+
+  it('dismisses a pending notice when another selection is submitted', async () => {
+    mountSeat(true)
+    chooseProModel()
+    await screen.findByRole('alert')
+
+    fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /DeepSeek-V4-Flash/ }))
+
+    await vi.waitFor(() => { expect(screen.queryByRole('alert')).toBeNull() })
+  })
+
   it('leaves a failed save from the other entry to that entry', async () => {
     const { directory } = mountSeat(false)
     await act(async () => { directory.update((s) => { s.defaultNotSaved = true }) })

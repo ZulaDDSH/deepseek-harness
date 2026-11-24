@@ -150,6 +150,7 @@ export function ModelSelect(
   const [toast, setToast] = useState<{ seq: number; text: string; retry?: () => void } | null>(null)
   const toastSeq = useRef(0)
   const ownSelection = useRef(false)
+  const retryDefault = useRef<() => void>(() => {})
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const searchRef = useRef<HTMLInputElement | null>(null)
@@ -267,10 +268,7 @@ export function ModelSelect(
       setToast({
         seq: ++toastSeq.current,
         text: t('warning.defaultNotSaved'),
-        retry: () => {
-          setToast(null)
-          if (state.current !== null) submit(state.current)
-        },
+        retry: () => { retryDefault.current() },
       })
     }
     ownSelection.current = false
@@ -590,12 +588,17 @@ export function ModelSelect(
   }
 
   const submit = (selection: ModelSelection): void => {
+    setToast(null)
     lastActionRef.current = 'select'
     ownSelection.current = true
     // Disabled option rows cannot retain focus while a selection is pending.
     setSelectionFocus(true)
     triggerRef.current?.focus()
     void select(selection).then(settleSelection)
+  }
+
+  retryDefault.current = () => {
+    if (state.current !== null) submit(state.current)
   }
 
   const choose = (selection: ModelSelection): void => {
@@ -1035,8 +1038,10 @@ export function ModelSelect(
           key={toast.seq}
           text={toast.text}
           icon={<IconWarningOutlineRegular />}
-          holdMs={toast.retry === undefined ? undefined : DEFAULT_NOT_SAVED_HOLD_MS}
-          actions={toast.retry === undefined ? undefined : [{ label: t('warning.defaultRetry'), onClick: toast.retry }]}
+          {...toast.retry === undefined ? {} : {
+            holdMs: DEFAULT_NOT_SAVED_HOLD_MS,
+            actions: [{ label: t('warning.defaultRetry'), onClick: toast.retry }],
+          }}
           anchor={rootRef.current?.closest<HTMLElement>('[data-composer-card]') ?? null}
           onDone={() => { setToast(null) }}
         />
