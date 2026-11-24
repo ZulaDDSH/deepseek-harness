@@ -97,6 +97,23 @@ describe('Freebuff session guards', () => {
     expect((await first).finish.reason.kind).toBe('aborted')
   })
 
+  it('does not queue behind the spawn lock holder when the signal is already aborted', async () => {
+    const h = await harness({ timing: { startupTimeoutMs: 5_000 } })
+    h.host.script = { silent: true }
+    const holder = new AbortController()
+    const first = collect(h, h.session('s1', h.workspace('one')), [userMessage('one')], { signal: holder.signal })
+    await delay(60)
+    const done = new AbortController()
+    done.abort()
+    const startedAt = Date.now()
+    const second = await collect(h, h.session('s2', h.workspace('two')), [userMessage('two')], { signal: done.signal })
+    expect(second.finish.reason.kind).toBe('aborted')
+    expect(Date.now() - startedAt).toBeLessThan(2_000)
+    expect(h.host.spawns).toHaveLength(1)
+    holder.abort()
+    expect((await first).finish.reason.kind).toBe('aborted')
+  })
+
   it('answers terminal queries even when the reply cannot be written, and ignores output stream errors', async () => {
     const h = await harness()
     h.host.script = { query: true, failReplies: true }
@@ -205,10 +222,16 @@ describe('Freebuff mid-turn screens', () => {
 
   it('keeps an answer that ends with a login hint when the ready footer is on screen', async () => {
     const h = await harness({ timing: { quietMs: 400 } })
-    h.host.script = { loginHint: true, replyDelayMs: 120 }
+    h.host.script = { loginHint: 'Run this command to login:', replyDelayMs: 120 }
     const result = await collect(h, h.session('s1', h.workspace('proj')), [userMessage('go')])
     expect(result.finish.reason.kind).toBe('stop')
     expect(result.text).toBe('echo: go')
+  })
+
+  it('still reports a signed-out screen that shows the ready footer next to a strong login marker', async () => {
+    const h = await harness({ timing: { quietMs: 400 } })
+    h.host.script = { loginHint: 'Please log in again', replyDelayMs: 120 }
+    expect(failureOf(await collect(h, h.session('s1', h.workspace('proj')), [userMessage('go')])).code).toBe('ACCOUNT_SIGN_IN_REQUIRED')
   })
 
   it('names a blocking prompt that appears during the turn', async () => {

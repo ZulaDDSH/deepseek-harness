@@ -38,6 +38,13 @@ describe('classifyScreen', () => {
     expect(classifyScreen(READY.join('\n'))).toMatchObject({ ready: true, busy: false, loginRequired: false })
   })
 
+  it('counts a weak login marker as signed out only without the ready footer', () => {
+    expect(classifyScreen(['Run this command to login:', ...READY].join('\n')).signedOut).toBe(false)
+    expect(classifyScreen('Run this command to login:').signedOut).toBe(true)
+    expect(classifyScreen(['Please log in again', ...READY].join('\n')).signedOut).toBe(true)
+    expect(classifyScreen(['Press ENTER to login...', ...READY].join('\n')).signedOut).toBe(true)
+  })
+
   it.each(BUSY.slice(2))('recognises the busy marker %s', (marker) => {
     expect(classifyScreen(['> task', marker].join('\n'))).toMatchObject({ busy: true, ready: false })
   })
@@ -91,6 +98,7 @@ describe('classifyScreen', () => {
   it('reports an empty screen as neither ready nor busy', () => {
     expect(classifyScreen('')).toEqual({
       loginRequired: false,
+      signedOut: false,
       trustPrompt: false,
       blocker: undefined,
       busy: false,

@@ -4,6 +4,7 @@ import { createLazyRequire } from '@deepseek-ai/dsh-lazy-require'
 const requireHeadless = createLazyRequire<typeof import('@xterm/headless')>('@xterm/headless', import.meta.url)
 
 const LOGIN_MARKERS = ['Press ENTER to login', 'to login:', 'Waiting for login', 'Please log in again'] as const
+const WEAK_LOGIN_MARKER = 'to login:'
 const TRUST_MARKER = 'Load and run these?'
 const BLOCKER_MARKERS = [
   'Enter: confirm and send',
@@ -24,6 +25,7 @@ export const CLIPPED_NOTICE = "[Freebuff's chat transcript was not found and its
 
 export interface ScreenState {
   readonly loginRequired: boolean
+  readonly signedOut: boolean
   readonly trustPrompt: boolean
   readonly blocker: string | undefined
   readonly busy: boolean
@@ -46,12 +48,14 @@ export function classifyScreen(text: string, task?: string): ScreenState {
   const scope = task === undefined ? text : status.join('\n')
   const quoted = task === undefined ? '' : squash(task)
   const found = (marker: string): boolean => scope.includes(marker) && !quoted.includes(marker)
+  const ready = READY_MARKERS.some(marker => bottom.includes(marker))
   return {
     loginRequired: LOGIN_MARKERS.some(found),
+    signedOut: LOGIN_MARKERS.some(marker => found(marker) && (marker !== WEAK_LOGIN_MARKER || !ready)),
     trustPrompt: text.includes(TRUST_MARKER),
     blocker: BLOCKER_MARKERS.find(found),
     busy: status.some(line => BUSY_LINE.test(line)),
-    ready: READY_MARKERS.some(marker => bottom.includes(marker)),
+    ready,
   }
 }
 

@@ -240,6 +240,15 @@ ${'Detailed reason. '.repeat(60)}End of refusal.`
     await run.dispose()
   }, TEST_TIMEOUT_MS)
 
+  it('reports a strong login marker even when the ready footer is on screen', async () => {
+    const { ctx } = await providerContext('relogin-footer', { idleMs: 1_500 })
+    const run = await startAs(ctx, request())
+    const result = await run.result
+    expect(result.stopReason).toBe('error')
+    expect(result.diagnostic).toContain('login')
+    await run.dispose()
+  }, TEST_TIMEOUT_MS)
+
   it('fails with the prompt named when a blocker appears after Freebuff started working', async () => {
     const { ctx } = await providerContext('blocked-late', { timeoutMs: 20_000 })
     const run = await startAs(ctx, request())

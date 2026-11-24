@@ -207,7 +207,7 @@ export async function startFreebuffRun(
     for (;;) {
       interrupt.signal.throwIfAborted()
       const state = classifyScreen(screen.text())
-      if (state.loginRequired && !state.ready) throw new FreebuffNotLoggedInError('login screen shown by Freebuff')
+      if (state.signedOut) throw new FreebuffNotLoggedInError('login screen shown by Freebuff')
       if (state.trustPrompt) {
         if (!answeredTrust) {
           answeredTrust = true
@@ -279,7 +279,7 @@ export async function startFreebuffRun(
         return { output, stopReason: 'completed' }
       }
       if (!state.busy) {
-        if (state.loginRequired && !state.ready) throw new FreebuffNotLoggedInError('login screen shown by Freebuff')
+        if (state.signedOut) throw new FreebuffNotLoggedInError('login screen shown by Freebuff')
         if (state.blocker !== undefined) {
           throw failure('turn', 'blocked', `Freebuff is waiting on the prompt "${state.blocker}"`)
         }

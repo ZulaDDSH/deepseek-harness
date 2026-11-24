@@ -30,7 +30,7 @@ export interface FakeScript {
   failReplies?: boolean
   trustDelayMs?: number
   midLogin?: boolean
-  loginHint?: boolean
+  loginHint?: string
   midBlocker?: string
   incomplete?: boolean
   recovers?: boolean
@@ -190,7 +190,7 @@ export class FakeTerminal implements SubprocessTerminalHandle {
         this.save([...this.rows().filter(row => row.id !== id), { id, variant: 'ai', blocks, isComplete: last && script.incomplete !== true }])
         if (last) {
           this.busy = false
-          this.show(script.loginHint === true ? ['Freebuff', 'Run this command to login:', ...READY.slice(1)] : READY)
+          this.show(script.loginHint === undefined ? READY : ['Freebuff', script.loginHint, ...READY.slice(1)])
         } else step(index + 1)
       }, script.replyDelayMs ?? 20)
     }

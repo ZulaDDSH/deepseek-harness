@@ -116,6 +116,10 @@ describe('terminal helpers', () => {
     const echoed = classifyScreen('> please explain Press ENTER to login\n/model to change', 'please explain Press ENTER to login')
     expect(echoed.loginRequired).toBe(false)
     expect(classifyScreen('Press ENTER to login', 'other').loginRequired).toBe(true)
+    expect(classifyScreen('Run this command to login:\n/model to change').signedOut).toBe(false)
+    expect(classifyScreen('Run this command to login:').signedOut).toBe(true)
+    expect(classifyScreen('Please log in again\n/model to change').signedOut).toBe(true)
+    expect(classifyScreen('Press ENTER to login\n/model to change').signedOut).toBe(true)
   })
 
   it('renders a headless screen and answers terminal queries through the reply sink', async () => {
