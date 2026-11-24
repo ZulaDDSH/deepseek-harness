@@ -85,6 +85,7 @@ function RootTeamModePane({
       requestDisableConfirmation()
       return
     }
+    setUnconfirmed(null)
     setPending(true)
     void selectTeamMode(enabled).then((failure) => {
       setUnconfirmed(failure?.unconfirmed === true ? enabled : null)
@@ -98,7 +99,7 @@ function RootTeamModePane({
     <div className={css.pane}>
       <div className={css.row}>
         <span className={css.label}>{t('mode.label')}</span>
-        <Switch className={css.toggle} checked={mode.enabled} disabled={locked || pending || modelSelection === undefined} label={t('mode.label')} onChange={value => { select(unconfirmed ?? value) }} autoFocus describedBy={descriptionId} />
+        <Switch className={css.toggle} checked={mode.enabled} disabled={locked || pending || modelSelection === undefined} label={t('mode.label')} onChange={select} autoFocus describedBy={descriptionId} />
       </div>
       {unconfirmed !== null && (
         <div className={css.row}>

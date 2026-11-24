@@ -139,7 +139,7 @@ it.each([false, true])('enables directly regardless of model history (requested:
   expect(input.dismiss).not.toHaveBeenCalled()
 })
 
-it('shows an unconfirmed write as applied-but-unsaved and resends it instead of toggling back', async () => {
+it('shows an unconfirmed write as applied-but-unsaved and lets the switch toggle the opposite way', async () => {
   const select = vi.fn<TeamModePaneProps['selectTeamMode']>()
     .mockResolvedValueOnce({ message: 'flush failed', unconfirmed: true })
     .mockResolvedValueOnce(null)
@@ -151,7 +151,7 @@ it('shows an unconfirmed write as applied-but-unsaved and resends it instead of 
   expect(screen.getByRole('status').textContent).toBe(zh['mode.unconfirmed'])
   view.rerender(<TeamModePane {...props(true, select)} />)
   await act(async () => { fireEvent.click(screen.getByRole('switch')) })
-  expect(select.mock.calls).toEqual([[true], [true]])
+  expect(select.mock.calls).toEqual([[true], [false]])
   expect(screen.queryByRole('status')).toBeNull()
 })
 
