@@ -25,7 +25,7 @@ import { waitWithAbort } from './managed-owner.ts'
 import { controlEnvironment, controlPipe } from './control-spawn.ts'
 import { SUBPROCESS_CONTROL_FD } from '@deepseek-ai/dsh-subprocess/control'
 import { linuxProcessGroupLiveMember } from './process-inspector.ts'
-import { OutputCollector, prepareManagedProcessBinding, type SpillFailureReporter } from './output.ts'
+import { OutputCollector, prepareManagedProcessBinding, type SpillFailureReporter, type SweepFailureReporter } from './output.ts'
 
 type SpawnProcess = (
   program: string,
@@ -65,6 +65,8 @@ export interface SpawnInternals {
   spillDir?: string
   /** Receives spill open/write failures; the runtime supplies its plugin logger, bare callers get a stderr line. */
   onSpillFailure?: SpillFailureReporter
+  /** Receives spill retention sweep failures; the runtime supplies its plugin logger, bare callers get a stderr line. */
+  onSweepFailure?: SweepFailureReporter
   /** Windows tree-termination runner (defaults to `taskkill /PID <pid> /T /F`). */
   taskkill?: (pid: number) => void
   /** Host platform override for signalling decisions. */
@@ -279,9 +281,9 @@ function fallbackOwner(
 export function bindManagedProcess(
   spec: SubprocessSpawnSpec,
   launch: ManagedProcessLaunch,
-  internals: Pick<SpawnInternals, 'spillDir' | 'onSpillFailure'> = {},
+  internals: Pick<SpawnInternals, 'spillDir' | 'onSpillFailure' | 'onSweepFailure'> = {},
 ): LocalSubprocessHandle {
-  const { spillDir, onSpillFailure } = prepareManagedProcessBinding(internals)
+  const { spillDir, onSpillFailure, onSweepFailure } = prepareManagedProcessBinding(internals)
   const { stdin, stdout, stderr } = launch
 
   const isCollect = (mode: SubprocessOutputMode): mode is SubprocessCollect =>
@@ -295,7 +297,7 @@ export function bindManagedProcess(
     const collector = new OutputCollector(
       mode.maxBytes,
       label,
-      mode.spill === undefined ? undefined : { maxBytes: mode.spill.maxBytes, dir: spillDir, onFailure: onSpillFailure },
+      mode.spill === undefined ? undefined : { maxBytes: mode.spill.maxBytes, dir: spillDir, onFailure: onSpillFailure, onSweepFailure },
     )
     stream.on('data', (chunk: Buffer) => { collector.push(chunk) })
     return collector

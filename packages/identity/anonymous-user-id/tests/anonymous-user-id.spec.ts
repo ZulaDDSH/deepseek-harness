@@ -112,9 +112,12 @@ describe('getOrCreateAnonymousUserId', () => {
     const home = tempHome()
     const blocked = join(home, 'blocked')
     writeFileSync(blocked, 'occupied\n')
-    const id = getOrCreateAnonymousUserId({ env: { DSH_HOME: blocked } })
+    const reports: unknown[] = []
+    const onFailure = (_message: string, error: unknown): void => { reports.push((error as { code?: string }).code) }
+    const id = getOrCreateAnonymousUserId({ env: { DSH_HOME: blocked }, onFailure })
     expect(id).toMatch(UUID)
     expect(existsSync(join(blocked, ANONYMOUS_USER_ID_FILE_NAME))).toBe(false)
+    expect(reports).toHaveLength(1)
   })
 
   it('memoizes per resolved home for the process lifetime: one read, deletion-proof', () => {

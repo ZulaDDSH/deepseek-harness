@@ -75,7 +75,7 @@ const stateSchema: z.ZodType<ForgeChangeRequestsState> = z.object({
  */
 export const forgeChangeRequestsProjection = {
   key: 'forgeChangeRequests',
-  stateVersion: 5,
+  stateVersion: 6,
   stateSchema,
   init: () => EMPTY,
   apply,

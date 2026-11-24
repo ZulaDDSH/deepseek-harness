@@ -75,7 +75,7 @@ export function recordFeedback(session: Session, entry: FeedbackRecord): void {
  * @returns an acknowledgement containing the receiving session and anonymous
  * user ids, or a usage error when no feedback text was supplied.
  */
-function executeFeedbackCommand(invocation: CommandInvocation, telemetryMounted: boolean): CommandResult {
+function executeFeedbackCommand(invocation: CommandInvocation, telemetryMounted: boolean, logger: Context['logger']): CommandResult {
   const trimmed = invocation.rawInput.trim()
   const localOnly = LOCAL_FLAG.test(trimmed)
   const text = localOnly ? trimmed.replace(LOCAL_FLAG, '') : invocation.rawInput
@@ -91,7 +91,7 @@ function executeFeedbackCommand(invocation: CommandInvocation, telemetryMounted:
   }
   return {
     kind: 'success',
-    text: `Feedback recorded for session ${invocation.agent.session.id}\nAnonymous user: ${getOrCreateAnonymousUserId()}.${telemetryMounted ? TELEMETRY_NOTICE : ''}`,
+    text: `Feedback recorded for session ${invocation.agent.session.id}\nAnonymous user: ${getOrCreateAnonymousUserId({ onFailure: (message, error) => { logger.warn(message, error) } })}.${telemetryMounted ? TELEMETRY_NOTICE : ''}`,
   }
 }
 
@@ -145,6 +145,6 @@ export function apply(ctx: Context): void {
     description: 'Record feedback about this session; with session telemetry enabled this also sends the conversation so far to its collector unless --local is given',
     input: { hint: '[--local] <text>' },
     recordInput: false,
-    handler: invocation => executeFeedbackCommand(invocation, ctx.get('sessionTelemetry') !== undefined),
+    handler: invocation => executeFeedbackCommand(invocation, ctx.get('sessionTelemetry') !== undefined, ctx.logger),
   })
 }

@@ -12,20 +12,63 @@ export interface PushedRef {
   readonly branch: string
 }
 
-const REFERENCE_COMMAND = /\bgh\s+pr\s+(?:view|edit|checkout)\b/
 const OWN_URL_LINE = /^(?:url:\s+)?(https?:\/\/[^\s"'<>]+?\/pull\/\d+)\/?$/
 const LINE_URL = /^(https?:\/\/[^\s"'<>]+?\/pull\/\d+)\/?$/
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z\d_]*=/
-const PUSH_COMMAND = /\bgit(?:\s+(?:-[Cc]\s+\S+|--[\w-]+(?:=\S+)?))*\s+push\b/
 const CHANGE_REQUEST_URL = /\bhttps?:\/\/[^\s"'<>]+?\/pull\/\d+(?![\w-])/g
 const HEREDOC_OPERATOR = /(?<!<)<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1/g
-const EXECUTING_CONSUMER = /(?:^|[\s`(])(?:\S*\/)?(?:bash|sh|zsh|dash|ksh|ssh|pwsh|powershell|python[\d.]*|node|perl|ruby|php|deno|bun|eval|source|xargs|\.)(?=[\s;&|)`]|$)/
+const EXECUTING_PROGRAMS = 'bash|sh|zsh|dash|ksh|ssh|pwsh|powershell|python[\\d.]*|node|perl|ruby|php|deno|bun|eval|source|xargs|\\.'
+const EXECUTING_CONSUMER = new RegExp(`(?:^|[\\s\`(])(?:\\S*/)?(?:${EXECUTING_PROGRAMS})(?=[\\s;&|)\`]|$)`)
 const SHELL_KEYWORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{', 'time', 'command', 'exec', 'nohup'])
 const SHELL_INTERPRETERS = new Set(['bash', 'sh', 'zsh', 'dash'])
-const SHORT_OPTIONS = /^-[a-z]+$/
-const OPTIONS_WITH_ARGUMENT = new Set(['-o', '+o', '-O', '+O', '--rcfile', '--init-file'])
+const SHELL_LETTERS = new Set('ilrscDOoabefhkmnptuvxBCEHPT')
+const SHELL_ARGUMENT_LETTERS = new Set('oO')
+const SHELL_LONG_OPTIONS = new Set(['--debug', '--debugger', '--login', '--noediting', '--noprofile', '--norc', '--posix', '--protected', '--restricted', '--verbose'])
+const SHELL_LONG_ARGUMENT_OPTIONS = new Set(['--rcfile', '--init-file'])
+const GIT_VALUE_OPTIONS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env', '--super-prefix', '--attr-source'])
+const GIT_INFO_OPTIONS = new Set(['-h', '--help', '-v', '--version', '--html-path', '--man-path', '--info-path'])
+const GH_VALUE_LONG_OPTIONS = new Set([
+  '--assignee', '--base', '--body', '--body-file', '--head', '--label', '--milestone', '--project', '--recover', '--reviewer', '--template',
+  '--title', '--repo',
+])
+const GH_VALUE_SHORT_OPTIONS = new Set('aBbFHlmprTtR')
+const MAX_NESTING = 32
+const MAX_WORK = 262_144
+const FLOCK_VALUE_OPTIONS: ReadonlySet<string> = new Set(['-w', '-E', '--timeout', '--wait', '--conflict-exit-code'])
+const WRAPPERS = new Map([
+  ['sudo', { values: new Set(['-u', '-g', '-h', '-p', '-C', '-D', '-R', '-T', '-U', '-r', '-t', '--user', '--group', '--host', '--prompt', '--chdir']), positional: 0 }],
+  ['doas', { values: new Set(['-u', '-C']), positional: 0 }],
+  ['timeout', { values: new Set(['-s', '-k', '--signal', '--kill-after']), positional: 1 }],
+  ['nice', { values: new Set(['-n', '--adjustment']), positional: 0 }],
+  ['ionice', { values: new Set(['-c', '-n', '-p', '-P', '-u']), positional: 0 }],
+  ['stdbuf', { values: new Set(['-i', '-o', '-e']), positional: 0 }],
+  ['setsid', { values: new Set<string>(), positional: 0 }],
+  ['nohup', { values: new Set<string>(), positional: 0 }],
+  ['xargs', { values: new Set(['-I', '-L', '-n', '-P', '-s', '-d', '-E', '-a', '-l']), positional: 0 }],
+  ['wsl', { values: new Set(['-d', '-u', '--distribution', '--user', '--cd', '--shell-type']), positional: 0 }],
+  ['runuser', { values: new Set(['-u', '-g', '-G', '-s', '--user', '--group', '--supp-group', '--shell']), positional: 0 }],
+  ['flock', { values: FLOCK_VALUE_OPTIONS, positional: 1 }],
+])
+const SCRIPT_OPTION = /^(?:--command|-[A-Za-z]*c)$/
+const CONTAINER_GLOBAL_OPTIONS: ReadonlySet<string> = new Set([
+  '-H', '--host', '-c', '--context', '-l', '--log-level', '--config', '--connection', '--url', '--identity',
+])
+const CONTAINER_EXEC_OPTIONS: ReadonlySet<string> = new Set(['-e', '--env', '--env-file', '-u', '--user', '-w', '--workdir', '--detach-keys'])
+const CONTAINER_RUN_OPTIONS: ReadonlySet<string> = new Set([
+  ...CONTAINER_EXEC_OPTIONS, '-a', '--attach', '--add-host', '--cap-add', '--cap-drop', '--cpus', '--device', '--dns', '--expose',
+  '-h', '--hostname', '-l', '--label', '--label-file', '--log-driver', '--log-opt', '-m', '--memory', '--mount', '--name', '--network', '--net',
+  '--platform', '-p', '--publish', '--pull', '--restart', '--security-opt', '--shm-size', '--tmpfs', '--ulimit', '-v', '--volume',
+  '--volumes-from', '--pid', '--ipc', '--gpus', '--group-add', '--user', '--userns',
+])
+const ENV_VALUE_OPTIONS: ReadonlySet<string> = new Set(['-u', '-C', '-S', '--unset', '--chdir', '--split-string'])
+const SSH_VALUE_OPTIONS: ReadonlySet<string> = new Set([
+  '-B', '-b', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-l', '-m', '-O', '-o', '-p', '-Q', '-R', '-S', '-W', '-w',
+])
+const FIND_EXEC_OPTIONS: ReadonlySet<string> = new Set(['-exec', '-execdir', '-ok', '-okdir'])
+const POWERSHELL_COMMAND_OPTION = /^-c(?:om(?:m(?:a(?:n(?:d)?)?)?)?)?$/i
 const PUSH_TARGET_LINE = /^To (\S+)$/
-const PUSH_REF_LINE = /^ [ +*=] (\[[^\]]+\]|\S+) +\S+ -> (\S+)(?: \(.*\))?$/
+const PUSH_REF_LINE = /^ [ +*=] (?<summary>\[[^\]]+\]|\S+) +\S+ -> (?<destination>\S+)(?: \(.*\))?$/
+const PORCELAIN_REF_LINE = /^[ +*=]\t[^:\t]*:(?<destination>\S+)\t(?<summary>.*)$/
 
 /**
  * Read the command string of a `bash` or `pwsh` tool call.
@@ -69,10 +112,11 @@ export function commandIn(args: unknown): string | undefined {
  */
 export function commandEvidence(source: string): CommandEvidence | undefined {
   const command = stripHeredocBodies(source)
-  const create = createsChangeRequest(command)
+  const forms = commandForms(command)
+  const create = forms.create
   const references = ghReferences(command)
-  const reference = REFERENCE_COMMAND.test(command) || references.length > 0
-  const pushes = PUSH_COMMAND.test(command)
+  const reference = forms.reference || references.length > 0
+  const pushes = forms.push
   if (!create && !reference && !pushes) return undefined
   const named = [...new Set(references.flatMap(reference => reference.url === null ? [] : [reference.url]))]
   return { urls: create ? 'created' : reference ? 'referenced' : null, pushes, named }
@@ -160,38 +204,318 @@ function stripHeredocBodies(source: string): string {
   return kept.join('\n')
 }
 
-function createsChangeRequest(command: string): boolean {
+interface CommandForms {
+  create: boolean
+  reference: boolean
+  push: boolean
+}
+
+function commandForms(command: string): CommandForms {
+  const forms: CommandForms = { create: false, reference: false, push: false }
+  let budget = MAX_WORK
+  const visit = (raw: string, depth: number): void => {
+    budget -= raw.length
+    if (depth > MAX_NESTING || budget < 0) return
+    const text = stripComments(raw)
+    const bodies = substitutionBodies(text)
+    if (bodies === undefined) return
+    for (const body of bodies) visit(body, depth + 1)
+    for (const words of simpleCommands(text)) classify(words, depth)
+  }
+  const classify = (words: readonly string[], depth: number): void => {
+    if (depth > MAX_NESTING) return
+    let start = skipAssignments(words, 0)
+    while (SHELL_KEYWORDS.has(words[start] ?? '')) start = skipAssignments(words, start + 1)
+    const program = executableName(words[start] ?? '')
+    const args = words.slice(start + 1)
+    const wrapped = unwrapCommand(program, args)
+    const script = SHELL_INTERPRETERS.has(program) ? shellScript(args) : commandString(program, args)
+    if (script !== undefined) {
+      visit(script, depth + 1)
+    } else if (wrapped !== undefined) {
+      classify(wrapped, depth + 1)
+    } else if (program === 'find') {
+      for (const inner of findCommands(args)) classify(inner, depth + 1)
+    } else if (program === 'gh') {
+      const [resource, operation, ...flags] = args
+      if (resource !== 'pr') return
+      if (operation === 'view' || operation === 'edit' || operation === 'checkout') forms.reference = true
+      else if ((operation === 'create' || operation === 'new') && !printsNoPullRequest(flags)) forms.create = true
+    } else if (program === 'git') {
+      const [subcommand, ...rest] = gitSubcommand(args) ?? []
+      if (subcommand === 'push' && !printsUsage(rest)) forms.push = true
+    }
+  }
+  visit(command, 0)
+  return forms
+}
+
+function simpleCommands(source: string): string[][] {
   let tokens: parse.ParseEntry[]
   try {
-    tokens = parse(command.replace(/\r?\n/g, ';'), () => '')
+    tokens = parse(source.replace(/\r?\n/g, ';').replace(/\\(?=[A-Za-z\d_.])/g, '/'), () => '')
   } catch {
-    return false
+    return []
   }
   const segments: string[][] = [[]]
   for (const token of tokens) {
     if (typeof token === 'string') segments.at(-1)?.push(token)
+    else if ('pattern' in token) segments.at(-1)?.push(token.pattern)
     else segments.push([])
   }
-  return segments.some((words) => {
-    let start = skipAssignments(words, 0)
-    while (SHELL_KEYWORDS.has(words[start] ?? '')) start = skipAssignments(words, start + 1)
-    if (words[start] === 'env') start = skipAssignments(words, start + 1)
-    const [resource, operation, verb] = words.slice(start, start + 3)
-    if (resource === 'gh') return operation === 'pr' && (verb === 'create' || verb === 'new')
-    if (!SHELL_INTERPRETERS.has(resource ?? '')) return false
-    const script = interpreterScript(words, start + 1)
-    return script !== undefined && createsChangeRequest(script)
-  })
+  return segments.filter(words => words.length > 0)
 }
 
-function interpreterScript(words: readonly string[], start: number): string | undefined {
-  for (let index = start; index < words.length; index++) {
-    const word = words[index] ?? ''
-    if (SHORT_OPTIONS.test(word) && word.includes('c')) return words[index + 1]
-    if (OPTIONS_WITH_ARGUMENT.has(word)) index++
-    else if (!/^[-+]/.test(word)) return undefined
+function unwrapCommand(program: string, args: readonly string[]): string[] | undefined {
+  if (program === 'env') {
+    let index = 0
+    for (; index < args.length; index++) {
+      const word = args[index] ?? ''
+      if (word === '--' || ASSIGNMENT.test(word)) continue
+      if (!word.startsWith('-')) break
+      if (ENV_VALUE_OPTIONS.has(word)) index++
+    }
+    return args.slice(index)
+  }
+  const wrapper = WRAPPERS.get(program)
+  if (wrapper === undefined) return containerCommand(program, args)
+  return args.slice(skipOptions(args, 0, wrapper.values) + wrapper.positional)
+}
+
+function skipOptions(args: readonly string[], start: number, values: ReadonlySet<string>): number {
+  let index = start
+  for (; index < args.length; index++) {
+    const word = args[index] ?? ''
+    if (word === '--') return index + 1
+    if (!word.startsWith('-') || word === '-') break
+    if (values.has(word)) index++
+  }
+  return index
+}
+
+function containerCommand(program: string, args: readonly string[]): string[] | undefined {
+  if (program === 'kubectl' || program === 'oc') {
+    const exec = args.indexOf('exec')
+    const separator = args.indexOf('--')
+    return exec >= 0 && separator > exec ? args.slice(separator + 1) : undefined
+  }
+  if (program !== 'docker' && program !== 'podman') return undefined
+  let verb = skipOptions(args, 0, CONTAINER_GLOBAL_OPTIONS)
+  if (args[verb] === 'container') verb++
+  const run = args[verb] === 'run'
+  if (run && args.some(word => word.startsWith('--entrypoint'))) return undefined
+  const values = args[verb] === 'exec' ? CONTAINER_EXEC_OPTIONS : run ? CONTAINER_RUN_OPTIONS : undefined
+  return values === undefined ? undefined : args.slice(skipOptions(args, verb + 1, values) + 1)
+}
+
+function commandString(program: string, args: readonly string[]): string | undefined {
+  if (program === 'eval') return args.join(' ')
+  if (program === 'pwsh' || program === 'powershell') {
+    const at = args.findIndex(word => POWERSHELL_COMMAND_OPTION.test(word))
+    return at < 0 ? undefined : args.slice(at + 1).join(' ')
+  }
+  if (program === 'cmd') {
+    const at = args.findIndex(word => /^\/[ck]$/i.test(word))
+    return at < 0 ? undefined : args.slice(at + 1).join(' ')
+  }
+  if (program === 'ssh') {
+    const host = skipOptions(args, 0, SSH_VALUE_OPTIONS)
+    const command = skipOptions(args, host + 1, SSH_VALUE_OPTIONS)
+    return host < args.length && command < args.length ? args.slice(command).join(' ') : undefined
+  }
+  if (program === 'su' || program === 'runuser') {
+    const separator = args.indexOf('--')
+    const options = separator < 0 ? args : args.slice(0, separator)
+    const at = options.findIndex(word => SCRIPT_OPTION.test(word))
+    return at < 0 ? undefined : options[at + 1]
+  }
+  if (program === 'flock') {
+    const file = skipOptions(args, 0, FLOCK_VALUE_OPTIONS)
+    return SCRIPT_OPTION.test(args[file + 1] ?? '') ? args[file + 2] : undefined
   }
   return undefined
+}
+
+function findCommands(args: readonly string[]): string[][] {
+  const commands: string[][] = []
+  for (let index = 0; index < args.length; index++) {
+    if (!FIND_EXEC_OPTIONS.has(args[index] ?? '')) continue
+    const inner: string[] = []
+    for (index++; index < args.length && args[index] !== ';' && args[index] !== '+'; index++) inner.push(args[index] ?? '')
+    commands.push(inner)
+  }
+  return commands
+}
+
+function executableName(word: string): string {
+  return word.slice(Math.max(word.lastIndexOf('/'), word.lastIndexOf('\\')) + 1).replace(/\.exe$/i, '')
+}
+
+function shellScript(words: readonly string[]): string | undefined {
+  let command = false
+  let index = 0
+  for (; index < words.length; index++) {
+    const word = words[index] ?? ''
+    if (word === '--' || word === '-') {
+      index++
+      break
+    }
+    if (word.startsWith('--')) {
+      if (SHELL_LONG_ARGUMENT_OPTIONS.has(word)) index++
+      else if (!SHELL_LONG_OPTIONS.has(word)) return undefined
+      continue
+    }
+    if (word.length < 2 || (word[0] !== '-' && word[0] !== '+')) break
+    for (const letter of word.slice(1)) {
+      if (!SHELL_LETTERS.has(letter)) return undefined
+      if (letter === 'c' && word[0] === '-') command = true
+      if (SHELL_ARGUMENT_LETTERS.has(letter)) index++
+    }
+  }
+  return command ? words[index] : undefined
+}
+
+function gitSubcommand(args: readonly string[]): readonly string[] | undefined {
+  for (let index = 0; index < args.length; index++) {
+    const word = args[index] ?? ''
+    if (GIT_INFO_OPTIONS.has(word)) return undefined
+    if (!word.startsWith('-')) return args.slice(index)
+    if (GIT_VALUE_OPTIONS.has(word)) index++
+  }
+  return undefined
+}
+
+function printsUsage(options: readonly string[]): boolean {
+  const end = options.indexOf('--')
+  return (end < 0 ? options : options.slice(0, end)).some(word => word === '-h' || word === '--help')
+}
+
+function printsNoPullRequest(flags: readonly string[]): boolean {
+  for (let index = 0; index < flags.length; index++) {
+    const word = flags[index] ?? ''
+    if (word === '--') return false
+    if (word.startsWith('--')) {
+      if (word === '--help' || word === '--dry-run') return true
+      if (GH_VALUE_LONG_OPTIONS.has(word)) index++
+      continue
+    }
+    if (word.length < 2 || word[0] !== '-') continue
+    for (let at = 1; at < word.length; at++) {
+      const letter = word[at] ?? ''
+      if (GH_VALUE_SHORT_OPTIONS.has(letter)) {
+        if (at === word.length - 1) index++
+        break
+      }
+      if (letter === 'h') return true
+    }
+  }
+  return false
+}
+
+interface SubstitutionFrame {
+  start: number
+  tick: boolean
+  depth: number
+  quote: string | undefined
+}
+
+function substitutionBodies(source: string): string[] | undefined {
+  const bodies: string[] = []
+  const root: SubstitutionFrame = { start: 0, tick: false, depth: 0, quote: undefined }
+  const frames: SubstitutionFrame[] = [root]
+  for (let index = 0; index < source.length; index++) {
+    const frame = frames.at(-1) ?? root
+    const char = source[index]
+    if (frame.quote === "'") {
+      if (char === "'") frame.quote = undefined
+    } else if (char === '\\') {
+      index++
+    } else if (char === "'" && frame.quote === undefined) {
+      frame.quote = "'"
+    } else if (char === '"') {
+      frame.quote = frame.quote === '"' ? undefined : '"'
+    } else if (char === '`') {
+      if (frame.tick) {
+        if (frames.length === 2) bodies.push(source.slice(frame.start, index))
+        frames.pop()
+      } else if (frames.length <= MAX_NESTING) {
+        frames.push({ start: index + 1, tick: true, depth: 0, quote: undefined })
+      }
+    } else if (char === '$' && source[index + 1] === '(' && source[index + 2] !== '(' && frames.length <= MAX_NESTING) {
+      frames.push({ start: index + 2, tick: false, depth: 0, quote: undefined })
+      index++
+    } else if (frame !== root && !frame.tick && frame.quote === undefined && char === '(') {
+      frame.depth++
+    } else if (frame !== root && !frame.tick && frame.quote === undefined && char === ')') {
+      if (frame.depth > 0) {
+        frame.depth--
+      } else {
+        if (frames.length === 2) bodies.push(source.slice(frame.start, index))
+        frames.pop()
+      }
+    }
+  }
+  return frames.some(frame => frame !== root && !frame.tick) ? undefined : bodies
+}
+
+interface CommentFrame {
+  quote: string | undefined
+  depth: number
+  tick: boolean
+}
+
+function stripComments(source: string): string {
+  if (!source.includes('#')) return source
+  let output = ''
+  let copied = 0
+  let boundary = true
+  const root: CommentFrame = { quote: undefined, depth: 0, tick: false }
+  const frames = [root]
+  for (let index = 0; index < source.length; index++) {
+    const frame = frames.at(-1) ?? root
+    const char = source[index] ?? ''
+    const wordStart = boundary
+    boundary = false
+    if (frame.quote === "'") {
+      if (char === "'") frame.quote = undefined
+    } else if (char === '\\') {
+      index++
+    } else if (char === '$' && source[index + 1] === '(') {
+      frames.push({ quote: undefined, depth: 0, tick: false })
+      boundary = true
+      index++
+    } else if (char === '`') {
+      if (frame.tick) {
+        frames.pop()
+      } else {
+        frames.push({ quote: undefined, depth: 0, tick: true })
+        boundary = true
+      }
+    } else if (frame.quote === '"') {
+      if (char === '"') frame.quote = undefined
+    } else if (char === "'" || char === '"') {
+      frame.quote = char
+    } else if (char === '(') {
+      frame.depth++
+      boundary = true
+    } else if (char === ')') {
+      if (frame.depth > 0) frame.depth--
+      else if (!frame.tick && frames.length > 1) frames.pop()
+    } else if (/[\s;&|]/.test(char)) {
+      boundary = true
+    } else if (char === '#' && wordStart) {
+      const newline = source.indexOf('\n', index)
+      const tick = frame.tick ? source.indexOf('`', index) : -1
+      const ends = [newline, tick].filter(at => at >= 0)
+      output += source.slice(copied, index)
+      copied = ends.length > 0 ? Math.min(...ends) : source.length
+      index = copied - 1
+    } else if (char === '#' && source[index - 1] !== '$' && source[index - 1] !== '{') {
+      output += `${source.slice(copied, index)}\\`
+      copied = index
+    }
+  }
+  return output + source.slice(copied)
 }
 
 function skipAssignments(words: readonly string[], start: number): number {
@@ -218,9 +542,9 @@ export function pushedBranches(text: string): PushedRef[] {
       [, remote = ''] = target
       continue
     }
-    const ref = PUSH_REF_LINE.exec(line)
-    if (remote === undefined || ref === null) continue
-    const [, summary = '', destination = ''] = ref
+    const ref = PUSH_REF_LINE.exec(line) ?? PORCELAIN_REF_LINE.exec(line)
+    if (remote === undefined || ref?.groups === undefined) continue
+    const { summary = '', destination = '' } = ref.groups
     if (summary === '[new tag]') continue
     const branch = destination.startsWith('refs/heads/') ? destination.slice('refs/heads/'.length) : destination
     if (branch.startsWith('refs/')) continue

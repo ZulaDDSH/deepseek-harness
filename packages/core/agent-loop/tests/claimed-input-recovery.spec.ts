@@ -146,10 +146,10 @@ describe('claimed input recovery', () => {
     const agent = await ctx.agentLoop.create(brandString<SessionId>('cancel-pre-step'), { provider: 'mock', model: 'mock' })
     const discarded: string[] = []
     ctx.on('agent/inbox/discarded', ({ message }) => { discarded.push(...message.content.map(block => block.type === 'text' ? block.text : '')) })
-    const entered = Promise.withResolvers<void>()
+    const entered = Promise.withResolvers<undefined>()
     const decision = Promise.withResolvers<PreStepDecision>()
     ctx.on('agent/pre-step', () => {
-      entered.resolve()
+      entered.resolve(undefined)
       return decision.promise
     })
 
@@ -220,6 +220,66 @@ describe('claimed input recovery', () => {
     agent.followup(prompt('wake 4'))
     await agent.whenIdle()
     expect(admittedTexts(agent)).toContain('wake 1')
+  })
+
+  it('discards a prompt whose request preparation fails on every wake', async () => {
+    const adapter = new MockAdapter([textResponse('unused')])
+    const ctx = await harness(adapter)
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('request-always-fails'), { provider: 'mock', model: 'mock' })
+    collectErrors(ctx)
+    const discarded: string[] = []
+    ctx.on('agent/inbox/discarded', ({ message }) => { discarded.push(...message.content.map(block => block.type === 'text' ? block.text : '')) })
+    ctx.on('agent/request', async (_event, next) => {
+      void next
+      throw new Error('request preparation failed')
+    })
+
+    agent.followup(prompt('poison'))
+    await agent.whenIdle()
+    for (let wake = 1; wake <= 12 && discarded.length === 0; wake++) {
+      agent.followup(prompt(`wake ${wake}`))
+      await agent.whenIdle()
+    }
+
+    expect(discarded).toEqual(['poison'])
+    expect(pendingTexts(agent)).not.toContain('poison')
+  })
+
+  it('resets the consecutive restore count when a claim is held, within the total bound', async () => {
+    const adapter = new MockAdapter([textResponse('unused')])
+    const ctx = await harness(adapter)
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('consecutive-restores'), { provider: 'mock', model: 'mock' })
+    collectErrors(ctx)
+    const discarded: string[] = []
+    ctx.on('agent/inbox/discarded', ({ message }) => { discarded.push(...message.content.map(block => block.type === 'text' ? block.text : '')) })
+    let failPreStep = true
+    let failRequest = false
+    ctx.on('agent/pre-step', async (_event, next) => {
+      if (failPreStep) throw new Error('pre-step failed')
+      return next()
+    })
+    ctx.on('agent/request', async (_event, next) => {
+      if (failRequest) throw new Error('request preparation failed')
+      return next()
+    })
+
+    agent.followup(prompt('flaky'))
+    await agent.whenIdle()
+    agent.followup(prompt('wake 1'))
+    await agent.whenIdle()
+    failPreStep = false
+    failRequest = true
+    agent.followup(prompt('wake 2'))
+    await agent.whenIdle()
+    failPreStep = true
+    failRequest = false
+    agent.followup(prompt('wake 3'))
+    await agent.whenIdle()
+    agent.followup(prompt('wake 4'))
+    await agent.whenIdle()
+
+    expect(discarded).toEqual([])
+    expect(pendingTexts(agent)[0]).toBe('flaky')
   })
 
   it('forgets the restore count of a restored prompt that is removed from the inbox', async () => {

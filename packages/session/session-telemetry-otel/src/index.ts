@@ -200,7 +200,7 @@ export class OpenTelemetrySessionBackend extends SessionTelemetryBackend {
       resourceAttributes: {
         'service.name': APP_IDENTITY.product,
         'service.version': APP_IDENTITY.version,
-        'user.id': getOrCreateAnonymousUserId(),
+        'user.id': getOrCreateAnonymousUserId({ onFailure: (message, error) => { ctx.logger.warn(message, error) } }),
       },
       onFailure: (message, error) => { ctx.logger.warn(message, error) },
     })

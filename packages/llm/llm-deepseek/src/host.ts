@@ -52,7 +52,7 @@ export function registerDeepSeekProvider<C extends DeepSeekConnectionOptions>(
   const unacceptedRoutes = new Set<string>()
   const adapter = new DeepSeekAdapter({
     ...dependencies,
-    resolveUserId: () => userId ??= getOrCreateAnonymousUserId(),
+    resolveUserId: () => userId ??= getOrCreateAnonymousUserId({ onFailure: (message, error) => { ctx.logger.warn(message, error) } }),
     onReplayDegrade: ({ provider, model, reason }) => {
       const key = `${provider}/${model}\u0000${reason}`
       if (degradedReplays.has(key)) return

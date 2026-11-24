@@ -1651,7 +1651,7 @@ describe('PluginManagerController', () => {
       expect(state().install).toMatchObject({ phase: 'idle', registryError: true, registryOpen: true })
       expect(plugins.inspect).not.toHaveBeenCalled()
       expect(track.mock.calls.filter(([event]) => event === 'install_plugin_result')).toEqual([
-        ['install_plugin_result', expect.objectContaining({ input_value: 'dsh-new', is_success: false, error_reason: 'invalid-registry' })],
+        ['install_plugin_result', expect.objectContaining({ input_value: '[package]', is_success: false, error_reason: 'invalid-registry' })],
       ])
       // Typing again clears the refusal; a URL is asked as typed, trimmed.
       face.chooseRegistry({ kind: 'custom', url: ' https://npm.corp.example ' })
@@ -1920,13 +1920,32 @@ describe('desktop analytics outcomes', () => {
     expect(JSON.stringify(b.track.mock.calls)).not.toContain('private-token')
   })
 
+  it('reports an official catalog name by name', async () => {
+    const b = bench({ listBundles: vi.fn().mockResolvedValue(ok([CATALOG])) })
+    await b.controller.load()
+    b.face.openInstall()
+    b.face.editInstallSpec(CATALOG.name)
+    b.face.runInstall()
+    await vi.waitFor(() => { expect(b.track).toHaveBeenCalledWith('plugin_install_click', { input_value: CATALOG.name }) })
+  })
+
+  it('does not report a pasted credential even when official names are listed', async () => {
+    const b = bench({ listBundles: vi.fn().mockResolvedValue(ok([CATALOG])), inspect: vi.fn(async () => ok({ status: 'refused', problem: 'not-bundle', reason: 'refused' })) })
+    await b.controller.load()
+    b.face.openInstall()
+    b.face.editInstallSpec('sk-proj-abc123DEF456ghi789')
+    b.face.runInstall()
+    await vi.waitFor(() => { expect(b.track).toHaveBeenCalledWith('plugin_install_click', { input_value: '[package]' }) })
+    expect(JSON.stringify(b.track.mock.calls)).not.toContain('sk-proj')
+  })
+
   it('reports input inspection failure separately from cancellation', async () => {
     const b = bench({ inspect: vi.fn(async () => ok({ status: 'refused', problem: 'not-bundle', reason: 'not a bundle' })) })
     b.face.openInstall()
     b.face.editInstallSpec('dsh-new')
     b.face.runInstall()
-    await vi.waitFor(() => { expect(b.track).toHaveBeenCalledWith('install_plugin_result', expect.objectContaining({ input_value: 'dsh-new', is_success: false, error_reason: 'not-bundle', duration: expect.any(Number) as number })) })
-    expect(b.track).toHaveBeenCalledWith('plugin_install_click', { input_value: 'dsh-new' })
+    await vi.waitFor(() => { expect(b.track).toHaveBeenCalledWith('install_plugin_result', expect.objectContaining({ input_value: '[package]', is_success: false, error_reason: 'not-bundle', duration: expect.any(Number) as number })) })
+    expect(b.track).toHaveBeenCalledWith('plugin_install_click', { input_value: '[package]' })
   })
 
   it('reports unknown only after recovery confirms the result is absent', async () => {
@@ -2003,7 +2022,7 @@ it('reports a successful install with only documented result fields', async () =
   await vi.waitFor(() => { expect(b.state().install.phase).toBe('done') })
   const results = b.track.mock.calls.filter(([name]) => name === 'install_plugin_result')
   expect(results).toEqual([['install_plugin_result', {
-    input_value: 'dsh-new', is_success: true, duration: expect.any(Number) as number, plugin_name: 'dsh-new',
+    input_value: '[package]', is_success: true, duration: expect.any(Number) as number, plugin_name: 'dsh-new',
   }]])
 })
 

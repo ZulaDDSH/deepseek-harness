@@ -63,7 +63,7 @@ This section explains the design decisions behind the package and points at the 
 
 - **Random, never derived.** The id comes from `crypto.randomUUID()`; it is never derived from the hostname, network address, git remote, or any other identifying source, so anonymity is a property of the mint.
 - **Synchronous and memoized.** One process touches each resolved file path once: reads and writes are synchronous, and the result is memoized per resolved file path.
-- **Best-effort persistence.** A write failure still returns a usable id for the run, so telemetry and feedback never block on an unwritable home.
+- **Best-effort persistence.** A write failure still returns a usable id for the run, so telemetry and feedback never block on an unwritable home. Every filesystem failure other than the expected absent file, vanished lock, or lock contention goes to the optional `onFailure(message, error)` callback (a stderr line when omitted).
 - **Library, not plugin.** There is no Cordis plugin entry or config.
 
 ### Source map
