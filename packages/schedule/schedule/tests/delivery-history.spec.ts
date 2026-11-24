@@ -24,7 +24,7 @@ const sessionId = brandString<SessionId>('history-owner')
 const id = brandString<ScheduleId>('history-task')
 const rule = createAfterScheduleRecord(id, 'Current task prompt', 1, Date.parse('2026-09-16T00:00:00.000Z'), 'Current task prompt')
 const metadata = { earlierRecordsPruned: false, retention: { days: 30, records: 200 } }
-function receipt(index: number): ScheduleDeliveryRecord {
+function receipt(index: number): ScheduleDeliveryRecord & { prompt: string } {
   return {
     messageId: brandString<MessageId>(`message-${index}`), prompt: `Sent prompt ${index}`, targetSessionId: sessionId,
     scheduledAt: '2026-09-15T00:00:00.000Z',

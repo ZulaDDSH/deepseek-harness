@@ -243,12 +243,12 @@ it('accepts append-ordered history despite scheduled and delivered wall-clock ro
   const earlier = { ...lastDelivery, scheduledAt: '2026-09-17T00:00:00.000Z', deliveredAt: '2026-09-18T00:00:00.000Z', messageId: 'earlier' }
   const task = { ...stored, status: 'ended', lastDelivery,
     deliveryHistory: { records: [earlier, { ...lastDelivery, prompt: 'Sent prompt' }], earlierRecordsUnavailable: true, earlierRecordsPruned: false } }
-  const { prompt: sent, ...plain } = task.deliveryHistory.records[1]!
+  const { prompt: sent, ...plain } = task.deliveryHistory.records[1] as typeof lastDelivery & { prompt: string }
   expect(scheduleTaskSchema.parse(task)).toEqual({
     ...task,
     deliveryHistory: {
-      records: [earlier, { ...plain, promptId: promptIdOf(sent!) }],
-      prompts: { [promptIdOf(sent!)]: sent },
+      records: [earlier, { ...plain, promptId: promptIdOf(sent) }],
+      prompts: { [promptIdOf(sent)]: sent },
       earlierRecordsUnavailable: true,
       earlierRecordsPruned: false,
     },

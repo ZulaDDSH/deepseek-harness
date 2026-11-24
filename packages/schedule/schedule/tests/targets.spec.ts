@@ -15,7 +15,7 @@ import type { ScheduleId } from '../src/types.ts'
 import { createRRuleScheduleRecord } from '../src/domain.ts'
 import { ScheduleRuntime, type ScheduleRuntimeLimits } from '../src/runtime.ts'
 import type { ScheduleTask } from '../src/storage.ts'
-import { agentFor, harness, seededTask, type HarnessAgent } from './harness.ts'
+import { agentFor, harness, seededTask, type HarnessAgent, type ScheduleTaskFields } from './harness.ts'
 
 const LIMITS: ScheduleRuntimeLimits = { retention: { days: 30, records: 200 }, newSessionIntervalMs: 3_600_000 }
 const active: Awaited<ReturnType<typeof harness>>[] = []
@@ -31,7 +31,7 @@ afterEach(async () => {
 function task(
   target: ScheduleTask['target'],
   rrule = 'DTSTART:20260916T000001Z\nRRULE:FREQ=DAILY;COUNT=1',
-  fields: Partial<ScheduleTask> = {},
+  fields: ScheduleTaskFields = {},
 ): ScheduleTask {
   return seededTask(createRRuleScheduleRecord(brandString<ScheduleId>('task'), 'Task', 'Do work', rrule, Date.now()), target, fields)
 }

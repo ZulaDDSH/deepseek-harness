@@ -278,7 +278,7 @@ describe('bounded concurrent deliveries', () => {
     tests.push(test)
     const sessions = Array.from({ length: 17 }, (_, index) => brandString<SessionId>(`cap-${index}`))
     const agents = new Map(sessions.map(sessionId => [sessionId, agentFor(test.ctx, sessionId)]))
-    const last = sessions[16]
+    const last = sessions[16]!
     test.resolve.mockImplementation(async sessionId => sessionId === last
       ? { agent: agents.get(sessionId) as Agent }
       : new Promise(() => {}))

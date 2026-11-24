@@ -130,7 +130,7 @@ describe('Schedule tool config', () => {
   it('defaults administrator to false and rejects a non-boolean value', () => {
     expect(ToolSchedule.Config({})).toEqual({ administrator: false })
     expect(ToolSchedule.Config({ administrator: true })).toEqual({ administrator: true })
-    expect(() => ToolSchedule.Config({ administrator: 'yes' })).toThrow()
+    expect(() => ToolSchedule.Config({ administrator: 'yes' } as never)).toThrow()
   })
 })
 
