@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from 'node
 import { homedir } from 'node:os'
 import { join, resolve, win32 } from 'node:path'
 import { accountKey, legacyAccountKey, readOwnership, updateOwnership } from './ownership.js'
+import { apiAccounts, displayName } from './api-accounts.js'
 
 const base = new URL('./bridge/index.js', import.meta.url)
 const fromBridge = (file) => import(new URL(file + '.js', base))
@@ -21,6 +22,10 @@ export const name = 'dsh-claude-account-manager'
 export const inject = ['llm', 'sessions', 'connection', 'webServer']
 const channel = '/claude-subscription-accounts'
 const primary = 'Claude subscription (Claude Code)'
+function subscriptionPicker(label, plan) {
+  const tier = plan ? ' ' + plan[0].toUpperCase() + plan.slice(1).toLowerCase() : ''
+  return '(Claude Code) Subscription' + tier + ' · ' + label
+}
 const runner = createProcessAuthRunner()
 const home = homedir()
 const root = join(process.env.DSH_HOME || join(home, '.dsh'), 'claude-accounts')
@@ -193,6 +198,8 @@ function slot(label, dir) {
 
 function profiles() {
   const rows = [{ id: 'main', label: 'Main', picker: primary }]
+  const legacy = join(home, '.claude-b')
+  if (existsSync(legacy) && statSync(legacy).isDirectory()) rows.push(slot('B', legacy))
   if (existsSync(root)) {
     for (const entry of readdirSync(root, { withFileTypes: true }).sort((a, b) =>
       a.name.localeCompare(b.name),
@@ -258,6 +265,7 @@ function killTree(child, warn) {
 }
 
 export function apply(ctx) {
+  const api = apiAccounts(ctx)
   const routes = new Map()
   const logins = new Map()
   const loginErrors = new Map()
@@ -311,10 +319,16 @@ export function apply(ctx) {
     if (result.exitCode !== 0 || (await checkAccount(a, a.dir)).accountKey === key)
       throw new Error('Claude Code could not clear this sign-in.')
   }
-  async function refresh() {
-    const { rows: accounts, state } = await updateOwnership(root, observe)
+  async function refresh(rename) {
+    const { rows: accounts, state } = await updateOwnership(root, observe, rename)
     if (!active) return []
-    const displaced = state.displaced.map((id) => accounts.find((a) => a.id === id)?.label || id)
+    for (const account of accounts) {
+      account.displayName = state.names.get(account.id) || account.label
+      account.picker = subscriptionPicker(account.displayName, account.status.plan)
+    }
+    const main = accounts.find((account) => account.id === 'main')
+    ctx.emit('claude-accounts/primary-name', main.picker)
+    const displaced = state.displaced.map((id) => accounts.find((a) => a.id === id)?.displayName || id)
     displacedNotice = displaced.length
       ? 'The default Claude Code sign-in uses the same account as ' +
         displaced.join(', ') +
@@ -330,7 +344,15 @@ export function apply(ctx) {
       await old.adapter.closeOwnedSessions()
     }
     for (const a of authorized) {
-      if (!active || !a.dir || routes.has(a.id)) continue
+      if (!active || !a.dir) continue
+      const existing = routes.get(a.id)
+      if (existing) {
+        if (existing.adapter.account.picker !== a.picker) {
+          existing.adapter.account.picker = a.picker
+          existing.release.replace([a.route])
+        }
+        continue
+      }
       const adapter = new AccountAdapter(ctx, a, a.status.identity)
       const release = ctx.llm.registerAdapter([a.route], adapter)
       routes.set(a.id, { adapter, release, identity: a.status.identity })
@@ -340,7 +362,7 @@ export function apply(ctx) {
       const { status } = a
       const rejected = state.rejected.get(a.id)
       if (rejected && status.accountKey === rejected.key) {
-        const owner = accounts.find((other) => other.id === rejected.owner)?.label || rejected.owner
+        const owner = accounts.find((other) => other.id === rejected.owner)?.displayName || rejected.owner
         if (attempts.has(a.id))
           say(
             'This Claude account is already connected as ' +
@@ -360,7 +382,9 @@ export function apply(ctx) {
       if (rejected && !pending && !loginErrors.has(a.id)) continue
       visible.push({
         id: a.id,
+        kind: 'subscription',
         label: a.label,
+        name: a.displayName,
         picker: a.picker,
         signedIn: status.signedIn,
         email: status.email,
@@ -369,7 +393,7 @@ export function apply(ctx) {
         error: status.error || (!status.signedIn && loginErrors.get(a.id)) || undefined,
       })
     }
-    return visible
+    return [...visible, ...await api.list()]
   }
   ctx.on('session/disposed', (session) =>
     Promise.all([...routes.values()].map((r) => r.adapter.closeSession(String(session.id)))),
@@ -396,6 +420,11 @@ export function apply(ctx) {
     try {
       const value = await ordered(async () => {
         if (method === 'list') return refresh()
+        if (method === 'rename') return refresh({ id: args?.id, name: displayName(args?.name) })
+        if (method === 'add-api' || method === 'rename-api') {
+          await api.write(method, args, _signal)
+          return refresh()
+        }
         if (method !== 'add' && method !== 'login') throw new Error('Unknown account action.')
         const a =
           method === 'add'

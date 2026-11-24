@@ -53,3 +53,27 @@ diff --git a/package/dist/official-session.js b/package/dist/official-session.js
 +    }
 +    for (const directory of directories.filter(isAbsolute)) {
 +        const candidate = join(directory, windows ? 'claude.exe' : 'claude');
+diff --git a/package/dist/index.js b/package/dist/index.js
+--- a/package/dist/index.js
++++ b/package/dist/index.js
+@@ -40,8 +40,18 @@
+         discoverModels: () => officialModelDiscovery.list(),
+         discoverContextWindow: (model) => officialContextWindows.read(model),
+     });
+-    ctx.llm.registerAdapter([CLAUDE_CODE_SESSION_ROUTE], adapter);
+-    ctx.llm.registerConfigurableProviders([blockedRouteDescriptor()]);
++    const descriptor = blockedRouteDescriptor();
++    let displayName = descriptor.displayName;
++    const providerInfo = adapter.providerInfo.bind(adapter);
++    adapter.providerInfo = provider => ({ ...providerInfo(provider), name: displayName });
++    const route = ctx.llm.registerAdapter([CLAUDE_CODE_SESSION_ROUTE], adapter);
++    const directory = ctx.llm.registerConfigurableProviders([descriptor]);
++    ctx.on('claude-accounts/primary-name', next => {
++        if (next === displayName) return;
++        displayName = next;
++        route.replace([CLAUDE_CODE_SESSION_ROUTE]);
++        directory.replace([{ ...descriptor, displayName }]);
++    });
+     // A deleted dsh session releases its exact conversation generation. The
+     // listener returns the bounded close promise; dsh contains and logs a
+     // rejection. An auxiliary call and another session are not affected.

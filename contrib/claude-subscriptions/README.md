@@ -4,6 +4,8 @@ This optional local plugin adds **Settings → Claude accounts**. Enter a profil
 
 The default profile uses the local Claude Code login. Named profiles live under the Harness home in `claude-accounts`. The plugin identifies an account by the email and organization id that Claude Code reports, keeps one model route per account, and signs duplicate managed profiles out locally. The default profile takes priority and the settings page says so when it displaces a managed profile. Existing assignments survive a restart. On first use the oldest managed profile wins a tie.
 
+Use **Rename** to change a subscription’s display name while keeping its sign-in and model route. An existing `.claude-b` profile is available as **B**. Use **Add API key account** to connect another named Anthropic API account. The host verifies the key with Anthropic and stores it in the Harness credential service. Each account appears under its own name in the model picker.
+
 Ownership is stored in `claude-accounts/.ownership.json` as an HMAC of the lowercased email and organization id, keyed by a random per-install secret in `claude-accounts/.ownership-secret`. Profile directories hold Claude credentials and are created with mode `0700` where the platform supports it. A registry file that cannot be read is copied to `.ownership.json.corrupt-<time>` and rebuilt.
 
 A sign-in that is not finished within five minutes is stopped and reported as timed out. Set `DSH_CLAUDE_LOGIN_TIMEOUT_MS` (milliseconds, clamped to 1000 .. 2147483647; an invalid value uses the default) before starting the Harness to change that.
@@ -25,7 +27,7 @@ Offline runs, once `npm ci` has been done:
 - `DSH_CLAUDE_BRIDGE_TARBALL=/path/to/dsh-plugin-claude-code-0.2.5.tgz npm test` builds the bridge from a local copy of the pinned tarball (the digest is still checked).
 - `DSH_CLAUDE_BRIDGE_SKIP=1 npm test` skips the bridge build. The tests that need the bridge (`accounts.test.mjs`, `login.test.mjs`) are then reported as skipped unless `bridge/` already exists; the ownership and settings-page tests still run.
 
-Install the resulting `dsh-claude-account-manager-1.1.0.tgz` as a local plugin bundle in a desktop profile for this fork's `0.2.2-rc.3` release. The desktop needs the official Claude Code executable. The bundle includes its main provider and the account manager. It owns the `claude-code-session` route and should be the only enabled plugin registering that route.
+Install the resulting `dsh-claude-account-manager-1.2.0.tgz` as a local plugin bundle in a desktop profile for this fork's `0.2.2-rc.3` release. The desktop needs the official Claude Code executable. The bundle includes its main provider and the account manager. It owns the `claude-code-session` route and should be the only enabled plugin registering that route.
 
 ## Components
 

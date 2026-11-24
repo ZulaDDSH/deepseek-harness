@@ -65,7 +65,7 @@ export function legacyAccountKey(email) {
   return createHash('sha256').update(email.trim().toLowerCase()).digest('hex')
 }
 
-const emptyState = (corrupt = false) => ({ owners: new Map(), rejected: new Map(), displaced: [], corrupt })
+const emptyState = (corrupt = false) => ({ owners: new Map(), rejected: new Map(), displaced: [], names: new Map(), corrupt })
 
 const validOwner = (e) => Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'string'
 const validRejected = (e) =>
@@ -91,7 +91,9 @@ export function readOwnership(root) {
       return emptyState(true)
     const displaced = data.displaced ?? []
     if (!Array.isArray(displaced) || !displaced.every((id) => typeof id === 'string')) return emptyState(true)
-    return { ...emptyState(), owners: new Map(data.owners), rejected: new Map(data.rejected), displaced }
+    const names = data.names ?? []
+    if (!Array.isArray(names) || !names.every(validOwner)) return emptyState(true)
+    return { ...emptyState(), owners: new Map(data.owners), rejected: new Map(data.rejected), displaced, names: new Map(names) }
   } catch {
     return emptyState(true)
   }
@@ -148,7 +150,7 @@ export function reconcileOwnership(entries, state) {
   return state
 }
 
-export async function updateOwnership(root, observe) {
+export async function updateOwnership(root, observe, rename) {
   const rows = await observe()
   mkdirSync(root, { recursive: true, mode: 0o700 })
   const file = join(root, '.ownership.json')
@@ -162,10 +164,15 @@ export async function updateOwnership(root, observe) {
           owners: [...state.owners],
           rejected: [...state.rejected],
           displaced: state.displaced,
+          names: [...state.names],
         })
       const before = encode()
       if (state.corrupt) copyFileSync(file, `${file}.corrupt-${Date.now()}`)
       reconcileOwnership(rows, state)
+      if (rename) {
+        if (!rows.some(row => row.id === rename.id)) throw new Error('Unknown Claude account.')
+        state.names.set(rename.id, rename.name)
+      }
       const after = encode()
       if (state.corrupt || before !== after) await writeFileAtomic(file, after, { mode: 0o600 })
       return { rows, state }

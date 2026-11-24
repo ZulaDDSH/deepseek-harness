@@ -11,6 +11,11 @@ window.__ModuleLoader__.load({
       .dsh-accounts .account-row { display:flex; align-items:center; justify-content:space-between;
         gap:16px; padding:12px 0; border-bottom:1px solid color-mix(in srgb,currentColor 18%, transparent); }
       .dsh-accounts .account-detail { margin-top:3px; font-size:.9em; opacity:.82; overflow-wrap:anywhere; }
+      .dsh-accounts .account-name { min-width:0; overflow-wrap:anywhere; }
+      .dsh-accounts .account-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+      .dsh-accounts .account-actions button { white-space:nowrap; }
+      .dsh-accounts .account-rename { margin:0; }
+      .dsh-accounts .account-add-api { margin-inline-start:8px; }
       .dsh-accounts .account-error { margin:8px 0; color:var(--color-danger,#d67767); }
       .dsh-accounts button, .dsh-accounts input { font: inherit; color: inherit; border-radius: 8px;
         border: 1px solid color-mix(in srgb,currentColor 32%, transparent); background:transparent; padding:7px 12px; }
@@ -19,10 +24,14 @@ window.__ModuleLoader__.load({
       .dsh-accounts button:disabled {opacity:.55;}
       .dsh-accounts form {display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:15px 0 8px;}
       .dsh-accounts button:focus-visible, .dsh-accounts input:focus-visible {outline:2px solid currentColor;}
-    `
+    `;
     function AccountPage({ rpc }) {
       const [rows, setRows] = React.useState(null)
       const [name, setName] = React.useState('')
+      const [edit, setEdit] = React.useState(null)
+      const [addingApi, setAddingApi] = React.useState(false)
+      const [apiName, setApiName] = React.useState('')
+      const [apiKey, setApiKey] = React.useState('')
       const [busy, setBusy] = React.useState(false)
       const [error, setError] = React.useState('')
       const [notice, setNotice] = React.useState('')
@@ -51,6 +60,12 @@ window.__ModuleLoader__.load({
             if (result.value.notice) acknowledged.current = result.value.noticeId
             setError('')
             if (method === 'add') setName('')
+            if (method === 'rename' || method === 'rename-api') setEdit(null)
+            if (method === 'add-api') {
+              setApiName('')
+              setApiKey('')
+              setAddingApi(false)
+            }
           } catch (err) {
             if (mounted.current && seq === serial.current) setError(err.message)
           } finally {
@@ -92,72 +107,48 @@ window.__ModuleLoader__.load({
           clearTimeout(timer)
         }
       }, [call, pending])
-      return h(
-        'section',
-        { className: 'dsh-accounts', 'aria-label': 'Claude accounts' },
-        h('h2', null, 'Claude accounts'),
-        h(
-          'p',
-          null,
-          'Sign in with Claude Code. To switch accounts, choose a model under that account’s group in the chat model picker.',
-        ),
-        !rows && !error && h('p', { role: 'status' }, 'Checking Claude sign-ins…'),
-        ...(rows || []).map((a) =>
-          h(
-            'div',
-            { key: a.id, className: 'account-row' },
-            h(
-              'div',
-              null,
-              h('strong', null, a.picker),
-              h(
-                'div',
-                { className: 'account-detail' },
-                a.signedIn
-                  ? [a.email, a.plan && a.plan.toUpperCase()].filter(Boolean).join(' · ') || 'Signed in'
-                  : a.pending
-                    ? 'Finish signing in with Anthropic in the browser.'
-                    : a.error
-                      ? 'Sign-in unavailable'
-                      : 'Signed out',
-              ),
-              a.error && h('div', { className: 'account-error', role: 'alert' }, a.error),
-            ),
-            !a.signedIn &&
-              h(
-                'button',
-                {
-                  type: 'button',
-                  disabled: busy || a.pending,
-                  onClick: () => call('login', { id: a.id }),
-                  'aria-label': 'Sign in to ' + a.label,
-                },
-                a.pending ? 'Signing in…' : 'Sign in',
-              ),
-          ),
-        ),
-        h(
-          'form',
-          {
-            onSubmit: (e) => {
-              e.preventDefault()
-              if (name.trim()) void call('add', { label: name })
-            },
-          },
-          h('input', {
-            value: name,
-            onChange: (e) => setName(e.target.value),
-            maxLength: 32,
-            required: true,
-            'aria-label': 'Account name',
-            placeholder: 'Account name, e.g. Work',
-          }),
-          h('button', { type: 'submit', disabled: busy || !name.trim() }, 'Add account and sign in'),
-        ),
-        h('button', { type: 'button', disabled: busy, onClick: () => call('list') }, 'Refresh sign-ins'),
-        notice && h('p', { role: 'status' }, notice),
-        error && h('p', { role: 'alert', className: 'account-error' }, error),
-      )
+      return h('section',{className:'dsh-accounts','aria-label':'Claude accounts'},
+        h('h2',null,'Claude accounts'),
+        h('p',null,'Choose a model under an account’s name in the chat model picker to use that account.'),
+        !rows && !error && h('p',{role:'status'},'Checking Claude sign-ins…'),
+        ...(rows || []).map(a => h('div',{key:a.id,className:'account-row'},
+          edit?.id === a.id ? h('form',{className:'account-rename',onSubmit:e=>{
+            e.preventDefault();
+            if (edit.name.trim()) void call(a.kind === 'api' ? 'rename-api' : 'rename',{id:a.id,name:edit.name});
+          }},
+            h('input',{value:edit.name,onChange:e=>setEdit({...edit,name:e.target.value}),
+              autoFocus:true,maxLength:48,required:true,'aria-label':'Display name'}),
+            h('button',{type:'submit',disabled:busy || !edit.name.trim()},'Save'),
+            h('button',{type:'button',disabled:busy,onClick:()=>setEdit(null)},'Cancel')) : h(React.Fragment,null,
+          h('div',{className:'account-name'},h('strong',null,a.picker),
+            h('div',{className:'account-detail'}, a.signedIn
+              ? a.kind === 'api' ? 'API key configured' : [a.email, a.plan && a.plan.toUpperCase()].filter(Boolean).join(' · ') || 'Signed in'
+              : a.kind === 'api' ? 'API key missing'
+                : a.pending ? 'Finish signing in with Anthropic in the browser.' : a.error ? 'Sign-in unavailable' : 'Signed out'),
+            a.error && h('div',{className:'account-error',role:'alert'},a.error)),
+          h('div',{className:'account-actions'},
+            h('button',{type:'button',disabled:busy || a.pending, onClick:()=>setEdit({id:a.id,name:a.name || a.label}),
+              'aria-label':'Rename '+a.picker},'Rename'),
+            a.kind !== 'api' && !a.signedIn && h('button',{type:'button',disabled:busy || a.pending,
+              onClick:()=>call('login',{id:a.id}),'aria-label':'Sign in to '+a.label},a.pending ? 'Signing in…' : 'Sign in'))))),
+        h('form',{onSubmit:e=>{ e.preventDefault(); if (name.trim()) void call('add',{label:name}); }},
+          h('input',{value:name,onChange:e=>setName(e.target.value),maxLength:32,required:true,
+            'aria-label':'Account name',placeholder:'Account name, e.g. Work'}),
+          h('button',{type:'submit',disabled:busy || !name.trim()},'Add account and sign in')),
+        h('button',{type:'button',disabled:busy,onClick:()=>call('list')},'Refresh sign-ins'),
+        addingApi ? h('form',{onSubmit:e=>{
+          e.preventDefault();
+          if (apiName.trim() && apiKey.trim()) void call('add-api',{name:apiName,key:apiKey});
+        }},
+          h('input',{value:apiName,onChange:e=>setApiName(e.target.value),autoFocus:true,maxLength:48,required:true,
+            'aria-label':'API account name',placeholder:'API account name'}),
+          h('input',{value:apiKey,onChange:e=>setApiKey(e.target.value),type:'password',autoComplete:'off',spellCheck:false,
+            maxLength:2048,required:true,'aria-label':'Anthropic API key',placeholder:'Anthropic API key'}),
+          h('button',{type:'submit',disabled:busy || !apiName.trim() || !apiKey.trim()},'Save API key'),
+          h('button',{type:'button',disabled:busy,onClick:()=>{setAddingApi(false);setApiName('');setApiKey('');}},'Cancel')
+        ) : h('button',{type:'button',disabled:busy,className:'account-add-api',onClick:()=>setAddingApi(true)},'Add API key account'),
+        notice && h('p',{role:'status'},notice),
+        error && h('p',{role:'alert',className:'account-error'},error));
     }
     return {
       inject: ['slots', 'connection'],
