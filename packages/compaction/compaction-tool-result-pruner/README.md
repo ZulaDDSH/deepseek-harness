@@ -35,7 +35,7 @@ Mount token measurement, this package, and the backend in this order:
 - name: '@deepseek-ai/dsh-compaction-basic'
 ```
 
-With these rows, oversized tool results are trimmed automatically as part of condensation. You can verify success by checking that future requests show the trimmed results; the full originals remain in the session log.
+With these rows, oversized tool results are trimmed automatically as part of condensation (and, with `proactiveToolResultPruning`, once a later model response has consumed them). You can verify success by checking that future requests show the trimmed results; the full originals remain in the session log.
 
 ### What gets trimmed
 
@@ -55,7 +55,7 @@ Character counts are Unicode code points, so slicing never splits an emoji pair,
 
 ### When trimming runs
 
-Trimming only runs when a compaction trigger qualifies: `dsh-compaction-basic` invokes it after pressure or overflow is confirmed, before it selects what to condense. Below pressure nothing is trimmed, and trimming itself makes no model call.
+Trimming only runs when a compaction trigger qualifies: `dsh-compaction-basic` invokes it after pressure or overflow is confirmed, before it selects what to condense. Below pressure nothing is trimmed, except when `dsh-compaction-basic` has the opt-in `proactiveToolResultPruning` enabled: it then also trims results a later assistant message has already consumed at each pre-step. Trimming itself makes no model call.
 
 -----
 
