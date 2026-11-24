@@ -294,6 +294,14 @@ async *readFileStream( ref: FileAttachmentRef, signal?: AbortSignal, ): AsyncIte
  */
 fileHostPath(ref: FileAttachmentRef): string | undefined
 
+/** Returns the integrity-verified bytes of a host path this backend owns, opened and hashed through one descriptor so a replacement after the check cannot reach the reader; backends that own no host files answer undefined.
+ * @param hostPath - Absolute host path a reader is about to open.
+ * @param maxBytes - Largest file size, in bytes, the caller accepts.
+ * @param signal - Optional cancellation for backend reads.
+ * @returns The verified bytes, or undefined when the path is not one of this backend's files.
+ */
+readHostFile(hostPath: string, maxBytes: number, signal?: AbortSignal): Promise<Uint8Array | undefined>
+
 /**
  * Generate or read one deterministic model-request version from the stored normalized image.
  * @param ref - durable provider-independent normalized attachment reference.

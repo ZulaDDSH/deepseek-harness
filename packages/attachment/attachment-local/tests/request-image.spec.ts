@@ -1,4 +1,5 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -6,6 +7,7 @@ import sharp from 'sharp'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CompressionLimiter } from '../src/compression-limiter.ts'
 import LocalAttachmentStore from '../src/index.ts'
+import { requestImageVariantId } from '../src/request-image.ts'
 
 const homes: string[] = []
 
@@ -220,7 +222,7 @@ describe('local request-image cache', () => {
     }
   })
 
-  it('regenerates a cached variant replaced by another valid image or lacking its digest sidecar', async () => {
+  it('regenerates a cached variant replaced together with a matching digest file', async () => {
     const dshHome = await home()
     const attachments = new LocalAttachmentStore(new Context(), { dshHome })
     const attachment = await attachments.saveImage({ data: await image(64, 32), mediaType: 'image/png' })
@@ -234,15 +236,33 @@ describe('local request-image cache', () => {
 
     for (const replacement of [await jpeg(22, 11, 250), await jpeg(11, 6, 12)]) {
       await writeFile(path, replacement)
+      await writeFile(`${path}.sha256`, createHash('sha256').update(replacement).digest('hex'))
       const regenerated = await attachments.readImageRequest(attachment, policy)
       expect(regenerated.data).toEqual(initial.data)
       await expect(readFile(path)).resolves.toEqual(Buffer.from(initial.data))
     }
+  })
 
-    await rm(`${path}.sha256`)
-    await writeFile(path, await jpeg(22, 11, 250))
-    await expect(attachments.readImageRequest(attachment, policy)).resolves.toMatchObject({ data: initial.data })
-    await expect(readFile(`${path}.sha256`, 'utf8')).resolves.toMatch(/^[0-9a-f]{64}$/)
+  it('regenerates a variant planted before this process ever wrote it', async () => {
+    const dshHome = await home()
+    const attachments = new LocalAttachmentStore(new Context(), { dshHome })
+    const attachment = await attachments.saveImage({ data: await image(64, 32), mediaType: 'image/png' })
+    const policy = { width: 22, height: 11, maxBytes: 4_096 }
+    const hash = String(requestImageVariantId(attachment, policy)).slice('sha256:'.length)
+    const directory = join(dshHome, 'cache', 'attachments', 'request-images', hash.slice(0, 2))
+    const planted = new Uint8Array(await sharp({
+      create: { width: 22, height: 11, channels: 3, background: { r: 250, g: 200, b: 10 } },
+    }).jpeg().toBuffer())
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, hash), planted)
+    await writeFile(join(directory, `${hash}.sha256`), createHash('sha256').update(planted).digest('hex'))
+
+    const request = await attachments.readImageRequest(attachment, policy)
+
+    const clean = new LocalAttachmentStore(new Context(), { dshHome: await home() })
+    const expected = await clean.readImageRequest(await clean.saveImage({ data: await image(64, 32), mediaType: 'image/png' }), policy)
+    expect(request.data).toEqual(expected.data)
+    expect(request.data).not.toEqual(planted)
   })
 
   it('regenerates a cached variant whose bytes were corrupted in place', async () => {

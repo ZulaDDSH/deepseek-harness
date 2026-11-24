@@ -129,6 +129,7 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 These limits define when the local backend is a poor fit or needs special operational care. They are current package constraints, not a general filesystem comparison or a task backlog.
 
 - **`config.cwd` is not a sandbox** — it is a resolution default, not containment: absolute paths and `..` escape it. Enforce containment with a stricter `ctx.fs` backend or a permission plugin on the `tools/execute` waterfall.
+- **Stored attachment reads are whole-file** — when `ctx.attachments` is mounted and claims the path as a stored attachment object or private handoff copy, `readText`, `streamText`, `readBytes`, and `readByteRange` take the bytes from its verified `readHostFile` (one open, hashed from the same descriptor) instead of opening the path again. Such a read holds the whole file in memory, a ranged read still hashes the whole file, and a failed verification rejects the read with `FS_IO_ERROR`. Other paths read as before.
 - **Linux parent-directory recreation** — restoring observation after a parent directory is deleted and recreated is deferred; same-path file recreation while its parent remains is supported.
 - **Version tokens depend on filesystem metadata** — they combine device, inode, size, nanosecond mtime, and nanosecond ctime; a storage layer that cannot update any of those facts for a rewrite can still defeat the stale guard.
 - **`editText` holds the whole file (plus the edited copy) in memory** — streaming exists only on the read path.

@@ -20,10 +20,9 @@ import type { DetectedImage } from './image.ts'
 
 const ID_PATTERN = /^sha256:([a-f0-9]{64})$/
 const durableHomes = new Set<string>()
-const sweptStaging = new Set<string>()
 const activeStaging = new Set<string>()
 const STALE_STAGING_MS = 24 * 60 * 60 * 1000
-const STAGING_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const STAGING_NAME = /^(?:(\d{1,10})-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 function digest(data: Uint8Array): string {
   return createHash('sha256').update(data).digest('hex')
@@ -39,7 +38,7 @@ function displayName(value: string | undefined): string | undefined {
   return clean === '' ? undefined : clean
 }
 
-function ensureReference(ref: ImageAttachmentRef): string {
+export function ensureReference(ref: ImageAttachmentRef): string {
   const match = ID_PATTERN.exec(String(ref.attachmentId))
   if (match?.[1] === undefined) throw new AttachmentError('Attachment reference is invalid.', 'INVALID_ATTACHMENT_REF')
   return match[1]
@@ -310,27 +309,35 @@ interface StagedImmutableObject extends StreamedImmutableObject {
   readonly boundary: string
 }
 
-export async function reclaimAbandonedStaging(staging: string): Promise<{ files: number, bytes: number }> {
+export function ownerIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return !(error instanceof Error && 'code' in error && error.code === 'ESRCH')
+  }
+}
+
+export async function reclaimAbandonedStaging(staging: string): Promise<{ files: number; bytes: number }> {
   const cutoff = Date.now() - STALE_STAGING_MS
   const names = await readdir(staging).catch(() => [])
   let files = 0
   let bytes = 0
-  await Promise.all(names.filter(name => STAGING_NAME.test(name)).map(async (name) => {
+  await Promise.all(names.map(async (name) => {
+    const match = STAGING_NAME.exec(name)
+    if (match === null) return
     const path = join(staging, name)
     const info = await stat(path).catch(() => undefined)
-    if (info?.isFile() !== true || info.mtimeMs >= cutoff || activeStaging.has(path)) return
+    if (info?.isFile() !== true || activeStaging.has(path)) return
+    const owner = match[1] === undefined ? undefined : Number(match[1])
+    const live = owner === undefined || owner === process.pid ? info.mtimeMs >= cutoff : ownerIsAlive(owner)
+    if (live) return
     await unlink(path).then(() => {
       files++
       bytes += info.size
     }, () => {})
   }))
   return { files, bytes }
-}
-
-async function sweepStagingDirectory(staging: string): Promise<void> {
-  if (sweptStaging.has(staging)) return
-  sweptStaging.add(staging)
-  await reclaimAbandonedStaging(staging)
 }
 
 async function stageImmutableObject(
@@ -344,8 +351,8 @@ async function stageImmutableObject(
   // another process created can never be mistaken for durable publication.
   const boundary = await ensureDurableHome(dirname(dirname(resolve(root))))
   await ensureDurableDirectory(staging, boundary)
-  await sweepStagingDirectory(staging)
-  const temporary = join(staging, randomUUID())
+  await reclaimAbandonedStaging(staging)
+  const temporary = join(staging, `${process.pid}-${randomUUID()}`)
   let handle
   try {
     activeStaging.add(temporary)

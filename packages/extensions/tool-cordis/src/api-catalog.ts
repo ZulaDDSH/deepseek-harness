@@ -532,6 +532,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['an AttachmentError when the durable reference is invalid.'],
       },
       {
+        signature: 'readHostFile(hostPath: string, maxBytes: number, signal?: AbortSignal): Promise<Uint8Array | undefined>',
+        description: 'Returns the integrity-verified bytes of a host path this backend owns, opened and hashed through one descriptor so a replacement after the check cannot reach the reader; backends that own no host files answer undefined.',
+        parameters: [{ name: 'hostPath', description: 'Absolute host path a reader is about to open.' }, { name: 'maxBytes', description: 'Largest file size, in bytes, the caller accepts.' }, { name: 'signal', description: 'Optional cancellation for backend reads.' }],
+        returns: 'The verified bytes, or undefined when the path is not one of this backend\'s files.',
+      },
+      {
         signature: 'readImageRequest( ref: ImageAttachmentRef, target: ImageRequestTarget, signal?: AbortSignal, ): Promise<RequestImageAttachment>',
         description: 'Generate or read one deterministic model-request version from the stored normalized image.',
         parameters: [{ name: 'ref', description: 'durable provider-independent normalized attachment reference.' }, { name: 'target', description: 'route-chosen dimensions and byte target; an unmet byte target yields the smallest ladder output.' }, { name: 'signal', description: 'optional cancellation.' }],
