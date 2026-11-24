@@ -227,7 +227,7 @@ describe('mandatory update policy persistence', () => {
     return { read: () => saved, write: (value: unknown) => { saved = value }, peek: () => saved }
   }
 
-  function start(store: ReturnType<typeof memoryStore>, version = identity.bundledDshVersion,
+  function start(store: ReturnType<typeof memoryStore>, version: string = identity.bundledDshVersion,
     authentication: 'anonymous' | 'feishu-test' = 'anonymous') {
     const request = vi.fn<typeof fetch>().mockRejectedValue(new Error('offline'))
     const policy = new DesktopMandatoryUpdatePolicy(resolveDesktopPolicyConfig({ ...deployment, authentication,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Checkpoint, CHECKPOINT_BYTES } from '../src/checkpoint.ts'
-import { patchSchema } from '../src/records.ts'
+import { patchSchema, taskId } from '../src/records.ts'
 import { measureAll, patchTasks, prioritiesOf } from '../src/tasks.ts'
 import checkpoint from './checkpoint.timeline.json' with { type: 'json' }
 import manifest from '../package.json' with { type: 'json' }
@@ -173,10 +173,11 @@ describe('checkpoint scheduling data', () => {
     expect(file.tasks.find(item => item.id === 'long')).toMatchObject({ remaining: 30 })
     expect(file.tasks.find(item => item.id === 'group')).toMatchObject({ mode: 'parallel' })
     expect(file.tasks.find(item => item.id === 'finished')).not.toHaveProperty('remaining')
+    const group = taskId.parse('group')
     const after = Checkpoint.fromString(exported.toString()).restore('b', 3000).tree
     expect(after.tasks.find(item => item.id === 'long')?.remaining).toBe(30)
-    expect(measureAll(after.tasks).get('group')?.remaining).toBe(30)
-    expect(measureAll(after.tasks).get('group')?.remaining).toBe(measureAll(before.tasks).get('group')?.remaining)
+    expect(measureAll(after.tasks).get(group)?.remaining).toBe(30)
+    expect(measureAll(after.tasks).get(group)?.remaining).toBe(measureAll(before.tasks).get(group)?.remaining)
   })
   it('omits defaults so older files restore unchanged', () => {
     const file = Checkpoint.fromJson({ ...plan, tasks: [{ id: 'one', title: 'Plain' }] }).toJson()

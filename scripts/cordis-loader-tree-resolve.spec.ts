@@ -1,6 +1,8 @@
 import { Context } from '@deepseek-ai/cordis'
-import Loader, { EntryTree } from '@deepseek-ai/cordis-plugin-loader'
+import Loader, { EntryTree, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import { describe, expect, it, onTestFinished } from 'vitest'
+
+const withId = (options: EntryOptions): EntryOptions => options
 
 class MemoryTree extends EntryTree {
   commit() {}
@@ -19,7 +21,7 @@ async function fixture() {
 describe('Loader entry lookup with colon-bearing ids', () => {
   it('resolves, updates and removes a root entry by its literal id', async () => {
     const { loader } = await fixture()
-    await loader.create({ id: 'pkg:row', name: 'cordis:example', config: { value: 1 } })
+    await loader.create(withId({ id: 'pkg:row', name: 'cordis:example', config: { value: 1 } }))
     await loader.await()
     expect(loader.resolve('pkg:row').options.id).toBe('pkg:row')
     await loader.update('pkg:row', { config: { value: 2 } })
@@ -30,11 +32,11 @@ describe('Loader entry lookup with colon-bearing ids', () => {
 
   it('resolves a colon-bearing id inside a nested tree and round-trips Entry.id', async () => {
     const { loader, trees } = await fixture()
-    await loader.create({ id: 'outer', name: 'cordis:nest' })
+    await loader.create(withId({ id: 'outer', name: 'cordis:nest' }))
     await loader.await()
     const [tree] = trees
-    await tree!.create({ id: 'pkg:row', name: 'cordis:example' })
-    await tree!.create({ id: 'plain', name: 'cordis:example' })
+    await tree!.create(withId({ id: 'pkg:row', name: 'cordis:example' }))
+    await tree!.create(withId({ id: 'plain', name: 'cordis:example' }))
     await loader.await()
     const entry = loader.resolve('outer:pkg:row')
     expect(entry.options.id).toBe('pkg:row')
@@ -50,13 +52,13 @@ describe('Loader entry lookup with colon-bearing ids', () => {
 
   it('prefers a literal id over a nested path and still reaches the path when no literal exists', async () => {
     const { loader, trees } = await fixture()
-    await loader.create({ id: 'outer', name: 'cordis:nest' })
+    await loader.create(withId({ id: 'outer', name: 'cordis:nest' }))
     await loader.await()
-    await trees[0]!.create({ id: 'row', name: 'cordis:example' })
+    await trees[0]!.create(withId({ id: 'row', name: 'cordis:example' }))
     await loader.await()
     const nested = loader.resolve('outer:row')
     expect(nested.parent.tree).toBe(trees[0])
-    await loader.create({ id: 'outer:row', name: 'cordis:example' })
+    await loader.create(withId({ id: 'outer:row', name: 'cordis:example' }))
     await loader.await()
     expect(loader.resolve('outer:row').options.id).toBe('outer:row')
     expect(nested.options.id).toBe('row')
