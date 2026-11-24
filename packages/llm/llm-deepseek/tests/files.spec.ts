@@ -6,7 +6,7 @@ import type { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment/t
 import type { ImageAttachmentRef, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { createAssistantMessage, createToolResultMessage, LlmError, type ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { DeepSeekFileId } from '../src/file-id.ts'
-import { DeepSeekFileStore } from '../src/file-store.ts'
+import { DeepSeekFileStore, uploadIdentityOf } from '../src/file-store.ts'
 import { resolveAdapterOptions } from '../src/config.ts'
 import type { Options as Config } from '../src/config.ts'
 import { DeepSeekAdapter } from '../src/adapter.ts'
@@ -74,7 +74,7 @@ describe('Messages Files requests', () => {
     vi.stubGlobal('fetch', fetchImpl)
     const h = harness()
     await chunks(h.adapter.stream(request([ref, second])))
-    expect(h.invalidate).toHaveBeenCalledExactlyOnceWith([{ variantId: version(ref).variantId, fileId: 'file-a' }], expect.objectContaining({}))
+    expect(h.invalidate).toHaveBeenCalledExactlyOnceWith([{ variantId: uploadIdentityOf(version(ref)), fileId: 'file-a' }], expect.objectContaining({}))
     expect(fetchImpl).toHaveBeenCalledTimes(2)
     expect(h.prepare).toHaveBeenCalledTimes(2)
     expect(h.ensureUploaded).toHaveBeenCalledTimes(4)

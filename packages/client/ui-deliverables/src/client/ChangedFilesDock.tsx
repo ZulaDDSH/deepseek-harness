@@ -29,7 +29,7 @@ export function ChangedFilesDock({ sessionId, useSessions, useChat, useShowCodeD
   useEffect(() => {
     if (seq !== undefined && summary === undefined) void loadChangesSummary(sessionId, seq)
   }, [seq, summary, sessionId, loadChangesSummary])
-  if (seq === undefined || typeof summary !== 'object' || summary.files.length === 0) return null
+  if (seq === undefined || typeof summary !== 'object' || summary.files.length === 0 && summary.incomplete === undefined) return null
   return <div className={css.dock} data-changed-files-dock>
     <ChangedFiles compact changes={{ ...summary, seq }} cwd={cwd} t={t} sessionId={sessionId}
       useChangesDiff={useChangesDiff} loadChangesDiff={loadChangesDiff}

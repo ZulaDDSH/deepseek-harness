@@ -17,9 +17,36 @@ function isMatchAll(matcher: string | undefined): boolean {
 /** A Claude-literal pattern is purely word chars + `|` (the regex-vs-literal discriminator). */
 const CLAUDE_LITERAL = /^[A-Za-z0-9_|]+$/
 
+function repeatsAt(pattern: string, index: number): boolean {
+  const character = pattern[index]
+  return character === '*' || character === '+' || /^\{\d+,\d*\}/u.test(pattern.slice(index, index + 24))
+}
+
+function hasNestedRepetition(pattern: string): boolean {
+  const groups: boolean[] = []
+  let inClass = false
+  for (let index = 0; index < pattern.length; index++) {
+    const character = pattern[index]
+    if (character === '\\') { index++; continue }
+    if (inClass) { inClass = character !== ']'; continue }
+    if (character === '[') { inClass = true; continue }
+    if (character === '(') { groups.push(false); continue }
+    if (character === ')') {
+      const inner = groups.pop() ?? false
+      const repeated = repeatsAt(pattern, index + 1)
+      if (inner && repeated) return true
+      if (groups.length > 0 && (inner || repeated)) groups[groups.length - 1] = true
+      continue
+    }
+    if (groups.length > 0 && repeatsAt(pattern, index)) groups[groups.length - 1] = true
+  }
+  return false
+}
+
 /** Compile an unanchored matcher regex; invalid patterns return `undefined`. */
 function compileRegex(pattern: string): RegExp | undefined {
   try {
+    if (hasNestedRepetition(pattern)) return undefined
     return new RegExp(pattern)
   } catch (_syntaxError) {
     // RegExp construction is the try's only operation, so malformed pattern

@@ -1121,7 +1121,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     // Lifecycle 1: run one full turn, persisting it.
     const adapter1 = new MockAdapter([textResponse('first answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const h1 = await ctx1.agents.create({ sessionId: brandString<SessionId>('sess-resume'), meta: { cwd: '/w' } })
+    const h1 = await ctx1.agents.create({ sessionId: brandString<SessionId>('sess-resume'), meta: { cwd: '/w' }, agentOptions: { provider: 'mock', model: 'mock' } })
     const a1 = h1.agent
     a1.followup(createUserMessage({ content: [{ type: 'text', text: 'first question' }], source: { kind: 'user' } }))
     await waitForIdle(ctx1, a1)

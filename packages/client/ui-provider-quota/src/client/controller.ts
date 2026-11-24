@@ -4,7 +4,9 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 import type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
 import type { SettingsPathOpView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { QuotaBillingSwitch, QuotaProviderView, QuotaResult } from '@deepseek-ai/dsh-api-quota-controller/types'
-import { localUsagePromptStore, withDismissed, type UsagePromptStore, type UsageSwitch } from './usage-prompt.ts'
+import { localUsagePromptStore, OPEN_WINDOW_HOLD_MS, withDismissed, type UsagePromptStore, type UsageSwitch } from './usage-prompt.ts'
+
+type QuotaFetchResponse = Awaited<ReturnType<ClientRemote['quota']['fetch']>>
 
 /** Observable client state for the provider quota popover. */
 export interface QuotaState {
@@ -27,6 +29,7 @@ export class ProviderQuotaController {
   /** The last switch to API credits, offered back once its window resets. */
   readonly switched: SnapshotStore<UsageSwitch | undefined>
   private loading: Promise<void> | undefined
+  private generation = 0
 
   constructor(
     private readonly remote: Pick<ClientRemote, 'quota'> & {
@@ -39,6 +42,7 @@ export class ProviderQuotaController {
       }
     },
     private readonly memory: UsagePromptStore = localUsagePromptStore(),
+    private readonly fetchTimeoutMs = 45_000,
   ) {
     this.dismissed = createSnapshotStore(memory.dismissed())
     this.switched = createSnapshotStore(memory.switched())
@@ -46,20 +50,20 @@ export class ProviderQuotaController {
 
   /** Load provider identities once and then fetch their quota state. */
   load(): Promise<void> {
-    this.loading ??= this.loadProviders()
+    this.loading ??= this.loadProviders(++this.generation)
     return this.loading
   }
 
   /** Force provider discovery and quota state to reload. */
   refresh(): Promise<void> {
-    this.loading = this.loadProviders()
+    this.loading = this.loadProviders(++this.generation)
     return this.loading
   }
 
   /** Refresh quota values without reloading provider identities; skipped while a request is pending. */
   async refreshValues(): Promise<void> {
     if (this.state.getSnapshot().status === 'loading') return
-    await this.fetchConfigured()
+    await this.fetchConfigured(this.generation)
   }
 
   /**
@@ -97,28 +101,44 @@ export class ProviderQuotaController {
       : [{ op: 'unset', path }]
     const response = await this.remote.settings.mutate(billing.settingsNs, ops, undefined)
     if (!response.ok) return response.error.message
-    const switched: UsageSwitch | undefined = target === 'api' ? { providerId, ...resetAt === undefined ? {} : { resetAt } } : undefined
+    const switched: UsageSwitch | undefined = target === 'api' ? { providerId, resetAt: resetAt ?? Date.now() + OPEN_WINDOW_HOLD_MS } : undefined
     this.memory.saveSwitched(switched)
     this.switched.set(switched)
     await this.refresh()
     return undefined
   }
 
-  private async loadProviders(): Promise<void> {
+  private async loadProviders(generation: number): Promise<void> {
     const response = await this.remote.quota.listProviders()
+    if (generation !== this.generation) return
     if (!response.ok) {
       this.providers.set([])
       this.state.set({ status: 'error', results: [], message: response.error.message })
       return
     }
     this.providers.set(response.value)
-    await this.fetchConfigured()
+    await this.fetchConfigured(generation)
   }
 
-  private async fetchConfigured(): Promise<void> {
+  private async fetchOne(provider: QuotaProviderView): Promise<QuotaFetchResponse> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<QuotaFetchResponse>((resolve) => {
+      timer = setTimeout(() => {
+        resolve({ ok: true, value: { providerId: provider.id, providerName: provider.name, configured: true, ok: false, error: 'Quota request timed out' } })
+      }, this.fetchTimeoutMs)
+    })
+    try {
+      return await Promise.race([this.remote.quota.fetch(provider.id), deadline])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  private async fetchConfigured(generation: number): Promise<void> {
     this.state.set({ status: 'loading', results: this.state.getSnapshot().results })
     const providers = this.providers.getSnapshot() ?? []
-    const responses = await Promise.all(providers.map(provider => this.remote.quota.fetch(provider.id)))
+    const responses = await Promise.all(providers.map(provider => this.fetchOne(provider)))
+    if (generation !== this.generation) return
     const failures = responses.filter(response => !response.ok)
     const failure = failures[0]
     if (failures.length === responses.length && failure !== undefined) {

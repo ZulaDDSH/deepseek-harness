@@ -9,6 +9,9 @@ import type {} from '@deepseek-ai/dsh-ssh'
 import { RemoteOperationError } from '@deepseek-ai/dsh-ssh/protocol'
 import { deleteResultSchema, moveResultSchema, editResultSchema, entriesSchema, infoSchema, pathInfoSchema, targetSchema, textStreamIdSchema, writeResultSchema } from '@deepseek-ai/dsh-ssh/schemas'
 import { z } from 'zod'
+import { FsOutcomeUnknownError } from './outcome.ts'
+
+export { FsOutcomeUnknownError } from './outcome.ts'
 
 const errorCodes = new Set<string>(FS_ERROR_CODES)
 
@@ -79,7 +82,7 @@ export class SshFileSystem extends FileSystem {
     target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy,
   ): Promise<FsWriteOutcome> {
     const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve()
-    return await this.call('fs.write', { target, content, expected, policy }, writeResultSchema, signal) as FsWriteOutcome
+    return await this.mutate('fs.write', { target, content, expected, policy }, writeResultSchema, signal) as FsWriteOutcome
   }
 
   override async editText(
@@ -87,7 +90,7 @@ export class SshFileSystem extends FileSystem {
     signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy,
   ): Promise<FsEditOutcome> {
     const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve()
-    return await this.call('fs.edit', { target, edit, expected, policy }, editResultSchema, signal) as FsEditOutcome
+    return await this.mutate('fs.edit', { target, edit, expected, policy }, editResultSchema, signal) as FsEditOutcome
   }
 
   override async patchText(
@@ -95,14 +98,14 @@ export class SshFileSystem extends FileSystem {
     signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy,
   ): Promise<FsEditOutcome> {
     const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve()
-    return await this.call('fs.patch', { target, hunks, expected, policy }, editResultSchema, signal) as FsEditOutcome
+    return await this.mutate('fs.patch', { target, hunks, expected, policy }, editResultSchema, signal) as FsEditOutcome
   }
 
   override async deleteFile(
     target: FsTarget, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy,
   ): Promise<FsDeleteOutcome> {
     const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve()
-    return this.call('fs.delete', { target, expected, policy }, deleteResultSchema, signal)
+    return this.mutate('fs.delete', { target, expected, policy }, deleteResultSchema, signal)
   }
 
   override async moveFile(
@@ -110,15 +113,22 @@ export class SshFileSystem extends FileSystem {
     signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy,
   ): Promise<FsMoveOutcome> {
     const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve()
-    return await this.call('fs.move', { source, destination, options, policy }, moveResultSchema, signal) as FsMoveOutcome
+    return await this.mutate('fs.move', { source, destination, options, policy }, moveResultSchema, signal) as FsMoveOutcome
   }
 
-  private async call<T>(method: string, params: unknown, schema: z.ZodType<T>, signal?: AbortSignal): Promise<T> {
+  private async mutate<T>(method: string, params: unknown, schema: z.ZodType<T>, signal?: AbortSignal): Promise<T> {
+    return await this.call(method, params, schema, signal, signal?.aborted !== true)
+  }
+
+  private async call<T>(method: string, params: unknown, schema: z.ZodType<T>, signal?: AbortSignal, mutation = false): Promise<T> {
     try { return await this.ctx.ssh.request(method, params, schema, signal) } catch (error) {
       if (error instanceof RemoteOperationError && error.code !== undefined && errorCodes.has(error.code)) {
         throw new FsError(error.message, error.code as FsErrorCode, { cause: error })
       }
-      throw new FsError(error instanceof Error ? error.message : String(error), signal?.aborted ? 'FS_ABORTED' : 'FS_IO_ERROR', { cause: error })
+      const message = error instanceof Error ? error.message : String(error)
+      const code = signal?.aborted ? 'FS_ABORTED' : 'FS_IO_ERROR'
+      if (mutation) throw new FsOutcomeUnknownError(message, code, { cause: error })
+      throw new FsError(message, code, { cause: error })
     }
   }
 }

@@ -404,3 +404,47 @@ it('accepts internal file tokens only inside the composer without the full-page 
   fireEvent.drop(target, { dataTransfer: transfer })
   expect(onAddFiles).toHaveBeenCalledOnce()
 })
+
+describe('ComposerAttachments with two mounted views', () => {
+  function mount(first: boolean, second: boolean) {
+    const onFirst = vi.fn()
+    const onSecond = vi.fn()
+    const view = render(<>
+      <div data-composer-card data-testid="first"><ComposerAttachments {...props({ onAddFiles: onFirst, canAcceptDrop: first })} /></div>
+      <div data-composer-card data-testid="second"><ComposerAttachments {...props({ onAddFiles: onSecond, canAcceptDrop: second })} /></div>
+    </>)
+    return { view, onFirst, onSecond }
+  }
+  const transfer = () => ({ types: ['Files'], files: [attachment('dropped').file], items: [], dropEffect: 'none' })
+
+  it('adds a dropped file to the composer under the drop target only', () => {
+    const { view, onFirst, onSecond } = mount(true, true)
+    fireEvent.drop(view.getByTestId('second'), { dataTransfer: transfer() })
+    expect(onFirst).not.toHaveBeenCalled()
+    expect(onSecond).toHaveBeenCalledOnce()
+  })
+
+  it('falls back to the first accepting composer for a drop outside any composer', () => {
+    const { onFirst, onSecond } = mount(false, true)
+    const dataTransfer = transfer()
+    fireEvent.dragOver(document.body, { dataTransfer })
+    expect(dataTransfer.dropEffect).toBe('copy')
+    fireEvent.drop(document.body, { dataTransfer })
+    expect(onFirst).not.toHaveBeenCalled()
+    expect(onSecond).toHaveBeenCalledOnce()
+  })
+
+  it('prefers the earlier composer in document order when both accept an outside drop', () => {
+    const { onFirst, onSecond } = mount(true, true)
+    fireEvent.drop(document.body, { dataTransfer: transfer() })
+    expect(onFirst).toHaveBeenCalledOnce()
+    expect(onSecond).not.toHaveBeenCalled()
+  })
+
+  it('does not add a drop on a disabled composer to the other one', () => {
+    const { view, onFirst, onSecond } = mount(true, false)
+    fireEvent.drop(view.getByTestId('second'), { dataTransfer: transfer() })
+    expect(onFirst).toHaveBeenCalledOnce()
+    expect(onSecond).not.toHaveBeenCalled()
+  })
+})

@@ -27,7 +27,7 @@ import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import Projections from '@deepseek-ai/dsh-session-projection'
 import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import { bindScopeParent } from '@deepseek-ai/dsh-scope'
-import { BrowserMcpConfig, mountSessionMcp, validateBrowserMcpConfig } from '../src/mcp.ts'
+import { BrowserMcpConfig, mountSessionMcp, rejectSecretBearingEndpoint, validateBrowserMcpConfig } from '../src/mcp.ts'
 
 const fixture = fileURLToPath(new URL('./mcp-fixture.mjs', import.meta.url))
 const roots: string[] = []
@@ -161,6 +161,14 @@ it('requires a browser mode and validates launch and attachment settings', () =>
   for (const endpoint of ['http://localhost:bad/path', 'http://localhost trailing-junk', 'file:///tmp/browser', 'http://localhost/ ']) {
     expect(() => { validateBrowserMcpConfig({ mode: 'attach', endpoint }) }).toThrow('browser endpoint')
   }
+})
+
+it('rejects attach endpoints with userinfo, a query or a fragment but accepts a plain debugging path', () => {
+  for (const endpoint of ['ws://u:p@host/x', 'ws://:p@host/x', 'http://host/?', 'http://host/json?a=1', 'ws://host/x#t']) {
+    expect(() => { rejectSecretBearingEndpoint({ mode: 'attach', endpoint }) }).toThrow('process argument')
+  }
+  rejectSecretBearingEndpoint({ mode: 'attach', endpoint: 'wss://host.example/devtools/browser/id' })
+  rejectSecretBearingEndpoint({ mode: 'launch', headless: true })
 })
 
 it('waits for SystemPrompt and ToolRuntime before reserving the provider', async () => {

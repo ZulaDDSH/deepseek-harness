@@ -1,7 +1,9 @@
 /** Fetch optional popularity counts separately from immutable package metadata. */
 import type { MarketSortKeyDeclaration } from '@deepseek-ai/dsh-plugin-market-index'
-import { PUBLIC_NPM_REGISTRY, type FetchLimits } from './fetchers.ts'
+import { PUBLIC_NPM_REGISTRY, readJsonBounded, type FetchLimits } from './fetchers.ts'
 import type { GeneratedEntry } from './generate.ts'
+
+const MAX_METRIC_BYTES = 1024 * 1024
 
 /** Declarations for the standardized metric definitions. */
 export const METRIC_DECLARATIONS = {
@@ -35,7 +37,7 @@ export function metricReader(
         warn(`${url}: HTTP ${response.status}; metric omitted`)
         return undefined
       }
-      value = await response.json()
+      value = await readJsonBounded(response, url, MAX_METRIC_BYTES)
     } catch (error) {
       const reason = authenticated ? 'GitHub metric request failed' : String(error)
       warn(`${url}: ${response === undefined ? '' : `HTTP ${response.status}; `}${reason}; metric omitted`)

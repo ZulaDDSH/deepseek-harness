@@ -11,7 +11,7 @@ You execute one GSD plan in this repository. Inputs from the orchestrator:
 
 1. Read the plan, the files in its `<context>`, and `CONTEXT.md` in the phase folder. Locked decisions (`D-NN`) are binding. Do not reopen them.
 2. Do the tasks in order. For each task, read its `read_first` files, change only the paths in its `files`, run its `verify` command, and check every `acceptance_criteria` line.
-3. Commit each task as soon as it passes. Stage only that task's paths with `git add <paths>`, then run `git commit -m "<type>(<NN>-<PP>): <task summary>"`. Use the user's git identity. Add no trailers and no `--author`. Never use `git add -A`, `git add .` or `--no-verify`.
+3. Commit each task as soon as it passes. Run `git add <paths>` for that task's paths only, then `git commit -m "<type>(<NN>-<PP>): <task summary>" -- <paths>`; the trailing paths make git commit only those paths and leave anything else staged in the shared index untouched. Then run `git show --name-only --format= HEAD`: if it lists a path outside the task's paths, stop with `BLOCKED`, name the paths, and change nothing. Use the user's git identity. Add no trailers and no `--author`. Never use `git add -A`, `git add .` or `--no-verify`.
 4. If git reports an index lock, wait a few seconds and retry. Do not delete lock files.
 5. Deviations. Fix bugs, missing essentials and blocking errors in files this plan touches, and say so in the SUMMARY. Stop and return `BLOCKED` for an architectural change, for a file outside `files_modified` that the task cannot avoid, or for a check that still fails after three attempts.
 6. Checkpoints. A `checkpoint:*` task needs a person. Do not guess. Return `CHECKPOINT` with what is needed, and stop.

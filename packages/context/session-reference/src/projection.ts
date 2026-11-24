@@ -76,7 +76,7 @@ export function retainReferencedSession(
   maxBytes: number,
 ): { data: ReferencedSessionData; fullData: ReferencedSessionData; stats: ReferenceRetentionStats } | undefined {
   const original = projectSessionConversation(snapshot)
-  const retained = original.map(item => ({ ...item }))
+  let retained = original.map(item => ({ ...item }))
   let omittedMessages = 0
   let droppedOmittedBytes = 0
   const data = (): ReferencedSessionData => ({
@@ -91,18 +91,18 @@ export function retainReferencedSession(
   const fullData = data()
   const size = (): number => Buffer.byteLength(stringifyTagSafeJson(data()), 'utf8')
 
-  while (size() > maxBytes) {
-    const newestIndex = retained.length - 1
-    const dropIndex = retained.findIndex((item, index) => !item.checkpoint && index !== newestIndex)
-    if (dropIndex < 0) break
-    const removed = retained.splice(dropIndex, 1)[0]
-    /* v8 ignore next 3 -- dropIndex came from this exact array and is non-negative. */
-    if (removed === undefined) {
-      throw new Error('session-reference retention selected a missing message')
-    }
+  let total = size()
+  const lastIndex = retained.length - 1
+  const dropped = new Set<number>()
+  for (let index = 0; index < lastIndex && total > maxBytes; index += 1) {
+    const item = retained[index]
+    if (item === undefined || item.checkpoint) continue
+    total -= Buffer.byteLength(stringifyTagSafeJson({ role: item.role, text: item.text }), 'utf8') + 1
+    dropped.add(index)
     omittedMessages += 1
-    droppedOmittedBytes += Buffer.byteLength(removed.originalText, 'utf8')
+    droppedOmittedBytes += Buffer.byteLength(item.originalText, 'utf8')
   }
+  if (dropped.size > 0) retained = retained.filter((_, index) => !dropped.has(index))
 
   while (size() > maxBytes) {
     let longestIndex = -1

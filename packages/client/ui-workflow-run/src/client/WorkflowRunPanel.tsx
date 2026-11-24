@@ -34,6 +34,7 @@ const STATUS_KEYS = {
   failed: 'status.failed',
   cancelled: 'status.cancelled',
   interrupted: 'status.interrupted',
+  incomplete: 'status.incomplete',
 } as const satisfies Record<WorkflowRunStatus, WorkflowRunKey>
 
 function dotState(status: WorkflowRunStatus): StateDotState {
@@ -42,7 +43,8 @@ function dotState(status: WorkflowRunStatus): StateDotState {
     case 'completed': return 'done'
     case 'failed': return 'error'
     case 'cancelled':
-    case 'interrupted': return 'warning'
+    case 'interrupted':
+    case 'incomplete': return 'warning'
     /* v8 ignore next -- WorkflowRunStatus is closed and every variant is handled above. */
     default: return status satisfies never
   }
@@ -93,7 +95,7 @@ function StatusDisclosure(props: StatusDisclosureProps) {
 }
 
 function abnormal(status: WorkflowRunStatus): boolean {
-  return status === 'failed' || status === 'cancelled' || status === 'interrupted'
+  return status === 'failed' || status === 'cancelled' || status === 'interrupted' || status === 'incomplete'
 }
 
 function phaseDisclosureFacts(phase: WorkflowRunPhaseData): DisclosureFacts {
@@ -171,7 +173,7 @@ function phaseStatusSummary(members: readonly WorkflowRunMemberData[], t: Workfl
   const counts = new Map<WorkflowRunStatus, number>()
   for (const member of members) counts.set(member.status, (counts.get(member.status) ?? 0) + 1)
   const count = (status: WorkflowRunStatus): number => counts.get(status) ?? 0
-  const active = (['running', 'failed', 'cancelled', 'interrupted'] as const)
+  const active = (['running', 'failed', 'cancelled', 'interrupted', 'incomplete'] as const)
     .filter(status => count(status) > 0)
   if (active.length === 0) return statusCount('completed', count('completed'), t)
   const visible = active.includes('interrupted') && count('completed') > 0

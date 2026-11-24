@@ -41,7 +41,7 @@ describe('WorkspaceChangesTab', () => {
     const statuses = new WorkspaceStatusStore()
     const diffs = new WorkspaceDiffStore()
     statuses.state.set({ [workspaceStatusUrl(workspaceId)]: status })
-    diffs.state.set({ [workspaceDiffUrl(workspaceId, 0)]: diff })
+    diffs.state.set({ [workspaceDiffUrl(workspaceId, 'src/app.ts')]: diff })
     const refreshStatus = vi.fn<WorkspaceStatusStore['refresh']>(() => Promise.resolve())
     const loadStatus = vi.fn<WorkspaceStatusStore['load']>(() => Promise.resolve())
     const loadDiff = vi.fn<WorkspaceDiffStore['load']>(() => Promise.resolve())

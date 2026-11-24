@@ -11,9 +11,10 @@
  * (e.g. a VS Code integrated terminal) reads as "not in tmux". It re-injects
  * only when the rendered tmux state changes since the last injection (a moved,
  * renamed, or re-laid-out pane), with an optional `refreshIntervalMs` floor
- * between injections. Absent tmux environment, an inherited-only environment,
- * absent `ctx.shell`, or a failed query is a no-op, never an error: an executor
- * rejection is contained and logged as a warning so the turn continues.
+ * between injections. Without a prior reading, an absent tmux environment, an
+ * inherited-only environment, absent `ctx.shell`, or a failed or timed-out query
+ * is a no-op, never an error; with one, the change to absent or unknown is
+ * recorded as a reading. An executor rejection is contained and logged as a warning.
  *
  * @module @deepseek-ai/dsh-tmux-context
  */
@@ -47,11 +48,13 @@ export const inject = ['agents', 'sessionProjections']
 export interface Config {
   /** Minimum milliseconds between durable injections in one session. Omit or set to 0 to inject on every eligible change. */
   refreshIntervalMs?: number
+  queryTimeoutMs?: number
 }
 
 /** Schemastery validation for {@link Config}. */
 export const Config: z<Config> = z.object({
   refreshIntervalMs: z.number(),
+  queryTimeoutMs: z.number(),
 })
 
 /**
@@ -85,6 +88,15 @@ interface TmuxLocation {
 /** Prefix marking the volatile turn/step preamble line of a rendered reading. */
 const READING_PREFIX = 'tmux location (turn '
 
+type TmuxReading = { kind: 'located'; location: TmuxLocation } | { kind: 'absent' } | { kind: 'unknown' }
+
+const ABSENT_READING: TmuxReading = { kind: 'absent' }
+const UNKNOWN_READING: TmuxReading = { kind: 'unknown' }
+const NOT_IN_PANE_EXIT = 3
+const DEFAULT_QUERY_TIMEOUT_MS = 5000
+const ABSENT_STATE = 'This process is not running in a tmux pane; any earlier tmux location no longer applies.'
+const UNKNOWN_STATE = 'The tmux location could not be read; any earlier tmux location may be out of date.'
+
 /**
  * Field separator between tmux format fields. tmux does not interpret C escapes
  * in a format, so the literal two-character sequence `\t` is emitted verbatim
@@ -115,35 +127,48 @@ const FIELD_SEP = '\\t'
  * @param logger - receives a warning when the executor rejects the query.
  * @param processId - this agent process's pid, whose controlling tty must match the pane.
  * @param signal - abort signal forwarded to the executor.
- * @returns the parsed location, or `undefined` when not in a real pane or on any failure.
+ * @param timeoutMs - deadline for the whole query.
+ * @returns the location, `absent` for a confirmed non-pane process, or `unknown` on any failure.
  */
 async function queryTmuxLocation(
   bash: ShellExecutor,
   logger: LoggerService,
   processId: number,
   signal: AbortSignal,
-): Promise<TmuxLocation | undefined> {
+  timeoutMs: number,
+): Promise<TmuxReading> {
   const format = TMUX_FIELDS.join(FIELD_SEP)
   const command = [
-    '[ -n "$TMUX_PANE" ] || exit 1',
+    `[ -n "$TMUX_PANE" ] || exit ${NOT_IN_PANE_EXIT}`,
     `self_tty=$(ps -o tty= -p ${processId} | tr -d ' ')`,
     '[ -n "$self_tty" ] || exit 1',
     'pane_tty=$(tmux display-message -t "$TMUX_PANE" -p \'#{pane_tty}\') || exit 1',
-    '[ "$pane_tty" = "/dev/$self_tty" ] || exit 1',
+    `[ "$pane_tty" = "/dev/$self_tty" ] || exit ${NOT_IN_PANE_EXIT}`,
     `exec tmux display-message -t "$TMUX_PANE" -p '${format}'`,
   ].join('\n')
-  let result: ShellRunResult
-  try {
-    result = await (await bash.execute(bash.resolve({ command, signal }))).result()
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error)
-    logger.warn(`tmux location query failed: ${message}; injecting no location this turn`)
-    return undefined
+  const bounded = AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+  const stopped = new Promise<undefined>((resolve) => {
+    bounded.addEventListener('abort', () => { resolve(undefined) }, { once: true })
+  })
+  const run = async (): Promise<ShellRunResult | undefined> => {
+    try {
+      return await (await bash.execute(bash.resolve({ command, signal: bounded, timeoutMs }))).result()
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      logger.warn(`tmux location query failed: ${message}; injecting no location this turn`)
+      return undefined
+    }
   }
-  if (result.exitCode !== 0) return undefined
+  const result = await Promise.race([run(), stopped])
+  if (result === undefined) {
+    if (bounded.aborted && !signal.aborted) logger.warn(`tmux location query timed out after ${timeoutMs}ms; injecting no location this turn`)
+    return UNKNOWN_READING
+  }
+  if (result.exitCode === NOT_IN_PANE_EXIT) return ABSENT_READING
+  if (result.exitCode !== 0) return UNKNOWN_READING
   const line = result.stdout.text.split('\n', 1)[0] as string
   const parts = line.split(FIELD_SEP)
-  if (parts.length !== TMUX_FIELDS.length) return undefined
+  if (parts.length !== TMUX_FIELDS.length) return UNKNOWN_READING
   const [
     sessionName,
     windowIndex,
@@ -154,16 +179,19 @@ async function queryTmuxLocation(
     paneActive,
     windowLayout,
   ] = parts as [string, string, string, string, string, string, string, string]
-  if (paneId.length === 0) return undefined
+  if (paneId.length === 0) return UNKNOWN_READING
   return {
-    sessionName,
-    windowIndex,
-    windowName,
-    paneIndex,
-    paneId,
-    windowActive,
-    paneActive,
-    windowLayout,
+    kind: 'located',
+    location: {
+      sessionName,
+      windowIndex,
+      windowName,
+      paneIndex,
+      paneId,
+      windowActive,
+      paneActive,
+      windowLayout,
+    },
   }
 }
 
@@ -181,8 +209,8 @@ function renderState(location: TmuxLocation): string {
 }
 
 /** Render the full durable reading, including the volatile turn preamble. */
-function renderReading(location: TmuxLocation, turn: number): string {
-  return `${READING_PREFIX}${turn}):\n${renderState(location)}`
+function renderReading(state: string, turn: number): string {
+  return `${READING_PREFIX}${turn}):\n${state}`
 }
 
 /**
@@ -203,6 +231,12 @@ function validateRefreshInterval(refreshIntervalMs: number | undefined): void {
   }
 }
 
+function validateQueryTimeout(queryTimeoutMs: number | undefined): void {
+  if (queryTimeoutMs !== undefined && (!Number.isSafeInteger(queryTimeoutMs) || queryTimeoutMs <= 0)) {
+    throw new TypeError(`tmux-context: queryTimeoutMs must be a positive safe integer, got ${String(queryTimeoutMs)}`)
+  }
+}
+
 const tmuxContextStateSchema = zod.object({
   state: zod.string(),
   time: zod.number(),
@@ -220,6 +254,8 @@ const tmuxContextStateSchema = zod.object({
 export async function apply(ctx: Context, config: Config): Promise<void> {
   const refreshIntervalMs = config.refreshIntervalMs
   validateRefreshInterval(refreshIntervalMs)
+  const queryTimeoutMs = config.queryTimeoutMs
+  validateQueryTimeout(queryTimeoutMs)
 
   const projectionReady = ctx.sessionProjections.register({
     key: 'tmuxContext',
@@ -246,17 +282,21 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     const decision = await next()
     if (decision.kind === 'reject' || signal.aborted || step !== 1) return decision
     const bash = ctx.get('shell')
-    if (bash === undefined) return decision
     const previous = tmuxContextProjectionHandle.stateOf(agent.session)
     if (refreshIntervalMs !== undefined && refreshIntervalMs > 0 && previous !== null) {
       const now = Date.now()
       if (now >= previous.time && now - previous.time < refreshIntervalMs) return decision
     }
-    const location = await queryTmuxLocation(bash, ctx.logger, process.pid, signal)
-    if (location === undefined) return decision
-    const state = renderState(location)
+    const reading = bash === undefined
+      ? UNKNOWN_READING
+      : await queryTmuxLocation(bash, ctx.logger, process.pid, signal, queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS)
+    if (signal.aborted) return decision
+    const state = reading.kind === 'located' ? renderState(reading.location)
+      : reading.kind === 'absent' ? ABSENT_STATE : UNKNOWN_STATE
+    if (previous === null && reading.kind !== 'located') return decision
     if (previous !== null && previous.state === state) return decision
-    const text = renderReading(location, turn)
+    if (reading.kind === 'unknown' && previous?.state === ABSENT_STATE) return decision
+    const text = renderReading(state, turn)
     return {
       ...decision,
       messages: [

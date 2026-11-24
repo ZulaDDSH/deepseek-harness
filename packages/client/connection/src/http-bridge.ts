@@ -14,6 +14,24 @@ import type { ConnectionFetchHandler } from './rpc.ts'
  * each body in memory, so this cap is also the per-request resident bound. */
 export const DEFAULT_MAX_REQUEST_BODY_BYTES = 300 * 1024 * 1024
 
+export const BUFFERED_BODY_BUDGET_FACTOR = 4
+
+export class BufferedBodyBudget {
+  private used = 0
+
+  constructor(readonly limit: number) {}
+
+  reserve(bytes: number): boolean {
+    if (this.used + bytes > this.limit) return false
+    this.used += bytes
+    return true
+  }
+
+  release(bytes: number): void {
+    this.used -= bytes
+  }
+}
+
 interface BridgeServerResponse {
   readonly destroyed: boolean
   readonly writableEnded: boolean
@@ -33,13 +51,32 @@ interface BridgeServerResponse {
  * @param apiHandler - fetch-shaped API carrier the request is dispatched to.
  * @param peer - Peer the carrier admitted the request as.
  * @param maxRequestBodyBytes - maximum bytes buffered for a buffered route.
+ * @param budget - Host-wide byte budget shared by every buffered body in flight.
  */
 export async function bridge(
   req: IncomingMessage,
   res: BridgeServerResponse,
   apiHandler: ConnectionFetchHandler,
   peer: PeerScope,
-  maxRequestBodyBytes = DEFAULT_MAX_REQUEST_BODY_BYTES,
+  maxRequestBodyBytes: number,
+  budget: BufferedBodyBudget,
+): Promise<void> {
+  let reserved = 0
+  try {
+    await bridgeRequest(req, res, apiHandler, peer, maxRequestBodyBytes, budget, bytes => { reserved += bytes })
+  } finally {
+    budget.release(reserved)
+  }
+}
+
+async function bridgeRequest(
+  req: IncomingMessage,
+  res: BridgeServerResponse,
+  apiHandler: ConnectionFetchHandler,
+  peer: PeerScope,
+  maxRequestBodyBytes: number,
+  budget: BufferedBodyBudget,
+  reserved: (bytes: number) => void,
 ): Promise<void> {
   const abort = new AbortController()
   // Client-disconnect detection MUST hang off the response, not the request:
@@ -66,7 +103,12 @@ export async function bridge(
       req.destroy()
       return
     }
-    const chunks: Buffer[] = []
+    const refuseBusy = (): void => {
+      res.writeHead(503, { 'retry-after': '1', connection: 'close' })
+      res.end()
+      req.destroy()
+    }
+    let chunks: Buffer[] = []
     let received = 0
     for await (const chunk of req) {
       const buffer = chunk as Buffer
@@ -77,12 +119,19 @@ export async function bridge(
         req.destroy()
         return
       }
+      // Invariant: each chunk reserves its bytes twice, once for itself and once for the concat copy.
+      if (!budget.reserve(buffer.byteLength * 2)) return refuseBusy()
+      reserved(buffer.byteLength * 2)
       chunks.push(buffer)
     }
+    const body = chunks.length > 0 ? Buffer.concat(chunks) : undefined
+    chunks = []
+    budget.release(received)
+    reserved(-received)
     request = new Request(url, {
       method,
       headers,
-      ...chunks.length > 0 ? { body: Buffer.concat(chunks) } : {},
+      ...body === undefined ? {} : { body },
       signal: abort.signal,
     })
   } else {

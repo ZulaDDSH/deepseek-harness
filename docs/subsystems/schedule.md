@@ -5,14 +5,14 @@ Schedule stores Host tasks independently of Session activation. One management A
 <a id="durable-tasks"></a>
 ## Durable tasks
 
-The plugin README owns the current [v2 task schema, v1 defaults, and persisted JSON example](../../packages/schedule/schedule/README.md#storage-format). The domain retains its name, routing, and whole-unit layout. All seven timing kinds remain authoritative; normalization preserves committed occurrences and does not convert Cron into RRULE.
+The plugin README owns the current [unit v3 envelope, the v2 task record schema, v1 defaults, and persisted JSON example](../../packages/schedule/schedule/README.md#storage-format). The domain retains its name, routing, and whole-unit layout. All seven timing kinds remain authoritative; normalization preserves committed occurrences and does not convert Cron into RRULE.
 
 Malformed storage, invalid rows, mismatched task keys, and unsupported versions reject before tasks activate. Failed opening leaves the medium unchanged. An absent file starts empty. Missing target Sessions remain visible in management; reading a task never activates its Session.
 
 <a id="storage-versioning"></a>
 ## Storage versioning
 
-The README defines [when tasks upgrade](../../packages/schedule/schedule/README.md#storage-format), SQLite's unchanged physical schema, mutation costs, and a future compatible v3. `compatibleVersions` admits old unit stamps for current decoding; normal edits and delivery persist current rows. Reads leave storage unchanged. The shared [domain version policy](storage.md#domain-versioning) applies to both JSON and SQLite.
+The README defines [when tasks upgrade](../../packages/schedule/schedule/README.md#storage-format), SQLite's unchanged physical schema, mutation costs, and a future compatible v4. A v3 write makes a v2 or v1 binary refuse the store. `compatibleVersions` admits old unit stamps for current decoding; normal edits and delivery persist current rows. Reads leave storage unchanged. The shared [domain version policy](storage.md#domain-versioning) applies to both JSON and SQLite.
 
 <a id="recurrence-rules"></a>
 ## Recurrence rules
@@ -113,16 +113,16 @@ The `timing` discriminant selects exactly its matching payload, for example `{ k
 <a id="saved-delivery-records"></a>
 ## Saved delivery records
 
-A receipt records `scheduledAt`, `deliveredAt`, `messageId`, and `targetSessionId`; it acknowledges a durable Session inbox write, not model completion. A saved record may also have its immutable sent `prompt`. Old receipts without a target id use their resolved reusable destination before any retargeting edit, so a later target cannot rewrite their history. A receipt without either an explicit destination or a known reusable target rejects decoding; a new default reservation cannot establish a historical destination.
+A receipt records `scheduledAt`, `deliveredAt`, `messageId`, and `targetSessionId`; it acknowledges a durable Session inbox write, not model completion. A saved record may also name its immutable sent prompt: the task stores each distinct prompt text once in `deliveryHistory.prompts`, keyed by the SHA-256 hex of the text, and the record carries `promptId`. Pages return the text as `prompt`. A record written with an inline `prompt` is read as migrated and is rewritten in this form by the next write. Old receipts without a target id use their resolved reusable destination before any retargeting edit, so a later target cannot rewrite their history. A receipt without either an explicit destination or a known reusable target rejects decoding; a new default reservation cannot establish a historical destination.
 
 New tasks start with known empty history. An old row without `deliveryHistory` exposes its latest receipt, if present, and sets `earlierRecordsUnavailable: true`; it does not invent lost history or prompt snapshots. An omitted `earlierRecordsPruned` reads as false. Duplicate message ids or disagreement between the latest saved record and `lastDelivery` reject decoding.
 
-History follows append order despite clock rollback. Acknowledgment appends and prunes in the same task commit, keeping at most 200 records and 30 days by default while retaining the latest receipt. Query pages are newest first and use an exclusive message-id cursor. Hard deletion removes the task and its history without removing already queued Session messages.
+History follows append order despite clock rollback. Acknowledgment appends and prunes in the same task commit, keeping at most 200 records and 30 days by default while retaining the latest receipt. Retained prompt text counts once per distinct prompt and is capped at 1 MiB per task; past that the oldest receipts are dropped and the history is marked pruned. Query pages are newest first and use an exclusive message-id cursor. Hard deletion removes the task and its history without removing already queued Session messages.
 
 <a id="host-delivery"></a>
 ## Host delivery
 
-One Host timer drives active tasks. Runtime and management writes share one FIFO. Existing and reserved Sessions resolve through `schedule/resolve-agent`, so the embedding owns activation and the injected Web controller is the fallback. Reused-Session tasks hold their execution slot until the target Agent becomes idle; intervening occurrences coalesce. A `new` target permits executions beside one another. Due recurring records targeting the same existing Session share one message; `after` and `at` deliver separately.
+One Host timer drives active tasks. Runtime and management writes share one FIFO. Existing and reserved Sessions resolve through `schedule/resolve-agent`, so the embedding owns activation and the injected Web controller is the fallback. Reused-Session tasks hold their execution slot until the target Agent becomes idle; intervening occurrences coalesce. A `new` target also holds its slot until the launched Agent is idle, so a task has at most one active run. Due recurring records targeting the same existing Session share one message; `after` and `at` deliver separately.
 
 Timed and manual deliveries obey a per-task minimum interval of 60 seconds. `newSessionIntervalSeconds` can raise it for `new` targets, up to one week. The floor uses the last occurrence when the saved successor preserves the interval, otherwise the last acknowledgment, so delivery latency does not move the rule's anchor. Reads expose `executionActive` and `deliveryFloorEndsAt` only while applicable.
 

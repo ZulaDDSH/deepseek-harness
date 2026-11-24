@@ -160,6 +160,13 @@
   word-break: break-all;
 }
 
+.unavailable {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
 .actionRow {
   display: flex;
   justify-content: flex-end;

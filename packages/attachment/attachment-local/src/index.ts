@@ -3,7 +3,7 @@
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
+import { AttachmentError, AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type {
   FileAttachmentRef,
   ImageAttachmentLimits,
@@ -20,8 +20,9 @@ import type { NormalizationPolicy } from './normalization.ts'
 import { CompressionLimiter, compressionFailure } from './compression-limiter.ts'
 import { commitPreparedImageFile, normalizedImagePath, prepareImageFile, readImageFile, validateImageFile } from './store.ts'
 import {
-  readFileStreamVerbatim, saveFileStreamVerbatim, saveFileVerbatim, storedFilePath,
+  readFileStreamVerbatim, saveFileStreamVerbatim, saveFileVerbatim, verifiedStoredFilePath,
 } from './file-store.ts'
+import { FileStoreQuota } from './file-quota.ts'
 import { readRequestImageFile, requestImageVariantId } from './request-image.ts'
 
 export { canPassThroughNormalization, normalizeImage } from './normalization.ts'
@@ -56,10 +57,14 @@ export const DEFAULT_NORMALIZED_IMAGE_MAX_PIXELS = 2048 * 2048
 export const DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION = 8192
 /** Default encoded-byte target for one stored normalized image. */
 export const DEFAULT_NORMALIZED_IMAGE_MAX_BYTES = 4 * 1024 * 1024
+const DEFAULT_MAX_FILE_BYTES = 1024 * 1024 * 1024
+const DEFAULT_MAX_STORED_FILE_BYTES = 20 * 1024 * 1024 * 1024
+const DEFAULT_MAX_HOST_PATH_VERIFY_BYTES = 64 * 1024 * 1024
 /** Conservative default number of simultaneous native image transformations per store. */
 export const DEFAULT_IMAGE_COMPRESSION_CONCURRENCY = 2
 /** Maximum configurable native image transformations per store. */
 export const MAX_IMAGE_COMPRESSION_CONCURRENCY = 8
+const QUEUED_IMAGE_BATCHES = 2
 
 /** Local attachment backend configuration. */
 export interface Config {
@@ -86,6 +91,12 @@ export interface Config {
   normalizedImageMaxBytes?: number
   /** Maximum simultaneous normalization or request-image transformations in this service instance. */
   imageCompressionConcurrency?: number
+  /** One verbatim file must not exceed this many bytes. Default: 1 GiB. */
+  maxFileBytes?: number
+  /** Stored verbatim file objects must not total more than this many bytes. Default: 20 GiB. */
+  maxStoredFileBytes?: number
+  /** A stored file this process did not save must not exceed this many bytes to get a host path. Default: 64 MiB. */
+  maxHostPathVerifyBytes?: number
 }
 
 function abortReason(signal: AbortSignal): Error {
@@ -161,6 +172,9 @@ export class LocalAttachmentStore extends AttachmentStore {
     normalizedImageMaxBytes: z.number().step(1).min(1).default(DEFAULT_NORMALIZED_IMAGE_MAX_BYTES),
     imageCompressionConcurrency: z.number().step(1).min(1).max(MAX_IMAGE_COMPRESSION_CONCURRENCY)
       .default(DEFAULT_IMAGE_COMPRESSION_CONCURRENCY),
+    maxFileBytes: z.number().step(1).min(1).default(DEFAULT_MAX_FILE_BYTES),
+    maxStoredFileBytes: z.number().step(1).min(1).default(DEFAULT_MAX_STORED_FILE_BYTES),
+    maxHostPathVerifyBytes: z.number().step(1).min(0).default(DEFAULT_MAX_HOST_PATH_VERIFY_BYTES),
   })
 
   /** Absolute versioned storage root. */
@@ -171,6 +185,8 @@ export class LocalAttachmentStore extends AttachmentStore {
   /** Resolved instance-level compression limit. */
   readonly imageCompressionConcurrency: number
   private readonly cacheRoot: string
+  private readonly fileQuota: FileStoreQuota
+  private readonly maxHostPathVerifyBytes: number
   private readonly compression: CompressionLimiter
   private readonly requestInflight = new Map<string, SharedRequest<RequestImageAttachment>>()
 
@@ -179,6 +195,12 @@ export class LocalAttachmentStore extends AttachmentStore {
     const dshHome = resolveDshHome(config.dshHome)
     this.root = join(dshHome, 'attachments', 'v1')
     this.cacheRoot = dshCachePath({ dshHome }, 'attachments')
+    this.fileQuota = new FileStoreQuota(
+      this.root,
+      config.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES,
+      config.maxStoredFileBytes ?? DEFAULT_MAX_STORED_FILE_BYTES,
+    )
+    this.maxHostPathVerifyBytes = config.maxHostPathVerifyBytes ?? DEFAULT_MAX_HOST_PATH_VERIFY_BYTES
     this.imageLimits = Object.freeze({
       maxImageBytes: config.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES,
       maxImagesPerMessage: config.maxImagesPerMessage ?? DEFAULT_MAX_IMAGES_PER_MESSAGE,
@@ -201,18 +223,32 @@ export class LocalAttachmentStore extends AttachmentStore {
       )
     }
     this.imageCompressionConcurrency = compressionConcurrency
-    this.compression = new CompressionLimiter(compressionConcurrency)
+    this.compression = new CompressionLimiter(compressionConcurrency, {
+      tasks: QUEUED_IMAGE_BATCHES * this.imageLimits.maxImagesPerMessage,
+      bytes: QUEUED_IMAGE_BATCHES * this.imageLimits.maxMessageImageBytes,
+    })
   }
 
   async validateImage(input: SaveImageAttachment): Promise<void> {
-    await this.compression.run(() => validateImageFile(input, this.imageLimits, this.normalizationPolicy))
+    await this.compression.run(
+      () => validateImageFile(input, this.imageLimits, this.normalizationPolicy),
+      { bytes: input.data.byteLength },
+    )
   }
 
   override async saveImages(inputs: readonly SaveImageAttachment[]): Promise<readonly ImageAttachmentRef[]> {
     this.validateImageBatch(inputs)
-    const prepared = await Promise.all(inputs.map(input => this.compression.run(
-      () => prepareImageFile(input, this.imageLimits, this.normalizationPolicy),
-    )))
+    this.compression.admit(inputs.map(input => input.data.byteLength))
+    const batch = new AbortController()
+    const prepared = await Promise.all(inputs.map(input => this.compression.run(async () => {
+      batch.signal.throwIfAborted()
+      try {
+        return await prepareImageFile(input, this.imageLimits, this.normalizationPolicy)
+      } catch (error) {
+        batch.abort(error)
+        throw error
+      }
+    }, { signal: batch.signal, bytes: input.data.byteLength })))
     const refs: ImageAttachmentRef[] = []
     for (const image of prepared) refs.push(await commitPreparedImageFile(this.root, image))
     return refs
@@ -221,6 +257,7 @@ export class LocalAttachmentStore extends AttachmentStore {
   async saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef> {
     const prepared = await this.compression.run(
       () => prepareImageFile(input, this.imageLimits, this.normalizationPolicy),
+      { bytes: input.data.byteLength },
     )
     return commitPreparedImageFile(this.root, prepared)
   }
@@ -234,19 +271,19 @@ export class LocalAttachmentStore extends AttachmentStore {
   }
 
   override async saveFile(input: SaveFileAttachment): Promise<FileAttachmentRef> {
-    return saveFileVerbatim(this.root, input)
+    return saveFileVerbatim(this.root, input, this.fileQuota)
   }
 
   override async saveFileStream(input: SaveFileStreamAttachment): Promise<FileAttachmentRef> {
-    return saveFileStreamVerbatim(this.root, input)
+    return saveFileStreamVerbatim(this.root, input, this.fileQuota)
   }
 
   override readFileStream(ref: FileAttachmentRef, signal?: AbortSignal): AsyncIterable<Uint8Array> {
     return readFileStreamVerbatim(this.root, ref, signal)
   }
 
-  override fileHostPath(ref: FileAttachmentRef): string {
-    return storedFilePath(this.root, ref)
+  override fileHostPath(ref: FileAttachmentRef): string | undefined {
+    return verifiedStoredFilePath(this.root, ref, this.maxHostPathVerifyBytes)
   }
 
   override async readImageRequest(
@@ -280,14 +317,21 @@ export class LocalAttachmentStore extends AttachmentStore {
           sharedSignal,
         )
         return request
-      }))
+      }, { signal: sharedSignal, bytes: ref.bytes }))
       operation = shared
       this.requestInflight.set(key, shared)
       void shared.promise.finally(() => {
         if (this.requestInflight.get(key) === shared) this.requestInflight.delete(key)
       }).catch(() => {})
     }
-    return operation.wait(signal)
+    return operation.wait(signal).then((result) => {
+      const shared = result.attachment
+      if (shared.attachmentId !== ref.attachmentId || shared.mediaType !== ref.mediaType
+        || shared.bytes !== ref.bytes || shared.width !== ref.width || shared.height !== ref.height) {
+        throw new AttachmentError('Attachment reference does not match the stored image.', 'ATTACHMENT_CORRUPT')
+      }
+      return { ...result, attachment: ref }
+    })
   }
 
 }

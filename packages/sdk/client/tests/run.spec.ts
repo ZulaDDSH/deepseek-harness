@@ -269,11 +269,46 @@ it.each([
     .rejects.toThrow(SdkProtocolError)
 })
 
-it('reports command timeout without cancelling the runtime operation', async () => {
+const cancelFrames = (state: unknown): number => (state as { methods: string[] }).methods.filter(method => method === 'session/cancel').length
+
+it('cancels the Session when a command query times out', async () => {
+  const harness = harnessWith({ QUERY_HOLD_COMMAND: '1', QUERY_CANCEL: 'ack' }, 50)
+  await expect(harness.session('main').run('/compact')).rejects.toThrow(/session\/query timed out/)
+  const state = await harness.client.request('test/state', undefined, 5000)
+  expect(state).toMatchObject({ waitingCommands: 0 })
+  expect(cancelFrames(state)).toBe(1)
+})
+
+it('still reports the timeout when the runtime rejects the cancel as an unknown method', async () => {
   const harness = harnessWith({ QUERY_HOLD_COMMAND: '1' }, 50)
   await expect(harness.session('main').run('/compact')).rejects.toThrow(RequestTimeoutError)
-  expect(await harness.client.request('test/state', undefined, 5000)).toMatchObject({ waitingCommands: 1 })
+  const state = await harness.client.request('test/state', undefined, 5000)
+  expect(cancelFrames(state)).toBe(1)
+  expect(state).toMatchObject({ waitingCommands: 1 })
+  expect(harness.client['transport']!['pending'].size).toBe(0)
   await harness.client.request('test/release', undefined, 5000)
+})
+
+it('bounds a cancel the runtime never answers and keeps the original timeout', async () => {
+  const harness = harnessWith({ QUERY_HOLD_COMMAND: '1', QUERY_CANCEL: 'hang' }, 50)
+  const started = Date.now()
+  await expect(harness.session('main').run('/compact')).rejects.toThrow(/session\/query timed out/)
+  expect(Date.now() - started).toBeLessThan(4000)
+  await harness.client.request('test/release', undefined, 5000)
+})
+
+it('does not cancel a Session whose session/wait times out', async () => {
+  const harness = harnessWith({ QUERY_HANG_WAIT: '1', QUERY_CANCEL: 'ack' })
+  await harness.start()
+  await expect(harness.client.request('session/wait', { sessionId: 'main' }, 50)).rejects.toThrow(RequestTimeoutError)
+  expect(cancelFrames(await harness.client.request('test/state', undefined, 5000))).toBe(0)
+})
+
+it('cancels explicitly through the Session handle and validates the acknowledgement', async () => {
+  const acknowledged = harnessWith({ QUERY_CANCEL: 'ack' })
+  await expect(acknowledged.session('main').cancel()).resolves.toBe(true)
+  await expect(harnessWith({ QUERY_CANCEL: 'malformed' }).session('main').cancel()).rejects.toThrow(SdkProtocolError)
+  await expect(harnessWith().session('main').cancel()).rejects.toThrow(JsonRpcResponseError)
 })
 
 it('reports runtime loss from run', async () => {

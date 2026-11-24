@@ -25,11 +25,14 @@ export type FetchCommands = (sessionId: SessionId) => Promise<readonly CommandDe
 class Entry {
   state: DirectoryStatus = 'cold'
   commands: readonly CommandDescriptor[] = []
-  /** Bumped at each pull start; only the latest pull may publish its outcome. */
-  epoch = 0
+  busy = false
+  idle: Promise<void> = Promise.resolve()
+  rerun = false
   lastError: unknown
   waiters: Array<() => void> = []
 }
+
+const MAX_ENTRIES = 64
 
 /** The session-keyed directory cache. Plain class — the owning service wires events and RPC. */
 export class CommandDirectory {
@@ -60,7 +63,9 @@ export class CommandDirectory {
 
   /** Soft invalidation (commands-changed): background repull on every touched key; ready snapshots keep serving. */
   invalidateAll(): void {
-    for (const key of this.entries.keys()) void this.refresh(key)
+    for (const [key, entry] of this.entries) {
+      if (entry.state === 'ready' || entry.state === 'pending') void this.refresh(key)
+    }
   }
 
   /**
@@ -98,30 +103,41 @@ export class CommandDirectory {
   }
 
   /**
-   * Start one pull for one session. Publishes ready/failed only while it is
-   * still the key's latest pull (epoch guard); a ready snapshot is not
-   * demoted while the pull flies.
+   * Request one coalesced pull for one session.
    * @param sessionId - session key.
-   * @returns settled when this pull's outcome is published or discarded.
+   * @returns settled when the entry has no pull left to run.
    */
-  async refresh(sessionId: SessionId): Promise<void> {
+  refresh(sessionId: SessionId): Promise<void> {
     const entry = this.entry(sessionId)
-    const epoch = ++entry.epoch
     if (entry.state !== 'ready') entry.state = 'pending'
-    try {
-      const commands = await this.fetchCommands(sessionId)
-      if (epoch !== entry.epoch) return
-      entry.commands = commands
-      entry.state = 'ready'
-      entry.lastError = undefined
-    } catch (error) {
-      if (epoch !== entry.epoch) return
-      entry.commands = []
-      entry.state = 'failed'
-      entry.lastError = error
-    } finally {
-      if (epoch === entry.epoch) notifyWaiters(entry)
+    if (entry.busy) {
+      entry.rerun = true
+      return entry.idle
     }
+    entry.busy = true
+    entry.idle = this.pull(sessionId, entry)
+    return entry.idle
+  }
+
+  private async pull(sessionId: SessionId, entry: Entry): Promise<void> {
+    try {
+      do {
+        entry.rerun = false
+        try {
+          const commands = await this.fetchCommands(sessionId)
+          if (entry.rerun) continue
+          entry.commands = commands
+          entry.state = 'ready'
+          entry.lastError = undefined
+        } catch (error) {
+          if (entry.rerun) continue
+          entry.commands = []
+          entry.state = 'failed'
+          entry.lastError = error
+        }
+        notifyWaiters(entry)
+      } while (entry.rerun)
+    } finally { entry.busy = false }
   }
 
   /**
@@ -134,8 +150,8 @@ export class CommandDirectory {
    * @returns the hot command snapshot.
    */
   async ensureReady(sessionId: SessionId, signal: AbortSignal): Promise<readonly CommandDescriptor[]> {
-    const entry = this.entry(sessionId)
     while (true) {
+      const entry = this.entry(sessionId)
       if (entry.state === 'ready') return entry.commands
       if (entry.state !== 'pending') void this.refresh(sessionId)
       await settled(entry, signal)
@@ -151,8 +167,17 @@ export class CommandDirectory {
     if (entry === undefined) {
       entry = new Entry()
       this.entries.set(sessionId, entry)
+      if (this.entries.size > MAX_ENTRIES) this.evictIdle(entry)
     }
     return entry
+  }
+
+  private evictIdle(keep: Entry): void {
+    for (const [key, candidate] of this.entries) {
+      if (candidate === keep || candidate.busy || candidate.waiters.length > 0) continue
+      this.entries.delete(key)
+      return
+    }
   }
 }
 

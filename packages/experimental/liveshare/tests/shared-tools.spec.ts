@@ -14,22 +14,16 @@ import {
 describe('shared tool surface', () => {
   it('admits the view surface at both tiers and the two mutation tools only at write', () => {
     expect(sharedToolNames('view')).toEqual([
-      'read', 'read_image', 'glob', 'grep', 'present', 'todo_write', 'skill', 'web_search', 'web_fetch',
-      'run_code',
+      'read', 'read_image', 'glob', 'grep', 'present', 'todo_write', 'skill', 'web_search',
     ])
+    expect(sharedToolProfile('web_fetch')).toBeUndefined()
     expect(sharedToolNames('write')).toEqual([...sharedToolNames('view'), 'edit', 'write'])
     expect(sharedToolProfile('read')).toMatchObject({ tier: 'view', noFileEffect: false })
     expect(sharedToolProfile('glob')).toMatchObject({ defaultsToWorkspace: true })
     expect(sharedToolProfile('todo_write')).toMatchObject({ noFileEffect: true, defaultsToWorkspace: false })
     expect(sharedToolProfile('edit')).toMatchObject({ tier: 'write' })
-    // The PTC transport is admitted at both tiers and declares no path of its own.
-    expect(sharedToolProfile(RUN_CODE_NAME)).toMatchObject({
-      tier: 'view',
-      noFileEffect: true,
-      defaultsToWorkspace: false,
-    })
-    expect(describeSharedTool(RUN_CODE_NAME, { code: 'return 1', description: 'run' }))
-      .toEqual({ paths: [], noFileEffect: true })
+    expect(sharedToolProfile(RUN_CODE_NAME)).toBeUndefined()
+    expect(sharedToolNames('write')).not.toContain(RUN_CODE_NAME)
     // The local name must stay the one the tool runtime reserves.
     expect(RUN_CODE_NAME).toBe(RESERVED_TRANSPORT_NAME)
     expect(sharedToolProfile('bash')).toBeUndefined()
@@ -89,7 +83,7 @@ describe('shared tool surface', () => {
   })
 
   it('declares the tools that touch no workspace file and leaves their arguments alone', () => {
-    for (const name of ['todo_write', 'skill', 'web_search', 'web_fetch']) {
+    for (const name of ['todo_write', 'skill', 'web_search']) {
       const profile = sharedToolProfile(name)
       if (profile === undefined) throw new Error(`no profile for ${name}`)
       expect(profile.noFileEffect).toBe(true)

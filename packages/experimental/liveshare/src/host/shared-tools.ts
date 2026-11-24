@@ -10,7 +10,7 @@
 import { isRecord } from './wire-json.ts'
 
 /**
- * Name of the PTC transport the selected executor reserves.
+ * Name of the PTC transport the selected executor reserves; the shared surface refuses it.
  *
  * Liveshare names it locally so its tool surface takes no runtime dependency on the tools package; the
  * suite pins this value against the registry's own reservation of the name.
@@ -55,6 +55,8 @@ export interface SharedEditArguments {
   readonly newString: string
   /** Whether every match is replaced instead of requiring exactly one. */
   readonly replaceAll: boolean
+  /** Constraint: when true, `oldString` is empty and `newString` is added to the end of the file. */
+  readonly append: boolean
 }
 
 /**
@@ -70,12 +72,13 @@ export function sharedEditArguments(args: unknown): SharedEditArguments | undefi
   const filePath = input.file_path
   const oldString = input.old_string
   const newString = input.new_string
-  if (typeof filePath !== 'string' || filePath === ''
-    || typeof oldString !== 'string' || oldString === ''
-    || typeof newString !== 'string' || oldString === newString) {
-    return undefined
+  if (typeof filePath !== 'string' || filePath === '' || typeof newString !== 'string') return undefined
+  if (input.append === true) {
+    if ((oldString !== undefined && oldString !== '') || newString === '' || input.replace_all === true) return undefined
+    return { filePath, oldString: '', newString, replaceAll: false, append: true }
   }
-  return { filePath, oldString, newString, replaceAll: input.replace_all === true }
+  if (typeof oldString !== 'string' || oldString === '' || oldString === newString) return undefined
+  return { filePath, oldString, newString, replaceAll: input.replace_all === true, append: false }
 }
 
 /** One tool the shared surface admits, and how this host reads and bounds it. */
@@ -168,10 +171,6 @@ export const SHARED_TOOL_PROFILES: readonly SharedToolProfile[] = [
   { name: 'todo_write', tier: 'view', noFileEffect: true, defaultsToWorkspace: false, call: noFileCall },
   { name: 'skill', tier: 'view', noFileEffect: true, defaultsToWorkspace: false, call: noFileCall },
   { name: 'web_search', tier: 'view', noFileEffect: true, defaultsToWorkspace: false, call: noFileCall },
-  { name: 'web_fetch', tier: 'view', noFileEffect: true, defaultsToWorkspace: false, call: noFileCall },
-  // The PTC transport declares no path of its own: the program runs under the owner's standing file
-  // policy, and every nested call is a separate execution this same guard and replacement set judge.
-  { name: RUN_CODE_NAME, tier: 'view', noFileEffect: true, defaultsToWorkspace: false, call: noFileCall },
   { name: 'edit', tier: 'write', noFileEffect: false, defaultsToWorkspace: false, call: filePathCall },
   { name: 'write', tier: 'write', noFileEffect: false, defaultsToWorkspace: false, call: filePathCall },
 ]

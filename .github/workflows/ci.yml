@@ -124,6 +124,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: ./.github/actions/code-notes
 
       # Redirect the Node compile cache (enabled by pnpm and TypeScript) off
       # the root partition's /tmp before the first pnpm call in this lane.
@@ -195,6 +196,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - uses: ./.github/actions/code-notes
 
       - name: Restore coverage duration history
         uses: actions/cache/restore@v6.1.0

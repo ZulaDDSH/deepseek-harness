@@ -132,17 +132,19 @@ export function memorixStoredChunk(path: string, id: number, project: string, to
 /**
  * Read the newest saved observations of one entity created before a point in time.
  * @param path - provider database path.
- * @param query - entity name, topic-key prefix to leave out, exclusive creation bound and positive row limit.
- * @returns active observations newest first; empty when none match.
+ * @param query - entity name, project identifier, topic-key prefix to leave out, exclusive creation bound and positive row limit.
+ * @returns active observations of that entity in that project, newest first; empty when none match.
  */
 export function memorixRecent(path: string, query: {
   entityName: string
+  project: string
   excludeTopicPrefix: string
   before: string
   limit: number
 }): MemorixRecentObservation[] {
   const input = z.object({
     entityName: z.string().min(1),
+    project: z.string().min(1),
     excludeTopicPrefix: z.string(),
     before: z.string().min(1),
     limit: z.number().int().positive(),
@@ -151,9 +153,9 @@ export function memorixRecent(path: string, query: {
     observations(db)
     const escaped = input.excludeTopicPrefix.replace(/[\\%_]/g, '\\$&')
     return db.prepare(
-      "SELECT title, narrative, createdAt FROM observations WHERE entityName = ? AND status = 'active' AND createdAt < ? "
+      "SELECT title, narrative, createdAt FROM observations WHERE entityName = ? AND projectId = ? AND status = 'active' AND createdAt < ? "
       + "AND (topicKey IS NULL OR topicKey NOT LIKE ? ESCAPE '\\') ORDER BY createdAt DESC, id DESC LIMIT ?",
-    ).all(input.entityName, input.before, `${escaped}%`, input.limit).map(row => ({
+    ).all(input.entityName, input.project, input.before, `${escaped}%`, input.limit).map(row => ({
       title: z.string().parse(row.title), narrative: z.string().parse(row.narrative), createdAt: z.string().parse(row.createdAt),
     }))
   })

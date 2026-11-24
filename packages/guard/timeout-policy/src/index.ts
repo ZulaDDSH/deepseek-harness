@@ -24,6 +24,12 @@ import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
  */
 export const TOOL_TIMEOUT = 'TOOL_TIMEOUT'
 
+const TOOL_TIMEOUT_UNSETTLED = 'TOOL_TIMEOUT_UNSETTLED'
+
+const SETTLE_GRACE_MS = 30_000
+
+const UNSETTLED = Symbol('unsettled')
+
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'timeout-policy'
 
@@ -47,6 +53,27 @@ function toolTimeoutResult(timeoutMs: number): ToolExecutionResult {
   }
 }
 
+function toolUnsettledResult(timeoutMs: number): ToolExecutionResult {
+  const message = `tool call timed out after ${timeoutMs}ms and did not stop within ${SETTLE_GRACE_MS}ms; it may still be running and its effects are unknown`
+  return {
+    content: [{ type: 'text', text: `Error: ${message}` }],
+    isError: true,
+    error: { message, info: { name: 'ToolTimeoutError', code: TOOL_TIMEOUT_UNSETTLED } },
+  }
+}
+
+function unsettledAfter(signal: AbortSignal): { promise: Promise<typeof UNSETTLED>; clear(): void } {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const promise = new Promise<typeof UNSETTLED>((resolve) => {
+    const arm = (): void => {
+      if (timeoutOf(signal, TOOL_TIMEOUT) !== undefined) timer = setTimeout(() => { resolve(UNSETTLED) }, SETTLE_GRACE_MS)
+    }
+    if (signal.aborted) arm()
+    else signal.addEventListener('abort', arm, { once: true })
+  })
+  return { promise, clear: () => { clearTimeout(timer) } }
+}
+
 /**
  * Register the timeout wrapper. It resolves the caller-visible tool definition,
  * temporarily replaces `exec.signal`, delegates, restores the upstream signal,
@@ -65,7 +92,18 @@ export function apply(ctx: Context): void {
     const upstream = exec.signal
     exec.signal = d.signal
     try {
-      const result = await next()
+      const pending = next()
+      const grace = unsettledAfter(d.signal)
+      let result: ToolExecutionResult | typeof UNSETTLED
+      try {
+        result = await Promise.race([pending, grace.promise])
+      } finally {
+        grace.clear()
+      }
+      if (result === UNSETTLED) {
+        pending.catch(() => {})
+        return toolUnsettledResult(timeoutMs)
+      }
       // If OUR timer fired (scoped by code — a nested outer deadline reads as
       // undefined here), the tool/capability saw the abort and reached
       // quiescence; replace whatever it returned (its own abort result) with the

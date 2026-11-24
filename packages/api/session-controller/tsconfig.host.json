@@ -22,6 +22,7 @@
     "src/history/controller.ts",
     "src/history/listener.ts",
     "src/history/assistant-stream.ts",
+    "src/history/outline.ts",
     "src/state/controller.ts",
     "src/state/listener.ts",
     "src/web/controller.ts",

@@ -21,6 +21,7 @@ interface EditInput {
   oldString: string
   newString: string
   replaceAll: boolean
+  append: boolean
 }
 
 /**
@@ -33,26 +34,38 @@ interface EditToolArgs {
   old_string: string
   new_string: string
   replace_all?: boolean
+  append?: boolean
   sandbox_permissions?: string
   justification?: string
 }
 
 /**
  * Validate value constraints the schema DSL can't express: a non-blank
- * `file_path`, a non-empty `old_string`, and `old_string !== new_string`
- * (an equal pair would be a guaranteed no-op edit).
+ * `file_path`, a non-empty `old_string` and `old_string !== new_string` (an equal pair would
+ * be a guaranteed no-op edit), or under `append` an empty `old_string`, a non-empty
+ * `new_string`, and no `replace_all`.
  * @param args - the schema-validated raw tool arguments.
  * @returns the camelCased input with `replace_all` defaulted to false.
  */
-export function parseEditArgs(args: { file_path: string; old_string: string; new_string: string; replace_all?: boolean }): EditInput {
+export function parseEditArgs(
+  args: { file_path: string; old_string: string; new_string: string; replace_all?: boolean; append?: boolean },
+): EditInput {
   if (args.file_path.trim().length === 0) throw new ToolArgsError(['file_path must be a non-empty string'])
-  if (args.old_string.length === 0) throw new ToolArgsError(['old_string must be a non-empty string'])
-  if (args.old_string === args.new_string) throw new ToolArgsError(['old_string and new_string must differ'])
+  const oldString = args.old_string
+  if (args.append === true) {
+    if (oldString.length > 0) throw new ToolArgsError(['old_string must be empty when append is true'])
+    if (args.new_string.length === 0) throw new ToolArgsError(['new_string must be a non-empty string when append is true'])
+    if (args.replace_all === true) throw new ToolArgsError(['replace_all cannot be combined with append'])
+    return { filePath: args.file_path, oldString, newString: args.new_string, replaceAll: false, append: true }
+  }
+  if (oldString.length === 0) throw new ToolArgsError(['old_string must be a non-empty string'])
+  if (oldString === args.new_string) throw new ToolArgsError(['old_string and new_string must differ'])
   return {
     filePath: args.file_path,
-    oldString: args.old_string,
+    oldString,
     newString: args.new_string,
     replaceAll: args.replace_all ?? false,
+    append: false,
   }
 }
 
@@ -60,9 +73,11 @@ export function parseEditArgs(args: { file_path: string; old_string: string; new
  * Format an edit success (single-match or replace-all) as a Claude-style model-facing message.
  * @param displayPath - the backend-resolved path shown to the model.
  * @param replaceAll - selects the all-occurrences wording over the single-replacement one.
+ * @param append - selects the appended wording.
  * @returns the confirmation sentence the model sees as the tool result.
  */
-export function formatEditOutput(displayPath: string, replaceAll: boolean): string {
+export function formatEditOutput(displayPath: string, replaceAll: boolean, append = false): string {
+  if (append) return `The file ${displayPath} has been appended to successfully.`
   return replaceAll
     ? `The file ${displayPath} has been updated. All occurrences were successfully replaced.`
     : `The file ${displayPath} has been updated successfully.`
@@ -84,16 +99,17 @@ export function applyEditTool(ctx: Context, sandbox: FsSandboxController): void 
 
   ctx.tools.register(defineTool({
     name: 'edit',
-    description: 'Edit an existing UTF-8 text file by replacing literal text.',
+    description: 'Edit an existing UTF-8 text file by replacing literal text, or append text to its end.',
     parameters: {
       file_path: {
         type: 'string', required: true,
         description: 'Path to edit, resolved by the filesystem backend. '
           + 'Provide `file_path` before `old_string` and `new_string` in the arguments.',
       },
-      old_string: { type: 'string', required: true, description: 'Literal text to replace.' },
+      old_string: { type: 'string', required: true, description: 'Literal text to replace. Send an empty string when append is true.' },
       new_string: { type: 'string', required: true, description: 'Literal replacement text. Use an empty string to delete the match.' },
       replace_all: { type: 'boolean', description: 'Replace all matches. Defaults to false; when false, old_string must appear exactly once.' },
+      append: { type: 'boolean', description: 'Add new_string verbatim to the end of the existing file instead of replacing text; send old_string as an empty string. Include any newline you need. Also fills an empty file.' },
       ...sandbox.escalationModes.length > 0 ? sandbox.schemaFields() : {},
     },
     output: {
@@ -108,7 +124,7 @@ export function applyEditTool(ctx: Context, sandbox: FsSandboxController): void 
       },
       render: (args, value) => [{
         type: 'text',
-        text: formatEditOutput(value.path, args.replace_all ?? false),
+        text: formatEditOutput(value.path, args.replace_all ?? false, args.append === true),
       }],
       presentationMeta: (_args, value) => ({
         path: value.path,
@@ -133,7 +149,7 @@ export function applyEditTool(ctx: Context, sandbox: FsSandboxController): void 
         const intent = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)
         outcome = await ctx.fs.editText(
           target,
-          { oldString: input.oldString, newString: input.newString, replaceAll: input.replaceAll },
+          { oldString: input.oldString, newString: input.newString, replaceAll: input.replaceAll, ...input.append ? { append: true } : {} },
           intent,
           exec.signal,
           sandboxPolicy,
@@ -153,7 +169,7 @@ export function applyEditTool(ctx: Context, sandbox: FsSandboxController): void 
       return {
         card: 'diff',
         title: `Edit ${args.file_path}`,
-        diffs: [{ path: args.file_path, oldText: args.old_string || null, newText: args.new_string }],
+        diffs: [{ path: args.file_path, oldText: args.append === true ? null : args.old_string || null, newText: args.new_string }],
         locations: [{ path: args.file_path }],
       }
     },

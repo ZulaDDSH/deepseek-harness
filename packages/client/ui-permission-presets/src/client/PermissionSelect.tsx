@@ -81,6 +81,7 @@ export function PermissionSelect({
   const catalog = usePermissionCatalog(state => state.value)
   const [pick, setPick] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
   const [confirmation, setConfirmation] = useState<string | null>(null)
   const [acknowledged, setAcknowledged] = useState(false)
 
@@ -94,8 +95,7 @@ export function PermissionSelect({
 
   if (selection === undefined || catalog === null) return null
 
-  const currentValue = pick !== null && catalog.options.some(option => option.value === pick)
-    ? pick : selection.currentValue
+  const currentValue = selection.currentValue
   const current = catalog.options.find(option => option.value === currentValue)
   const currentLabel = current === undefined
     ? permissionLabel(currentValue, currentValue, t)
@@ -121,11 +121,16 @@ export function PermissionSelect({
   })
 
   const submit = (id: string): void => {
+    setFailure(null)
     setPick(id)
     void select(id)
-      .catch(() => false)
-      .then(() => { setPick(null) })
+      .then(ok => ok, () => false)
+      .then((ok) => {
+        if (!ok) setFailure(id)
+        setPick(null)
+      })
   }
+  const failed = failure !== null && failure !== selection.currentValue ? failure : null
 
   const choose = (id: string): void => {
     setOpen(false)
@@ -190,6 +195,15 @@ export function PermissionSelect({
           </button>
         }
       />
+      {pick !== null && <span role="status" className={css.pending}>{t('switching')}</span>}
+      {failed !== null && (
+        <span role="alert" className={css.failure}>
+          {t('switchFailed', { name: permissionLabel(selection.currentValue, current?.name ?? selection.currentValue, t) })}
+          <button type="button" className={css.retry} disabled={locked || busy} onClick={() => { submit(failed) }}>
+            {t('switchRetry')}
+          </button>
+        </span>
+      )}
       {confirmation !== null && (
         <RiskConfirmation
           open

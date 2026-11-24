@@ -13,7 +13,7 @@ import type { Session, SessionEvent, SessionSeq, ToolResultMessage } from '@deep
 import type {} from '@deepseek-ai/dsh-compaction'
 // Type-only: the `ctx.tokenMeter` Context merge for the declared injection.
 import type {} from '@deepseek-ai/dsh-token-meter'
-import { codePointLength, DEFAULTS, PRUNE_MARKER, resolveConfig } from './config.ts'
+import { codePointLength, codePointOffset, DEFAULTS, PRUNE_MARKER, resolveConfig } from './config.ts'
 import type {
   PrunedEntry,
   PruneResult,
@@ -83,7 +83,10 @@ export class ToolResultPruner extends Service {
   pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null {
     const totalChars = this.measureContent(blocks)
     if (totalChars <= this.config.thresholdChars) return null
+    return this.pruneMeasured(blocks, totalChars)
+  }
 
+  private pruneMeasured(blocks: readonly ContentBlock[], totalChars: number): ContentBlock[] {
     const removedStart = this.config.headChars
     const removedEnd = totalChars - this.config.tailChars
     const pruned: ContentBlock[] = []
@@ -96,17 +99,17 @@ export class ToolResultPruner extends Service {
         continue
       }
 
-      const points = Array.from(block.text)
+      const length = codePointLength(block.text)
       const blockStart = consumed
-      const blockEnd = blockStart + points.length
-      const headEnd = Math.min(points.length, Math.max(0, removedStart - blockStart))
-      const tailStart = Math.min(points.length, Math.max(0, removedEnd - blockStart))
+      const blockEnd = blockStart + length
+      const headEnd = Math.min(length, Math.max(0, removedStart - blockStart))
+      const tailStart = Math.min(length, Math.max(0, removedEnd - blockStart))
       const intersectsRemoved = blockStart < removedEnd && blockEnd > removedStart
       const marker = intersectsRemoved && !markerInserted ? PRUNE_MARKER : ''
       if (marker.length > 0) markerInserted = true
-      const text = points.slice(0, headEnd).join('')
+      const text = block.text.slice(0, codePointOffset(block.text, headEnd))
         + marker
-        + points.slice(tailStart).join('')
+        + block.text.slice(codePointOffset(block.text, tailStart))
       if (text.length > 0) pruned.push({ ...block, text })
       consumed = blockEnd
     }
@@ -146,9 +149,9 @@ export class ToolResultPruner extends Service {
     let charsRemoved = 0
     for (const { seq, event } of candidates) {
       const original = session.deriveEventMessage(event) as ToolResultMessage
-      const content = this.pruneContent(original.content)
-      if (content === null) continue
       const charsBefore = this.measureContent(original.content)
+      if (charsBefore <= this.config.thresholdChars) continue
+      const content = this.pruneMeasured(original.content, charsBefore)
       const charsAfter = this.measureContent(content)
       const message = freezeMessage<ToolResultMessage>({
         ...original,

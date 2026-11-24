@@ -293,6 +293,29 @@ it('bounds the queued record count while a transport request is unsettled', asyn
   await done
 })
 
+it('bounds the queued bytes while a transport request is unsettled', async () => {
+  const transport = await import('../src/transport.ts')
+  const release = Promise.withResolvers<(result:{ code:0 })=>void>()
+  vi.spyOn(transport,'createLogExporter').mockReturnValue({
+    export(_records,callback){release.resolve(callback)},forceFlush:async()=>{},shutdown:async()=>{},
+  })
+  const { sender,onFailure } = reporter('http://collector.test/logs',{ maxRequestBytes:4000,processor:{ maxExportBatchSize:1,maxQueueSize:100,maxQueueBytes:4000 } })
+  for(let seq=0;seq<6;seq++)sender.reportSessionLog(sessionRecord('x'.repeat(1000),seq))
+  const finish = await release.promise
+  cleanup.push(async () => { sender.stopPending(); finish({ code: 0 }) })
+  expect(onFailure).toHaveBeenCalledWith('Session log queue byte budget is full; record rejected')
+  expect(onFailure).not.toHaveBeenCalledWith('Session log queue is full; record rejected')
+  expect(onFailure.mock.calls.length).toBeLessThan(5)
+  sender.stopPending()
+  const done=sender.shutdown()
+  finish({ code:0 })
+  await done
+})
+
+it('rejects a queue byte budget below one request', () => {
+  expect(() => reporter('http://collector.test/logs',{ maxRequestBytes:4000,processor:{ maxQueueBytes:3999 } })).toThrow('maxQueueBytes')
+})
+
 it('keeps ordinary events and Session logs in independent channels through one Cordis service', async () => {
   const target = await collector()
   const ordinary = ctx.otel.createEventReporter({

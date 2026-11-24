@@ -23,7 +23,7 @@ Use this library to start packaged ripgrep without a shell or a system `rg` inst
 <a id="use-this-package"></a>
 ## Use this package
 
-Import `spawnRipgrep` from this package and pass the composed subprocess service plus an explicit `SubprocessSpawnSpec`; its `argv` contains only rg arguments. The returned handle exposes collected output or piped streams as requested. With piped stdout, `readRipgrepLines` delivers newline- or NUL-separated UTF-8 records; returning false from the callback terminates rg and suppresses remaining records. It awaits stdout, the process outcome and managed-range quiescence before returning. Callback, stream and provider failures reject after cleanup. Callers classify exit codes and cancellation using their own signal.
+Import `spawnRipgrep` from this package and pass the composed subprocess service plus an explicit `SubprocessSpawnSpec`; its `argv` contains only rg arguments. The returned handle exposes collected output or piped streams as requested. With piped stdout, `readRipgrepLines` delivers newline- or NUL-separated UTF-8 records (the result's `undecodable` counts records that were not valid UTF-8); returning false from the callback terminates rg and suppresses remaining records. It awaits stdout, the process outcome and managed-range quiescence before returning. Callback, stream and provider failures reject after cleanup. Callers classify exit codes and cancellation using their own signal.
 
 `resolveRgPath` is available independently for consumers that only need the executable path. Resolution and spawn failures reject the call; they do not prevent importing the package. This library is a dependency, not a profile plugin.
 
@@ -64,7 +64,7 @@ None directly; consumers own model-visible results and request assembly.
 <a id="known-limitations-and-deferred-work"></a>
 
 - **Co-located executable required** — resolution uses the Host's packaged binary path. A remote subprocess provider without that binary fails; there is no system-rg lookup or filesystem-traversal fallback.
-- **Record buffering** — streaming retains one incomplete record plus the current stream chunk; callers whose filenames may contain newlines use NUL separators rather than newlines. Records decode as UTF-8, so a filename that is not valid UTF-8 arrives with U+FFFD replacements and cannot be opened by that string.
+- **Record buffering** — streaming retains one incomplete record plus the current stream chunk; callers whose filenames may contain newlines use NUL separators rather than newlines. Records decode as UTF-8; a filename that is not valid UTF-8 arrives with U+FFFD replacements, cannot be opened by that string, and is counted in the result's `undecodable` so a consumer can report it instead of showing a misleading path. The package does not provide a lossless byte path, and consumers that ignore `undecodable` still show the replaced name; the workspace file search reports it as `undecodable` in its result and the filesystem search tool counts replacement characters itself because it reads already-decoded subprocess stdout.
 
 <a id="dev-note"></a>
 ### Dev Note

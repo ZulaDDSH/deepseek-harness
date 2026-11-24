@@ -56,7 +56,8 @@ export class ShortcutPersistence {
 
   constructor(private readonly storage: ShortcutStorage, private readonly runtime: ShortcutRuntime,
     private readonly platform: ShortcutPlatform, private readonly rereadBeforeWrite: boolean,
-    private readonly publish: (snapshot: ShortcutConfigSnapshot) => void) {}
+    private readonly publish: (snapshot: ShortcutConfigSnapshot) => void,
+    private readonly exclusive: <T>(transaction: () => Promise<T>) => Promise<T> = transaction => transaction()) {}
 
   /**
    * Install or revoke a product catalog and invalidate drafts from its previous lifetime.
@@ -85,7 +86,7 @@ export class ShortcutPersistence {
    * @returns a classified outcome and the currently accepted snapshot.
    */
   edit(edit: ShortcutEdit, revision: ShortcutRevision): Promise<ShortcutSaveResult> {
-    return this.serialize(async () => {
+    return this.serialize(() => this.exclusive(async () => {
       if (this.rereadBeforeWrite) await this.read()
       const result = (status: ShortcutSaveResult['status']): ShortcutSaveResult => ({ status, snapshot: this.snapshot })
       if (!this.active || this.definitions === null || this.snapshot.status === 'loading') return result('not-ready')
@@ -111,7 +112,7 @@ export class ShortcutPersistence {
         // The adapter retains the previous complete document when a write fails.
         return result('write-failed')
       }
-    })
+    }))
   }
 
   private serialize<T>(operation: () => Promise<T>): Promise<T> {

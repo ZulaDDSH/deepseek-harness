@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-This package gives history clients a whole-session outline of every started turn, including bounded prompt and settled-response previews. Clients can navigate turns that are not yet loaded and page backward from the exact event sequence needed to load a selected turn. It fits assemblies that provide session projections; elsewhere, clients continue using loaded-window navigation. Previews exclude injected context and tool results, and a response appears only after its turn settles.
+This package gives history clients an outline of the newest 500 started turns of a session (older turns page in through history), including bounded prompt and settled-response previews. Clients can navigate turns that are not yet loaded and page backward from the exact event sequence needed to load a selected turn. It fits assemblies that provide session projections; elsewhere, clients continue using loaded-window navigation. Previews exclude injected context and tool results, and a response appears only after its turn settles.
 
 ## Table of Contents
 
@@ -42,11 +42,11 @@ Mount the plugin beside the session store and the projection registry when clien
 | `prompt` | Preview of the turn's first human prompt (space-joined text blocks, collapsed whitespace, 50-character cap with a trailing ellipsis when clipped — one rail-card line); `''` until an eligible prompt lands |
 | `response` | Preview of the turn's final text-bearing assistant message (same normalization, 120-character cap — up to three rail-card lines); `''` until the turn ends with assistant text |
 
-The wire value is the complete entry array, strictly increasing by `turn` (whole-value rule): consumers replace, never merge. Prompts fill only from `user/message` events with the human `user` source, so injected context and tool results never leak into navigation; a turn whose prompt is images-only keeps `''` and consumers label it by number. The response buffers as a draft while its turn streams and commits at `turn/end`; the change feed's raw-view identity gate keeps draft-only changes quiet, so the outline pushes at most three times per turn — boundary, prompt, settled response. Preview budgets match the chat rail's loaded-turn previews, so a turn shows the same words before and after its events load.
+The wire value is the entry array of the newest 500 started turns, strictly increasing by `turn` (whole-value rule): consumers replace, never merge. The state, each change-feed push, and each persisted checkpoint row all hold that same bounded window, so per-turn copy, transmission, and persistence cost stops growing once a session passes 500 turns; the oldest retained entry's `seq` is the page-back target for turns before the window. Prompts fill only from `user/message` events with the human `user` source, so injected context and tool results never leak into navigation; a turn whose prompt is images-only keeps `''` and consumers label it by number. The response buffers as a draft while its turn streams and commits at `turn/end`; the change feed's raw-view identity gate keeps draft-only changes quiet, so the outline pushes at most three times per turn — boundary, prompt, settled response. Preview budgets match the chat rail's loaded-turn previews, so a turn shows the same words before and after its events load.
 
 ### Failures and recovery
 
-The unit is inert without the projection registry: `inject` keeps the fiber pending and nothing registers, so other assemblies lack the `turnOutline` key. Unmounting the plugin removes the key, because registrations are effects on the mounting fiber. Persisted-cache rows are schema-validated on restore — including the strictly-increasing turn order — so a corrupt row is discarded instead of seeding a broken fold.
+The unit is inert without the projection registry: `inject` keeps the fiber pending and nothing registers, so other assemblies lack the `turnOutline` key. Unmounting the plugin removes the key, because registrations are effects on the mounting fiber. Persisted-cache rows are schema-validated on restore — including the strictly-increasing turn order and the 500-entry window — so a corrupt row is discarded instead of seeding a broken fold.
 
 -----
 
@@ -107,7 +107,7 @@ None; the package never assembles or sends provider requests.
 
 These limits define what the outline describes and when the unit is absent. They are current package constraints.
 
-- **The wire value grows with the session** — every push carries the complete outline (whole-value rule), up to ~600 bytes per turn at full CJK budgets and typically far less; splitting previews into an on-demand read is deferred until sessions with many thousands of turns need it.
+- **Only the newest 500 turns are outlined** — the state, every push, and the checkpoint row hold at most 500 entries (up to ~300 KB at full CJK budgets, typically far less), so a very long session has no outline entry for its older turns: the rail marks them only once history paging has loaded them, starting from the oldest retained entry's `seq`. Older turns are read with the `outline` method of [`dsh-api-session-controller`](../../api/session-controller/README.md) and merged by the chat rail as history pages back; the cap is the `OUTLINE_ENTRY_LIMIT` constant in `src/projection.ts`.
 - **The response previews only settled turns** — it commits at `turn/end`, so an open turn (or one whose end never logged) shows a prompt-only preview until the boundary lands.
 - **A turn without eligible text keeps `''`** — images-only and command-only turns are navigable but labeled by number, and a turn whose steps emit no text gets no response preview.
 - **Mounted only where the projection registry is composed** — other assemblies serve no `turnOutline` key, and their consumers fall back to loaded-window navigation.

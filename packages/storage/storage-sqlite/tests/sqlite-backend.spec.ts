@@ -11,8 +11,8 @@ import * as StorageSqlite from '../src/index.ts'
 import { Config, SqliteStorageBackend, STORAGE_SQLITE_SCHEMA_VERSION } from '../src/index.ts'
 
 /** Mirror the loader: resolve schemastery defaults before construction. */
-function backendAt(path: string): SqliteStorageBackend {
-  const backend = new SqliteStorageBackend(new Config({ path }))
+function backendAt(path: string, exclusive = false): SqliteStorageBackend {
+  const backend = new SqliteStorageBackend(new Config({ path, exclusive }))
   backends.push(backend)
   return backend
 }
@@ -495,5 +495,25 @@ describe('sqlite backend specifics', () => {
       code: 'malformed-medium',
     })
     await reopened.close()
+  })
+})
+
+describe('database ownership', () => {
+  it('refuses a second connection to a file database while the first is open', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-sqlite-owner-'))
+    dirs.push(dir)
+    const path = join(dir, 'owned.db')
+    const first = backendAt(path, true)
+    await first.kv.open(DESCRIPTOR)
+    try {
+      const second = backendAt(path, true)
+      await expect(second.kv.open(DESCRIPTOR)).rejects.toMatchObject({ code: 'locked' })
+      await second.close().catch(() => {})
+    } finally {
+      await first.close()
+    }
+    const third = backendAt(path, true)
+    await third.kv.open(DESCRIPTOR)
+    await third.close()
   })
 })

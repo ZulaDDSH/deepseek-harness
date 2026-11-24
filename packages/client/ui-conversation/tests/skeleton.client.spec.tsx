@@ -1017,6 +1017,48 @@ describe('ConversationRoot resident composer', () => {
     }
   })
 
+  it('lays out and drags a width handle when storage getter and methods throw, keeping the dragged width in memory', () => {
+    const names = ['setPointerCapture', 'releasePointerCapture', 'hasPointerCapture'] as const
+    const originals = names.map(name => [name, Object.getOwnPropertyDescriptor(Element.prototype, name)] as const)
+    const storage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+    const captured = new Set<Element>()
+    Element.prototype.setPointerCapture = function () { captured.add(this) }
+    Element.prototype.releasePointerCapture = function () { captured.delete(this) }
+    Element.prototype.hasPointerCapture = function () { return captured.has(this) }
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, get: () => { throw new DOMException('blocked', 'SecurityError') } })
+    try {
+      const b = mount(sessionSnapshotOf())
+      const content = b.view.container.querySelector('[data-conversation-content]') as HTMLElement
+      const root = content.parentElement as HTMLElement
+      Object.defineProperty(content, 'offsetWidth', { value: 1600, configurable: true })
+      act(() => { fireResize(content) })
+      const handle = b.view.container.querySelector('[data-width-handle="right"]') as HTMLElement
+      fireEvent.pointerDown(handle, { pointerId: 1, clientX: 800, clientY: 300 })
+      fireEvent.pointerMove(handle, { pointerId: 1, clientX: 825, clientY: 300 })
+      expect(() => { fireEvent.pointerUp(handle, { pointerId: 1, clientX: 825, clientY: 300 }) }).not.toThrow()
+      expect(root.style.getPropertyValue('--dsh-chat-user-width')).toBe('970px')
+      Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+        getItem: () => { throw new Error('denied') }, setItem: () => { throw new Error('quota') }, removeItem: () => {},
+      } })
+      fireEvent.pointerDown(handle, { pointerId: 1, clientX: 800, clientY: 300 })
+      fireEvent.pointerMove(handle, { pointerId: 1, clientX: 810, clientY: 300 })
+      expect(() => { fireEvent.pointerUp(handle, { pointerId: 1, clientX: 810, clientY: 300 }) }).not.toThrow()
+      expect(root.style.getPropertyValue('--dsh-chat-user-width')).toBe('990px')
+      if (storage !== undefined) Object.defineProperty(globalThis, 'localStorage', storage)
+      fireEvent.pointerDown(handle, { pointerId: 1, clientX: 800, clientY: 300 })
+      fireEvent.pointerMove(handle, { pointerId: 1, clientX: 805, clientY: 300 })
+      fireEvent.pointerUp(handle, { pointerId: 1, clientX: 805, clientY: 300 })
+      localStorage.removeItem('dsh.conversation.contentWidth')
+    } finally {
+      if (storage === undefined) Reflect.deleteProperty(globalThis, 'localStorage')
+      else Object.defineProperty(globalThis, 'localStorage', storage)
+      for (const [name, descriptor] of originals) {
+        if (descriptor === undefined) Reflect.deleteProperty(Element.prototype, name)
+        else Object.defineProperty(Element.prototype, name, descriptor)
+      }
+    }
+  })
+
   it('forwards wheel scrolling from a width handle to the transcript', () => {
     const b = mount(sessionSnapshotOf())
     const scrollport = b.view.container.querySelector('[data-conversation-scroll]') as HTMLElement

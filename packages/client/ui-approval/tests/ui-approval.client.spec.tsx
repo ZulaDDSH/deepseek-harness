@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { Context } from '@deepseek-ai/cordis'
+import { useEffect } from 'react'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -324,6 +325,17 @@ describe('approval Remote Event consumer', () => {
   })
 })
 
+interface DetailOwner { onAvailability?: (available: boolean) => void }
+
+function ReportingDetail({ owner, available }: { owner: DetailOwner; available: boolean }) {
+  useEffect(() => { owner.onAvailability?.(available) }, [owner, available])
+  return <code>pnpm test</code>
+}
+
+function reportingSlot(available: boolean): FactoryComponentPropsOf<'conversation.approval.card'>['renderSlot'] {
+  return ((_name: string, owner: DetailOwner) => <ReportingDetail owner={owner} available={available} />) as never
+}
+
 function panelProps(
   pending: PendingApproval,
   renderSlot: FactoryComponentPropsOf<'conversation.approval.card'>['renderSlot'] = vi.fn(() => null),
@@ -376,12 +388,42 @@ describe('ApprovalPanel', () => {
     expect(screen.getByText('pnpm test')).toBeTruthy()
     expect(renderSlot).toHaveBeenCalledWith('conversation.approval.detail', {
       callId: 'call-1',
+      onAvailability: expect.any(Function),
     })
     fireEvent.click(screen.getByRole('button', { name: 'Allow once' }))
     expect(document.querySelector('[data-approval-key] [data-state="ongoing"]')).not.toBeNull()
     expect(document.querySelector('[data-approval-key]')?.getAttribute('aria-busy')).toBe('true')
 
     await expect(pending.result).resolves.toBe('allowed-once')
+  })
+
+  it('qualifies a tool approval whose correlated detail is unavailable and keeps both decisions available', () => {
+    const noCall = new PendingApproval(id('s1'), { toolName: 'bash' })
+    const first = render(<ApprovalPanel {...panelProps(noCall)} />)
+    expect(first.container.querySelector('[data-approval-detail-unavailable]')?.textContent).toBe('detail.unavailable')
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Allow once' }).disabled).toBe(false)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Reject' }).disabled).toBe(false)
+    first.unmount()
+
+    const withCall = new PendingApproval(id('s1'), { toolName: 'bash', callId: 'call-1' as ToolCallId })
+    const second = render(<ApprovalPanel {...panelProps(withCall, reportingSlot(false))} />)
+    expect(second.container.querySelector('[data-approval-detail-unavailable]')).not.toBeNull()
+    second.unmount()
+  })
+
+  it('shows no unavailable notice once the detail provider reports a correlated call', () => {
+    const pending = new PendingApproval(id('s1'), { toolName: 'bash', callId: 'call-1' as ToolCallId })
+    const { container } = render(<ApprovalPanel {...panelProps(pending, reportingSlot(true))} />)
+    expect(screen.getByText('pnpm test')).toBeTruthy()
+    expect(container.querySelector('[data-approval-detail-unavailable]')).toBeNull()
+  })
+
+  it('does not qualify application consent that sets no detail requirement', () => {
+    const { container } = render(<ApprovalCard {...{
+      requestKey: 'k', title: 'Consent', canAnswer: () => true,
+      onAllow: () => Promise.resolve(), onReject: () => Promise.resolve(), renderSlot: () => null, t: (key: string) => key,
+    } as FactoryComponentPropsOf<'conversation.approval.card'>} />)
+    expect(container.querySelector('[data-approval-detail-unavailable]')).toBeNull()
   })
 
   it('keeps the audit reason intact and follows the UI language for presentation copy', () => {

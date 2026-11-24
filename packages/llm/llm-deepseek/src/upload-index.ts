@@ -22,9 +22,16 @@ export interface DeepSeekUploadRecord {
   expiresAt: number
 }
 
+interface OwnedFile {
+  scope: DeepSeekFileScopeType
+  fileId: DeepSeekFileIdType
+  expiresAt: number
+}
+
 interface StoredIndex {
   formatVersion: 3
   records: DeepSeekUploadRecord[]
+  owned: OwnedFile[]
 }
 
 class InvalidUploadIndexError extends Error {}
@@ -79,6 +86,23 @@ function parseRecord(value: unknown): DeepSeekUploadRecord {
   }
 }
 
+function parseOwned(value: unknown): OwnedFile {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new InvalidUploadIndexError('llm-deepseek: upload index contains a non-object owned entry')
+  }
+  const entry = value as Record<string, unknown>
+  if (typeof entry.scope !== 'string' || !/^[0-9a-f]{64}$/u.test(entry.scope)
+    || typeof entry.fileId !== 'string' || entry.fileId.length === 0
+    || !Number.isSafeInteger(entry.expiresAt) || (entry.expiresAt as number) < 0) {
+    throw new InvalidUploadIndexError('llm-deepseek: upload index contains an invalid owned entry')
+  }
+  return {
+    scope: brandString<DeepSeekFileScopeType>(entry.scope),
+    fileId: brandString<DeepSeekFileIdType>(entry.fileId),
+    expiresAt: entry.expiresAt as number,
+  }
+}
+
 function parseIndex(text: string): StoredIndex {
   let value: unknown
   try {
@@ -89,18 +113,22 @@ function parseIndex(text: string): StoredIndex {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new InvalidUploadIndexError('llm-deepseek: upload index is not an object')
   }
-  const index = value as { formatVersion?: unknown; records?: unknown }
+  const index = value as { formatVersion?: unknown; records?: unknown; owned?: unknown }
   if (index.formatVersion !== 3 || !Array.isArray(index.records)) {
     throw new InvalidUploadIndexError('llm-deepseek: unsupported upload index format')
   }
   const records = index.records.map(parseRecord)
+  if (index.owned !== undefined && !Array.isArray(index.owned)) {
+    throw new InvalidUploadIndexError('llm-deepseek: upload index owned ledger is not an array')
+  }
+  const owned = (Array.isArray(index.owned) ? index.owned : []).map(parseOwned)
   const keys = new Set<string>()
   for (const record of records) {
     const key = `${record.scope}\0${record.variantId}`
     if (keys.has(key)) throw new InvalidUploadIndexError('llm-deepseek: upload index contains duplicate mappings')
     keys.add(key)
   }
-  return { formatVersion: 3, records }
+  return { formatVersion: 3, records, owned }
 }
 
 function reusable(record: DeepSeekUploadRecord, now: number, refreshMarginMs: number): boolean {
@@ -124,7 +152,7 @@ export class DeepSeekUploadIndex {
       return parseIndex(await readFile(this.path, { encoding: 'utf8', signal }))
     } catch (error: unknown) {
       if (absent(error) || error instanceof InvalidUploadIndexError) {
-        return { formatVersion: 3, records: [] }
+        return { formatVersion: 3, records: [], owned: [] }
       }
       throw error
     }
@@ -185,7 +213,7 @@ export class DeepSeekUploadIndex {
         && !(record.scope === candidate.scope && record.variantId === candidate.variantId)
       ))
       records.push(candidate)
-      await this.save({ formatVersion: 3, records })
+      await this.save({ ...index, records })
       return { record: candidate, accepted: true }
     })
   }
@@ -206,7 +234,7 @@ export class DeepSeekUploadIndex {
       const records = index.records.filter(record => !(
         record.scope === scope && invalidated.has(`${record.variantId}\0${record.fileId}`)
       ))
-      if (records.length !== index.records.length) await this.save({ formatVersion: 3, records })
+      if (records.length !== index.records.length) await this.save({ ...index, records })
     })
   }
 
@@ -219,7 +247,44 @@ export class DeepSeekUploadIndex {
     await withFileLock(this.path, async () => {
       const index = await this.load()
       const records = index.records.filter(record => record.scope !== scope)
-      if (records.length !== index.records.length) await this.save({ formatVersion: 3, records })
+      const owned = index.owned.filter(entry => entry.scope !== scope)
+      if (records.length !== index.records.length || owned.length !== index.owned.length) {
+        await this.save({ ...index, records, owned })
+      }
+    })
+  }
+
+  async markOwned(
+    scope: DeepSeekFileScopeType,
+    fileId: DeepSeekFileIdType,
+    expiresAt: number,
+    now: number,
+  ): Promise<void> {
+    await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
+    await withFileLock(this.path, async () => {
+      const index = await this.load()
+      const owned = index.owned.filter(entry => entry.expiresAt > now && !(entry.scope === scope && entry.fileId === fileId))
+      owned.push({ scope, fileId, expiresAt })
+      await this.save({ ...index, owned })
+    })
+  }
+
+  async ownedIds(scope: DeepSeekFileScopeType): Promise<Set<string>> {
+    const index = await this.load()
+    return new Set([
+      ...index.owned.filter(entry => entry.scope === scope).map(entry => entry.fileId),
+      ...index.records.filter(record => record.scope === scope).map(record => record.fileId),
+    ])
+  }
+
+  async forgetOwned(scope: DeepSeekFileScopeType, fileIds: readonly DeepSeekFileIdType[]): Promise<void> {
+    if (fileIds.length === 0) return
+    const gone = new Set<string>(fileIds)
+    await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
+    await withFileLock(this.path, async () => {
+      const index = await this.load()
+      const owned = index.owned.filter(entry => !(entry.scope === scope && gone.has(entry.fileId)))
+      if (owned.length !== index.owned.length) await this.save({ ...index, owned })
     })
   }
 }

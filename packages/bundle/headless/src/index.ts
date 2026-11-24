@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-fs'
@@ -30,6 +30,7 @@ import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-cmdline'
 import type {} from '@deepseek-ai/dsh-session-query'
+import type {} from '@deepseek-ai/dsh-goal'
 import type {} from '@deepseek-ai/dsh-subagent'
 // Optional service peers stay type-only so profiles can omit their packages.
 import type {} from '@deepseek-ai/dsh-permission-presets'
@@ -261,7 +262,7 @@ async function resolveAgent(
   agentOptions: AgentOptions,
   setup: (agentCtx: Context, agent: Agent) => void | Promise<void>,
   cwd: string,
-): Promise<Agent> {
+): Promise<AgentHandle> {
   // Resuming promises the caller a log a later process can continue. Without a
   // durable log the run would succeed, print the id, and still lose the whole
   // history at exit, so a miscomposed profile fails loud before the resume.
@@ -288,12 +289,13 @@ async function resolveAgent(
   try {
     using observation = await query.observeSession(sessionId)
     assertAdoptable(observation.header, observation.events, sessionId, cwd)
-    const { agent } = await agents.resume({ resumeSessionId: sessionId, agentOptions, setup })
+    const handle = await agents.resume({ resumeSessionId: sessionId, agentOptions, setup })
+    const { agent } = handle
     // The observation is a snapshot: another writer may have appended a preset
     // selection before this process took the write lease. Re-check the log
     // resume actually attached, now that no other process can append.
     assertAdoptable(agent.session.header, liveEvents(agent.session), sessionId, cwd)
-    return agent
+    return handle
   } catch (error: unknown) {
     if (!(error instanceof SessionQueryError) || error.code !== 'SESSION_QUERY_SESSION_NOT_FOUND') throw error
     // --session-id resumes a conversation that already exists; starting a new
@@ -385,14 +387,20 @@ async function run(ctx: Context, config: Config, io: HeadlessIo): Promise<void> 
   const sessionId = brandString<SessionId>(config.sessionId ?? `session-${randomUUID()}`)
   const fs = ctx.get('fs')
   const cwd = fs === undefined ? process.cwd() : fs.processPath(await fs.resolve('.'))
-  const agent = config.sessionId === undefined
-    ? (await agents.create({
+  const handle = config.sessionId === undefined
+    ? await agents.create({
       sessionId,
       meta: { cwd },
       agentOptions,
       setup,
-    })).agent
+    })
     : await resolveAgent(ctx, agents, sessionId, agentOptions, setup, cwd)
+  const { agent } = handle
+  let retired: Promise<void> | undefined
+  const retire = (): Promise<void> => retired ??= handle.dispose().catch((error: unknown) => {
+    io.stderr.write(`dsh: Agent teardown failed: ${error instanceof Error ? error.message : String(error)}\n`)
+  })
+  ctx.effect(() => () => retire(), 'headless agent retirement')
   await agent.whenIdle()
   if (config.sessionId !== undefined) {
     // The resume-time check read a snapshot; an overlay can still append a
@@ -427,14 +435,19 @@ async function run(ctx: Context, config: Config, io: HeadlessIo): Promise<void> 
         const idleSeq = agent.session.seq
         // Child settlement can wake the parent before the child wait observes it.
         if (!await subagents?.waitForTreeWork(agent)
+          && !await awaitGoalContinuation(ctx, agent)
           && agent.status === 'idle' && agent.session.seq === idleSeq) break
       }
     } finally {
       stopReasoning?.()
     }
     await sessions.flush(agent.session)
-    if (failure !== undefined) throw failure.error
+    if (failure !== undefined) {
+      await retire()
+      throw failure.error
+    }
     const outcome = summarize(agent.session, firstSeq)
+    await retire()
     if (projection === undefined) io.stdout.write(outcome.text + '\n')
     else projection.finish(outcome.text, outcome.reason)
     if (outcome.reason?.kind === 'error') {
@@ -446,6 +459,37 @@ async function run(ctx: Context, config: Config, io: HeadlessIo): Promise<void> 
     stopTerminals()
     projection?.dispose()
   }
+}
+
+// Constraint: an armed active goal owns the next round, so the one-shot run must not finish while it is pending.
+async function awaitGoalContinuation(ctx: Context, agent: Agent): Promise<boolean> {
+  const goals = ctx.get('goals')
+  const continuing = (): boolean => {
+    try {
+      const goal = goals?.get(agent)
+      return goal?.phase === 'active' && goal.activation === 'armed'
+    } catch (_error: unknown) {
+      return false
+    }
+  }
+  if (!continuing()) return false
+  let wake = Promise.withResolvers<void>()
+  const notify = (): void => wake.resolve()
+  const stops = [
+    ctx.on('agent/status', ({ agent: subject }) => { if (subject === agent) notify() }),
+    ctx.on('agent/disposed', ({ agent: subject }) => { if (subject === agent) notify() }),
+    ctx.on('goal/changed', ({ agent: subject }) => { if (subject === agent) notify() }),
+    ctx.on('goal/activation-changed', ({ sessionId }) => { if (sessionId === agent.session.id) notify() }),
+  ]
+  try {
+    while (agent.status === 'idle' && continuing()) {
+      await wake.promise
+      wake = Promise.withResolvers<void>()
+    }
+  } finally {
+    for (const stop of stops) stop()
+  }
+  return agent.status !== 'idle'
 }
 
 /**

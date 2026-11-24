@@ -176,7 +176,10 @@ async function readSubscriptionWindows(auth: PiAiAuthInjection, route: string, f
     headers: { Authorization: `Bearer ${resolved.auth.apiKey}`, 'anthropic-beta': 'oauth-2025-04-20', Accept: 'application/json' },
     signal: AbortSignal.timeout(15_000),
   }).catch(() => { throw new Error('Claude usage request failed') })
-  if (!response.ok) throw new Error(`Claude usage API returned HTTP ${response.status}`)
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined)
+    throw new Error(`Claude usage API returned HTTP ${response.status}`)
+  }
   try {
     return usageWindowsFrom(await response.json())
   } catch (error) {

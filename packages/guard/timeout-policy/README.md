@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-Use this package to give tool calls their configured cooperative time limits and return a clear timeout error to the model after cancellation settles. Calls that finish in time are unchanged. A tool that ignores or slowly handles cancellation can keep the caller waiting because the package cannot hard-stop downstream work. Each tool supplies its own limit; the package has no configuration and is enabled in the `dsh` base bundle.
+Use this package to give tool calls their configured cooperative time limits and return a clear timeout error to the model after cancellation settles. Calls that finish in time are unchanged. A tool that ignores cancellation is waited for 30 seconds past its limit and then reported as `TOOL_TIMEOUT_UNSETTLED` (it may still be running and its effects are unknown); the package cannot hard-stop downstream work. Each tool supplies its own limit; the package has no configuration and is enabled in the `dsh` base bundle.
 
 ## Table of Contents
 
@@ -41,7 +41,7 @@ The limit is set where the tool is configured. For example, `dsh-tool-web`'s `fe
 
 ### What you get
 
-When the deadline fires, the plugin aborts the derived `exec.signal`. After downstream code honors cancellation and `next()` settles, the model receives `Error: tool call timed out after <ms>ms` as an error result, so it can decide to retry, adjust, or give up. A tool that ignores or slowly handles the signal keeps the caller waiting and produces no timeout result until it settles; calls that finish in time are unchanged.
+When the deadline fires, the plugin aborts the derived `exec.signal`. After downstream code honors cancellation and `next()` settles, the model receives `Error: tool call timed out after <ms>ms` as an error result, so it can decide to retry, adjust, or give up. A tool that settles within 30 seconds after the deadline still gets `TOOL_TIMEOUT`. One that does not gets an error result with code `TOOL_TIMEOUT_UNSETTLED` saying it was asked to stop, did not, and may still be running; retry logic must not treat that as stopped. Calls that finish in time are unchanged.
 
 -----
 
@@ -116,7 +116,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 These limits define when the policy is a poor fit. They are current package constraints, not a task backlog.
 
-- **Cooperative, never a hard kill** — the deadline only notifies via `exec.signal`; a tool that ignores the signal does not stop on timeout, the wrapper remains inside `await next()`, and the model receives no timeout result until downstream settles.
+- **Cooperative, never a hard kill** — the deadline only notifies via `exec.signal`; a tool that ignores the signal keeps running. The wrapper stops waiting 30 seconds after the deadline and returns `TOOL_TIMEOUT_UNSETTLED`, which claims neither termination nor failure of the work. A tool with no declared `timeoutMs`, and a caller-side abort, remain unbounded by this policy.
 - **No blanket budget** — only tools that declare `timeoutMs` on their `ToolDefinition` get a deadline; undeclared tools (the shipped `bash`, `read`, `write`, and `edit` declare none) have no registry-wide default.
 
 <a id="dev-note"></a>

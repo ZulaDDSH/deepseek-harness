@@ -46,7 +46,7 @@ interface SetupEnv {
  * Mount the ACP backend pointed at the mock server, scripted by `mockEnv`.
  * `permission` selects the backend's auto-answer policy.
  */
-async function setup(mockEnv: SetupEnv = {}, permission: 'allow' | 'reject' = 'reject') {
+async function setup(mockEnv: SetupEnv = {}, permission: 'allow' | 'reject' = 'reject', allowRestrictedParent = false) {
   const ctx = new Context()
   await ctx.plugin(SessionProjectionRegistry)
   await mountWorkingDirectoryFixture(ctx)
@@ -58,6 +58,7 @@ async function setup(mockEnv: SetupEnv = {}, permission: 'allow' | 'reject' = 'r
     args: [mockServer],
     permission,
     env: mockEnv,
+    allowRestrictedParent,
   })
   return ctx
 }
@@ -1281,6 +1282,7 @@ describe('dsh-subagent-acp', () => {
       command: process.execPath,
       args: [mockServer],
       permission: 'reject',
+      allowRestrictedParent: false,
       env: { MOCK_TRAP_SIGTERM: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready },
       // The graces are wall-clock budgets for the managed scope's teardown on a
       // shared host. At 150ms the hosted image escalated while the scope could
@@ -1318,7 +1320,7 @@ describe('dsh-subagent-acp', () => {
       await mountWorkingDirectoryFixture(ctx)
       await ctx.plugin(SubagentRuntime)
       await ctx.plugin(LocalSubprocessRuntime)
-      await expect(ctx.plugin(acp, { providerName: 'acp', command: 'true', args: [], permission: 'reject', env: {}, ...bad }))
+      await expect(ctx.plugin(acp, { providerName: 'acp', command: 'true', args: [], permission: 'reject', env: {}, allowRestrictedParent: false, ...bad }))
         .rejects.toThrow(new RegExp(`subagent-acp: dispose(?:Eof)?GraceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`))
       await ctx.fiber.dispose()
     }
@@ -1335,6 +1337,7 @@ describe('dsh-subagent-acp', () => {
       command: '/nonexistent/acp-agent-binary',
       args: [],
       permission: 'reject',
+      allowRestrictedParent: false,
       env: {},
     })
     await expect(startExternalActivation(ctx, 'acp', request())).rejects.toThrow(
@@ -1569,7 +1572,7 @@ describe('dsh-subagent-acp', () => {
     await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(LocalSubprocessRuntime)
-    const fiber = await ctx.plugin(acp, { providerName: 'acp', command: 'x', args: [], permission: 'reject', env: {} })
+    const fiber = await ctx.plugin(acp, { providerName: 'acp', command: 'x', args: [], permission: 'reject', env: {}, allowRestrictedParent: false })
     expect(ctx.subagents.getProvider('acp')).toBeDefined()
     await fiber.dispose()
     expect(ctx.subagents.getProvider('acp')).toBeUndefined()
@@ -1584,5 +1587,33 @@ describe('dsh-subagent-acp', () => {
     expect(unwrapped).toBe(acp)
     expect(unwrapped.name).toBe('subagent-acp')
     expect(typeof unwrapped.apply).toBe('function')
+  })
+})
+
+describe('parent sandbox restriction', () => {
+  function sandboxed(ctx: Context, mode: string) {
+    ctx.provide('sandboxPolicy', { resolve: () => ({ mode, workspaceRoot: process.cwd() }) } as never)
+  }
+
+  it.each(['read-only', 'workspace-write'])('refuses delegation from a %s parent session before spawning', async (mode) => {
+    const ctx = await setup({})
+    sandboxed(ctx, mode)
+    await expect(startExternalActivation(ctx, 'acp', request('p'))).rejects.toMatchObject({ code: 'PARENT_SANDBOX_MISMATCH' })
+  })
+
+  it('starts from a danger-full-access parent session', async () => {
+    const ctx = await setup({})
+    sandboxed(ctx, 'danger-full-access')
+    const run = await startExternalActivation(ctx, 'acp', request('p'))
+    await run.result
+    await run.dispose()
+  })
+
+  it('starts from a restricted parent only when the operator attests external containment', async () => {
+    const ctx = await setup({}, 'reject', true)
+    sandboxed(ctx, 'workspace-write')
+    const run = await startExternalActivation(ctx, 'acp', request('p'))
+    await run.result
+    await run.dispose()
   })
 })

@@ -677,7 +677,7 @@ describe('Hooks settings', () => {
     }, {
       dialect: 'codex', source: '/broken-hooks.json', status: 'failed', handlers: [], skipped: [], error: 'Invalid hook JSON',
     }] })
-    render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} setHookDescriptions={vi.fn()} close={() => {}} />)
+    render(<HooksSettingsSection {...props(list)} updateEnabledHooks={vi.fn()} setHookDescriptions={vi.fn()} close={() => {}} />)
     expect(await screen.findByText('/settings.json')).toBeTruthy()
     expect(screen.getByText('external-policy')).toBeTruthy()
     expect(screen.getByText(en.hooksConfigured)).toBeTruthy()
@@ -689,7 +689,7 @@ describe('Hooks settings', () => {
       dialect: 'codex', source: '/hooks.json', status: 'loaded', settingsNs: 'hooks-codex', skipped: [],
       handlers: [{ event: 'PreToolUse', matcher: 'Bash', command: 'node "C:/h/check-policy.mjs" --x', key: 'k1' }],
     }] })
-    render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} setHookDescriptions={vi.fn()} close={() => {}} />)
+    render(<HooksSettingsSection {...props(list)} updateEnabledHooks={vi.fn()} setHookDescriptions={vi.fn()} close={() => {}} />)
     expect(await screen.findByText('check-policy')).toBeTruthy()
     expect(screen.getByText(en.hooksHelp)).toBeTruthy()
     list.mockResolvedValueOnce({ entries: [], hooks: [{
@@ -710,11 +710,11 @@ describe('Hooks settings', () => {
     }] })
     const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue(snapshot())
     const setHookDescriptions = vi.fn(async () => {})
-    render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} setHookDescriptions={setHookDescriptions} close={() => {}} />)
+    render(<HooksSettingsSection {...props(list)} updateEnabledHooks={vi.fn()} setHookDescriptions={setHookDescriptions} close={() => {}} />)
     fireEvent.click((await screen.findAllByRole('button', { name: en.hooksDescriptionEdit }))[0]!)
     fireEvent.change(screen.getByRole('textbox', { name: `${en.hooksDescription}: one` }), { target: { value: ' Blocks risky tools ' } })
     fireEvent.click(screen.getByRole('button', { name: en.hooksDescriptionSave }))
-    await waitFor(() => { expect(setHookDescriptions).toHaveBeenCalledWith('hooks-1', { k3: 'other', k1: 'Blocks risky tools', k2: 'Blocks risky tools' }) })
+    await waitFor(() => { expect(setHookDescriptions).toHaveBeenCalledWith('hooks-1', ['k1', 'k2'], 'Blocks risky tools') })
     list.mockResolvedValue(snapshot('Blocks risky tools'))
     fireEvent.click(screen.getByRole('button', { name: en.hooksRefresh }))
     expect(await screen.findByText('Blocks risky tools', { exact: false })).toBeTruthy()
@@ -723,7 +723,7 @@ describe('Hooks settings', () => {
     fireEvent.click(screen.getAllByRole('button', { name: en.hooksDescriptionEdit })[0]!)
     fireEvent.change(screen.getByRole('textbox', { name: `${en.hooksDescription}: one` }), { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: en.hooksDescriptionSave }))
-    await waitFor(() => { expect(setHookDescriptions).toHaveBeenLastCalledWith('hooks-1', { k3: 'other' }) })
+    await waitFor(() => { expect(setHookDescriptions).toHaveBeenLastCalledWith('hooks-1', ['k1', 'k2'], '') })
   })
   it('toggles loaded hooks through the bridge allow-list', async () => {
     const entry = { entryId: 'hooks-1' as PluginEntryId, moduleName: '@deepseek-ai/dsh-hooks-codex', enabled: true, fiberPhase: null }
@@ -735,21 +735,29 @@ describe('Hooks settings', () => {
       ],
     }] })
     const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue(report(false))
-    const setEnabledHooks = vi.fn(async () => {})
-    render(<HooksSettingsSection {...props(list)} setEnabledHooks={setEnabledHooks} setHookDescriptions={vi.fn()} close={() => {}} />)
+    type Next = (stored: readonly string[]) => readonly string[]
+    const updateEnabledHooks = vi.fn<(entryId: string, next: Next) => Promise<void>>(async () => {})
+    const lastWrite = (): Next => updateEnabledHooks.mock.lastCall![1]
+    render(<HooksSettingsSection {...props(list)} updateEnabledHooks={updateEnabledHooks} setHookDescriptions={vi.fn()} close={() => {}} />)
     const toggle = () => screen.findByRole('switch', { name: `${en.hooksToggle}: one` })
     fireEvent.click(await toggle())
-    await waitFor(() => { expect(setEnabledHooks).toHaveBeenCalledWith('hooks-1', ['k1', 'k3']) })
+    await waitFor(() => { expect(updateEnabledHooks).toHaveBeenCalledTimes(1) })
+    expect(updateEnabledHooks.mock.calls[0]![0]).toBe('hooks-1')
+    expect(lastWrite()([])).toEqual(['k1', 'k3'])
+    expect(lastWrite()(['gone'])).toEqual(['gone', 'k1', 'k3'])
     list.mockResolvedValue(report(true))
     fireEvent.click(screen.getByRole('button', { name: en.hooksRefresh }))
     await waitFor(async () => { expect((await toggle()).getAttribute('aria-checked')).toBe('true') })
     fireEvent.click(await toggle())
-    await waitFor(() => { expect(setEnabledHooks).toHaveBeenLastCalledWith('hooks-1', []) })
+    await waitFor(() => { expect(updateEnabledHooks).toHaveBeenCalledTimes(2) })
+    expect(lastWrite()(['k1', 'k3'])).toEqual([])
     fireEvent.click(await screen.findByRole('button', { name: en.hooksEnableAll }))
-    await waitFor(() => { expect(setEnabledHooks).toHaveBeenLastCalledWith('hooks-1', ['k1', 'k3', 'k2']) })
+    await waitFor(() => { expect(updateEnabledHooks).toHaveBeenCalledTimes(3) })
+    expect(lastWrite()([])).toEqual(['k1', 'k3', 'k2'])
     fireEvent.click(await screen.findByRole('button', { name: en.hooksDisableAll }))
-    await waitFor(() => { expect(setEnabledHooks).toHaveBeenLastCalledWith('hooks-1', []) })
-    setEnabledHooks.mockRejectedValueOnce(new Error('refused'))
+    await waitFor(() => { expect(updateEnabledHooks).toHaveBeenCalledTimes(4) })
+    expect(lastWrite()(['k1', 'k3', 'k2'])).toEqual([])
+    updateEnabledHooks.mockRejectedValueOnce(new Error('refused'))
     fireEvent.click(await screen.findByRole('button', { name: en.hooksDisableAll }))
     expect(await screen.findByText(`${en.hooksWriteFailed}: refused`)).toBeTruthy()
   })

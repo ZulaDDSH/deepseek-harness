@@ -35,6 +35,8 @@ interface AcpSessionBuildOptions {
   agentOptions: AgentOptions
   signal: AbortSignal
   notify: (notification: SessionNotification) => Promise<void>
+  onOutputFailure?: (error: Error) => void
+  limits?: { updateTimeoutMs?: number; maxPendingUpdateBytes?: number }
 }
 
 /** Fresh ACP session construction inputs. */
@@ -46,6 +48,9 @@ export interface CreateAcpSessionOptions extends AcpSessionBuildOptions {
 export interface ResumeAcpSessionOptions extends AcpSessionBuildOptions {
   sessionId: SessionId
 }
+
+export const UPDATE_DELIVERY_TIMEOUT_MS = 60_000
+export const MAX_PENDING_UPDATE_BYTES = 32 * 1024 * 1024
 
 interface InflightPrompt {
   resolve: (reason: StopReason) => void
@@ -94,6 +99,10 @@ export class AcpSession {
   readonly agent: Agent
   private readonly modelControl: AcpModelControl
   private outputTail = Promise.resolve()
+  private pendingBytes = 0
+  private outputFailure: Error | undefined
+  private readonly updateTimeoutMs: number
+  private readonly maxPendingUpdateBytes: number
   private inflight: InflightPrompt | undefined
   private closing: Promise<void> | undefined
 
@@ -101,7 +110,11 @@ export class AcpSession {
     private readonly ctx: Context,
     handle: AgentHandle,
     private readonly notify: (notification: SessionNotification) => Promise<void>,
+    private readonly onOutputFailure: ((error: Error) => void) | undefined,
+    limits: AcpSessionBuildOptions['limits'],
   ) {
+    this.updateTimeoutMs = limits?.updateTimeoutMs ?? UPDATE_DELIVERY_TIMEOUT_MS
+    this.maxPendingUpdateBytes = limits?.maxPendingUpdateBytes ?? MAX_PENDING_UPDATE_BYTES
     this.agent = handle.agent
     this.modelControl = new AcpModelControl(ctx.llm, handle.agent.model)
     this.disposeAgent = () => handle.dispose()
@@ -123,7 +136,7 @@ export class AcpSession {
       signal: options.signal,
       setup: agentCtx => composeAgent(agentCtx, options),
     })
-    return new AcpSession(ctx, handle, options.notify)
+    return new AcpSession(ctx, handle, options.notify, options.onOutputFailure, options.limits)
   }
 
   /**
@@ -141,7 +154,7 @@ export class AcpSession {
       signal: options.signal,
       setup: agentCtx => composeAgent(agentCtx, options),
     })
-    return new AcpSession(ctx, handle, options.notify)
+    return new AcpSession(ctx, handle, options.notify, options.onOutputFailure, options.limits)
   }
 
   /**
@@ -190,17 +203,14 @@ export class AcpSession {
     void this.modelControl.options()
       .then((configOptions) => {
         if (this.closing !== undefined) return
-        const previous = this.outputTail
-        this.outputTail = previous
-          .then(() => this.notify({
+        this.enqueue(
+          1024,
+          () => this.notify({
             sessionId: this.agent.session.id,
             update: { sessionUpdate: 'config_option_update', configOptions },
-          }))
-          /* v8 ignore start -- the bridge notifier contains transport failure. */
-          .catch((error: unknown) => {
-            this.ctx.logger.warn(`acp: config-option update failed: ${errorChain(error)}`)
-          })
-        /* v8 ignore stop */
+          }),
+          error => this.warnOptional('config-option update', error),
+        )
       })
       /* v8 ignore start -- option discovery contains per-provider failure. */
       .catch((error: unknown) => {
@@ -325,38 +335,33 @@ export class AcpSession {
     try {
       if (event.type === 'assistant/message') {
         const inflight = this.inflight?.turn === event.data.turn ? this.inflight : undefined
-        const previous = this.outputTail
-        const delivery = previous.then(async () => {
-          for (const update of await assistantUpdates(this.ctx, session, event)) {
-            await this.notify({ sessionId: this.agent.session.id, update })
-          }
-        })
-        this.outputTail = delivery.catch((error: unknown) => {
-          const failure = error as Error
-          if (inflight !== undefined) inflight.outputError ??= failure
-          this.ctx.logger.warn(`acp: assistant output conversion failed: ${errorChain(error)}`)
-        })
+        this.enqueue(
+          estimateBytes(event.data),
+          async () => {
+            for (const update of await assistantUpdates(this.ctx, session, event)) {
+              await this.notify({ sessionId: this.agent.session.id, update })
+            }
+          },
+          (error) => {
+            if (inflight !== undefined) inflight.outputError ??= error
+            this.ctx.logger.warn(`acp: assistant output delivery failed: ${errorChain(error)}`)
+          },
+        )
       } else if (event.type === 'tool/call') {
-        const previous = this.outputTail
-        this.outputTail = previous
-          .then(() => this.notify({ sessionId: this.agent.session.id, update: toolCallUpdate(event) }))
-          /* v8 ignore start -- the bridge notifier contains transport rejection. */
-          .catch((error: unknown) => {
-            this.ctx.logger.warn(`acp: tool-call update delivery failed: ${errorChain(error)}`)
-          })
-        /* v8 ignore stop */
+        this.enqueue(
+          estimateBytes(event.data),
+          () => this.notify({ sessionId: this.agent.session.id, update: toolCallUpdate(event) }),
+          error => this.warnOptional('tool-call update', error),
+        )
       } else if (event.type === 'tool/result') {
-        const previous = this.outputTail
-        this.outputTail = previous
-          .then(async () => this.notify({
+        this.enqueue(
+          estimateBytes(event.data),
+          async () => this.notify({
             sessionId: this.agent.session.id,
             update: await toolResultUpdate(this.ctx, event),
-          }))
-          /* v8 ignore start -- supplemental-content conversion failure is contained and cannot fail Agent work. */
-          .catch((error: unknown) => {
-            this.ctx.logger.warn(`acp: tool-result update delivery failed: ${errorChain(error)}`)
-          })
-        /* v8 ignore stop */
+          }),
+          error => this.warnOptional('tool-result update', error),
+        )
       }
     } finally {
       const inflight = this.inflight
@@ -452,6 +457,49 @@ export class AcpSession {
     return this.closing
   }
 
+  private enqueue(bytes: number, run: () => Promise<void>, onError: (error: Error) => void): void {
+    if (this.outputFailure === undefined && this.pendingBytes + bytes > this.maxPendingUpdateBytes) {
+      this.failOutput(new Error(`ACP update backlog exceeds ${String(this.maxPendingUpdateBytes)} bytes`))
+    }
+    if (this.outputFailure !== undefined) {
+      onError(this.outputFailure)
+      return
+    }
+    this.pendingBytes += bytes
+    this.outputTail = this.outputTail
+      .then(() => {
+        if (this.outputFailure !== undefined) throw this.outputFailure
+        return this.deliver(run)
+      })
+      .then(() => undefined, (error: unknown) => { onError(error instanceof Error ? error : new Error(String(error))) })
+      .finally(() => { this.pendingBytes -= bytes })
+  }
+
+  private deliver(run: () => Promise<void>): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const error = new Error(`ACP update delivery timed out after ${String(this.updateTimeoutMs)}ms`)
+        this.failOutput(error)
+        reject(error)
+      }, this.updateTimeoutMs)
+      run().then(
+        () => { clearTimeout(timer); resolve() },
+        (error: unknown) => { clearTimeout(timer); reject(error) },
+      )
+    })
+  }
+
+  private failOutput(error: Error): void {
+    if (this.outputFailure !== undefined) return
+    this.outputFailure = error
+    this.ctx.logger.warn(`acp: update delivery stalled, closing the transport: ${error.message}`)
+    this.onOutputFailure?.(error)
+  }
+
+  private warnOptional(what: string, error: Error): void {
+    if (error !== this.outputFailure) this.ctx.logger.warn(`acp: ${what} delivery failed: ${errorChain(error)}`)
+  }
+
   private assertActive(): void {
     if (this.closing !== undefined) throw invalidParams(`session is closing: ${this.agent.session.id}`)
   }
@@ -529,4 +577,8 @@ export class AcpSession {
       })
     /* v8 ignore stop */
   }
+}
+
+function estimateBytes(data: unknown): number {
+  return JSON.stringify(data).length
 }

@@ -84,6 +84,7 @@ interface ProjectionDefinition<K extends string, S> {
      * @returns the whole current value for this unit's key.
      */
     view(state: NoInfer<S>): SessionProjectionViewValue<SessionProjectionMap[K]>
+    appended?(prev: NoInfer<S>, next: NoInfer<S>): ProjectionAppend | undefined
     /**
      * Whether a Session summary carries this unit; omitted means `true`.
      * Declare `false` on a key whose map entry carries the
@@ -104,6 +105,8 @@ interface ProjectionDefinition<K extends string, S> {
 ```
 
 Every served projection value is a complete read model. A source event may carry a whole value or a domain-owned operation; the unit's deterministic `apply` owns replay, and checkpoint plus forward tail replay reconstructs the same state.
+
+A unit whose view is an array may declare `wire.appended(prev, next)`. When an event only extends that array, the drive publishes `{ key, append: { from, items } }` on the append feed (`onAppendEventChanged`) in place of the whole value, and skips the whole-view materialization for that change when no whole-value subscriber is attached. `onChanged` and `onEventChanged` subscribers always receive whole values, so attaching one materializes the view for every change of that unit.
 
 ## The snapshot and the change feed
 
@@ -136,16 +139,9 @@ type ProjectionChangeListener = (
 ```
 
 ```ts type-equiv
-/**
- * Event-level change-feed listener: one committed event changed the raw `view`
- * result of at least one client-visible unit by `Object.is` for one session.
- * `changes` holds one entry per such unit in registration order, each with the
- * unit's `key` and its schema-validated view as `val`; `seq` is the seq of the
- * causing event.
- */
 type ProjectionEventChangeListener = (
   session: Session,
-  changes: readonly { readonly key: Extract<keyof SessionProjectionMap, string>; readonly val: unknown }[],
+  changes: readonly ProjectionValueChange[],
   seq: SessionSeq,
 ) => void
 ```
@@ -372,6 +368,12 @@ onChanged(listener: ProjectionChangeListener): () => void
  * @returns the exact disposer that unsubscribes.
  */
 onEventChanged(listener: ProjectionEventChangeListener): () => void
+
+/** Subscribes a listener to the append-aware change feed. The listener runs once per committed event that produced at least one change and receives each change as a replacement value or an append to the stored value. The subscription is an effect on the calling context's fiber; the returned disposer removes it.
+ * @param listener - Called with the Session, the event's change entries, and the event sequence. Errors thrown by a listener are collected and rethrown after every listener has run.
+ * @returns The exact disposer that unsubscribes.
+ */
+onAppendEventChanged(listener: ProjectionAppendEventChangeListener): () => void
 
 /**
  * One consistent cut over every registered client-visible unit for one session, read from

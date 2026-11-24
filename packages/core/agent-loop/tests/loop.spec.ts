@@ -568,7 +568,7 @@ describe('agent loop', () => {
 
   it('contains a strict-variable render failure: the turn errors, the loop keeps serving turns', async () => {
     // A missing custom_directory variable must fail one turn without preventing a later valid turn.
-    const adapter = new MockAdapter([textResponse('ok after rescue')])
+    const adapter = new MockAdapter([textResponse('ok after rescue'), textResponse('ok again')])
     const ctx = await harness(adapter, 'In {{custom_directory}}.')
     ctx.systemPrompt.variable('custom_directory', () => undefined)
     const errors: Error[] = []
@@ -599,10 +599,11 @@ describe('agent loop', () => {
     send(agent, 'again')
     await waitForIdle(ctx, agent)
 
-    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(2)
+    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('hi')
     expect(systemOf(adapter.requests[0])).toBe('You are an AI agent powered by DeepSeek Harness.\n\nIn /rescued.')
     const turnEnds = agent.session.snapshotEvents().filter(e => e.type === 'turn/end')
-    expect(turnEnds).toHaveLength(2)
+    expect(turnEnds).toHaveLength(3)
     expect(turnEnds[1]?.type === 'turn/end' && turnEnds[1].data.reason.kind).toBe('completed')
   })
 
@@ -1070,7 +1071,7 @@ describe('agent loop', () => {
   })
 
   it('stops after a throwing pre-step listener and retains later steering until a wakeup', async () => {
-    const adapter = new MockAdapter([textResponse('recovered')])
+    const adapter = new MockAdapter([textResponse('recovered'), textResponse('resumed')])
     const ctx = await harness(adapter)
     const agent = await ctx.agentLoop.create(brandString<SessionId>('failed-steering'), { provider: 'mock', model: 'mock' })
     let fail = true
@@ -1092,9 +1093,10 @@ describe('agent loop', () => {
     send(agent, 'resume')
     await waitForIdle(ctx, agent)
 
-    expect(adapter.requests).toHaveLength(1)
-    expect(agent.session.snapshotEvents().filter(event => event.type === 'turn/start')).toHaveLength(2)
+    expect(adapter.requests).toHaveLength(2)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'turn/start')).toHaveLength(3)
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('pending steering')
+    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('prompt')
   })
 
   it('inject() while idle durably stages context without opening a turn', async () => {
@@ -1370,7 +1372,7 @@ describe('agent loop', () => {
   })
 
   it('a throwing agent/pre-step listener fails the proposal, not the loop', async () => {
-    const adapter = new MockAdapter([textResponse('second turn ok')])
+    const adapter = new MockAdapter([textResponse('first turn ok'), textResponse('second turn ok')])
     const ctx = await harness(adapter)
     const agent = await ctx.agentLoop.create(brandString<SessionId>('a1'), { provider: 'mock', model: 'mock' })
 
@@ -1393,10 +1395,10 @@ describe('agent loop', () => {
     expect(agent.session.snapshotEvents().some(event => event.type === 'turn/start')).toBe(true)
     expect(agent.session.snapshotEvents().some(event => event.type === 'turn/end')).toBe(true)
 
-    // The loop survived: a second prompt runs a normal completed turn.
     send(agent, 'second')
     await waitForIdle(ctx, agent)
-    expect(adapter.requests.length).toBe(1)
+    expect(adapter.requests.length).toBe(2)
+    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('first')
     const lastTurnEnd = agent.session.snapshotEvents().findLast(e => e.type === 'turn/end')
     expect(lastTurnEnd?.type === 'turn/end' && lastTurnEnd.data.reason).toEqual({ kind: 'completed' })
   })

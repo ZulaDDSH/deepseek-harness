@@ -12,6 +12,7 @@ import {
   Button, IconWarningOutlineRegular, Modal, Toast,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { FeedbackCategory } from '@deepseek-ai/dsh-command-feedback/types'
+import { exportMode } from './dialog.ts'
 import type { FeedbackDialogProps } from './slots.ts'
 import css from './FeedbackDialog.module.css'
 
@@ -57,6 +58,8 @@ export function FeedbackDialog({
   // A toast retires with the entry that showed it: the Toast's own timer dies
   // on unmount, and the Session's controller must not replay it on return.
   useEffect(() => () => { dismissToast(toast) }, [dismissToast, toast])
+  const mode = exportMode(state.sharing, state.localOnly)
+  const destination = state.sharing?.destination ?? ''
   const failureCode = state.failure
   const failure = failureCode === null ? null : t(FAILURE_COPY[failureCode] ?? 'error.generic')
   const onFailureDone = useCallback(() => { dismissFailure() }, [dismissFailure])
@@ -114,6 +117,23 @@ export function FeedbackDialog({
             </button>
           ))}
         </div>
+        <p className={css.disclosure} role="note">
+          {mode === 'off' && t('dialog.disclosure.off')}
+          {mode === 'local' && t('dialog.disclosure.local')}
+          {mode === 'to' && t('dialog.disclosure.to', { destination })}
+          {mode === 'generic' && t('dialog.disclosure')}
+        </p>
+        {mode !== 'off' && (
+          <label className={css.localOnly}>
+            <input
+              type="checkbox"
+              checked={state.localOnly}
+              disabled={state.submitting}
+              onChange={(event) => { edit({ localOnly: event.target.checked }) }}
+            />
+            {t('dialog.localOnly')}
+          </label>
+        )}
         <textarea
           className={css.detail}
           aria-label={t('dialog.detail')}

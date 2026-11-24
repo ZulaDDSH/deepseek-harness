@@ -1,4 +1,5 @@
 /** Browser-local recently selected IANA time zones. */
+import { browserStorage } from '@deepseek-ai/dsh-client-store'
 
 const STORAGE_KEY = 'dsh.schedule.recent-time-zones.v1'
 const LIMIT = 5
@@ -14,9 +15,10 @@ function defaults(system: string): readonly string[] {
  * @returns recent IANA zones in most-recent-first order.
  */
 export function loadRecentTimeZones(system: string): readonly string[] {
-  if (typeof localStorage === 'undefined') return defaults(system)
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const storage = browserStorage()
+    if (storage === undefined) return defaults(system)
+    const raw = storage.getItem(STORAGE_KEY)
     if (raw === null) return defaults(system)
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return defaults(system)
@@ -35,12 +37,10 @@ export function loadRecentTimeZones(system: string): readonly string[] {
  */
 export function rememberTimeZone(recent: readonly string[], zone: string): readonly string[] {
   const next = [zone, ...recent.filter(value => value !== zone)].slice(0, LIMIT)
-  if (typeof localStorage !== 'undefined') {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    } catch {
-      // A private or full browser store must not block editing the rule.
-    }
+  try {
+    browserStorage()?.setItem(STORAGE_KEY, JSON.stringify(next))
+  } catch {
+    // A private or full browser store must not block editing the rule.
   }
   return next
 }

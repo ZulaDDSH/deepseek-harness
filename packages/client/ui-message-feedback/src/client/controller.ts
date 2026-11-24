@@ -92,6 +92,7 @@ export class MessageFeedbackController implements HostObservable<MessageFeedback
   private loadPromise: Promise<MessageFeedbackActionResult> | null = null
   private operationTail: Promise<void> = Promise.resolve()
   private disposed = false
+  private stale = false
 
   /**
    * @param remote - the messageFeedback Remote namespace.
@@ -108,7 +109,24 @@ export class MessageFeedbackController implements HostObservable<MessageFeedback
   /** Subscribe to view replacement. */
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
-    return () => { this.listeners.delete(listener) }
+    if (this.stale && !this.disposed) {
+      this.stale = false
+      void this.resync()
+    }
+    return () => {
+      this.listeners.delete(listener)
+      if (this.listeners.size === 0 && this.view.status === 'ready') this.stale = true
+    }
+  }
+
+  get watched(): boolean {
+    return this.listeners.size > 0
+  }
+
+  evict(): void {
+    if (this.disposed || this.listeners.size > 0) return
+    this.stale = false
+    this.publish({ status: 'cold', items: EMPTY_ITEMS, error: null })
   }
 
   /**
@@ -116,7 +134,7 @@ export class MessageFeedbackController implements HostObservable<MessageFeedback
    * @returns the settled load result, shared by concurrent callers.
    */
   ensure(): Promise<MessageFeedbackActionResult> {
-    if (this.view.status === 'ready') return Promise.resolve(OK)
+    if (this.view.status === 'ready' && !this.stale) return Promise.resolve(OK)
     return this.refresh()
   }
 
@@ -177,11 +195,11 @@ export class MessageFeedbackController implements HostObservable<MessageFeedback
    * @param rating - judgment the human asked to retract.
    * @returns the settled mutation result.
    */
-  retract(messageId: MessageId, rating: MessageFeedbackRating): Promise<MessageFeedbackActionResult> {
+  retract(messageId: MessageId, rating: MessageFeedbackRating, localOnly = false): Promise<MessageFeedbackActionResult> {
     return this.mutate(async () => {
       const observed = this.view.items.get(messageId)
       return observed?.rating === rating
-        ? await this.deleteCommitted(messageId, observed)
+        ? await this.deleteCommitted(messageId, observed, localOnly)
         : OK
     })
   }
@@ -200,6 +218,7 @@ export class MessageFeedbackController implements HostObservable<MessageFeedback
       ...(entry.text === undefined ? {} : { note: entry.text }),
       ...(entry.category === undefined ? {} : { category: entry.category }),
       ifVersion: observed?.version ?? null,
+      ...(entry.localOnly === true ? { localOnly: true } : {}),
     })
     if (!carried.ok) return carrierFailure(carried.error)
     const result = carried.value
@@ -215,11 +234,13 @@ export class MessageFeedbackController implements HostObservable<MessageFeedback
   private async deleteCommitted(
     messageId: MessageId,
     observed: MessageFeedbackItem,
+    localOnly: boolean,
   ): Promise<MessageFeedbackActionResult> {
     const carried = await this.remote.delete({
       sessionId: this.sessionId,
       messageId,
       ifVersion: observed.version,
+      ...(localOnly ? { localOnly: true } : {}),
     })
     if (!carried.ok) return carrierFailure(carried.error)
     const result = carried.value
@@ -252,6 +273,7 @@ export class MessageFeedbackController implements HostObservable<MessageFeedback
     }
     const items = new Map<MessageId, MessageFeedbackItem>()
     for (const item of result.value.items) items.set(item.messageId, item)
+    this.stale = false
     this.publish({ status: 'ready', items, error: null })
     return OK
   }

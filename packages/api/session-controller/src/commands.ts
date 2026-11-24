@@ -65,6 +65,10 @@ type PromptContentCandidate =
   | SessionPromptRequest['content'][number]
   | Extract<SessionUpdateQueueRequest['action'], { readonly kind: 'edit' }>['content'][number]
 
+type DefaultSave = NonNullable<SessionSelectModelValue['defaultSave']>
+
+const DEFAULT_SAVE_WAIT_MS = 3000
+
 /**
  * Whether prompt content carries non-whitespace text or an attachment.
  * @param content - submitted or edited prompt parts.
@@ -228,13 +232,13 @@ export class SessionCommandController {
   }
 
   /**
-   * Validate and record one Session model selection; save the default in the background.
+   * Validate and record one Session model selection and save it as the default.
    * @param request - Session identity and requested model selection.
-   * @returns the normalized selection recorded for the Session, without waiting for default persistence.
+   * @returns the normalized selection recorded for the Session and the default-save outcome.
    */
   async selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
     const agent = await this.resolveAgent(request.sessionId)
-    return this.agents.serializeImageAdmission(agent, async () => {
+    const { value, saving } = await this.agents.serializeImageAdmission(agent, async () => {
       try {
         await this.requireModel(request)
         const selected: AgentModelSelection = {
@@ -250,12 +254,16 @@ export class SessionCommandController {
         if (stored?.ultracode === true && !ultracodeSupported(selected.model)) {
           agent.session.append('session/run-options', { ...stored, ultracode: false })
         }
-        void this.ctx.agentDefaultModel.saveSelection(selected).catch((error: unknown) => {
-          this.ctx.logger.warn(
-            `session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`,
-          )
-        })
-        return { selected: { ...selected } }
+        const saving = this.ctx.agentDefaultModel.saveSelection(selected).then(
+          (saved): DefaultSave => saved === false ? 'unavailable' : 'saved',
+          (error: unknown): DefaultSave => {
+            this.ctx.logger.warn(
+              `session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`,
+            )
+            return 'failed'
+          },
+        )
+        return { value: { selected: { ...selected } }, saving }
       } catch (error) {
         if (remoteErrorOf(error) !== undefined) throw error
         throw new RemoteError(
@@ -265,6 +273,18 @@ export class SessionCommandController {
         )
       }
     })
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const waited = new Promise<DefaultSave>((resolve) => {
+      timer = setTimeout(() => {
+        this.ctx.logger.warn('session-controller: the default model save has not settled; reporting it as not saved')
+        resolve('failed')
+      }, DEFAULT_SAVE_WAIT_MS)
+    })
+    try {
+      return { ...value, defaultSave: await Promise.race([saving, waited]) }
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   /**

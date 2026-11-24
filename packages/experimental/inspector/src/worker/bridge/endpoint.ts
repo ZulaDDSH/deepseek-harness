@@ -98,7 +98,13 @@ export class InspectorEndpoint {
   }
 
   private handleHttp(request: IncomingMessage, response: import('node:http').ServerResponse): void {
-    const pathname = new URL(request.url ?? '/', 'http://inspector.invalid').pathname
+    const url = new URL(request.url ?? '/', 'http://inspector.invalid')
+    const pathname = url.pathname
+    if (pathname.startsWith('/json') && url.searchParams.get('token') !== this.config.targetId) {
+      response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+      response.end('not found')
+      return
+    }
     if (pathname === '/json' || pathname === '/json/list') {
       this.json(response, [this.target()])
       return

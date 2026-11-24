@@ -139,6 +139,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/code-notes
 
       - uses: pnpm/action-setup@v5.0.0
 

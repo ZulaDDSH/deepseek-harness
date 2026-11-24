@@ -17,8 +17,9 @@ import type { MemoryGraph, MemoryImportResult, MemoryStatus } from './types.ts'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { documentText } from './document-text.ts'
 import { MemoryAutomation } from './automation.ts'
-import { storeObservation } from './store.ts'
 import { runNativeCommand } from '@deepseek-ai/dsh-native-command'
+
+const SKIPPED_PREFIX = 'graphify-native skipped: '
 
 declare module '@deepseek-ai/cordis' { interface Context { memoryWorkspace: MemoryWorkspace } }
 
@@ -46,6 +47,9 @@ export interface Config {
   chunkCharacters: number
   /** Maximum complete Graphify export size. */
   maxGraphBytes: number
+  graphTimeoutMs: number
+  maxGraphDocuments: number
+  maxGraphSourceBytes: number
   /** Master switch for chat saves and recall; the Settings toggle changes it without a restart. */
   chatMemory?: Volatile<boolean>
   /** Save each finished chat turn and compaction summaries to Memorix without a model call. */
@@ -71,6 +75,9 @@ export default class MemoryWorkspace extends TypertRemoteService {
     maxDocumentCharacters: z.natural().min(1).default(2_000_000),
     chunkCharacters: z.natural().min(1).default(4800),
     maxGraphBytes: z.natural().min(1).default(16 * 1024 * 1024),
+    graphTimeoutMs: z.natural().min(1).default(120_000),
+    maxGraphDocuments: z.natural().min(1).default(500),
+    maxGraphSourceBytes: z.natural().min(1).default(64 * 1024 * 1024),
     chatMemory: z.boolean().default(true).volatile(),
     autoSave: z.boolean().default(true),
     recall: z.boolean().default(true),
@@ -168,6 +175,7 @@ export default class MemoryWorkspace extends TypertRemoteService {
     return {
       ...this.automation.snapshot(),
       chatMemory: this.config.chatMemory?.get() ?? true,
+      maxDocumentBytes: this.config.maxDocumentBytes,
       ...await this.connectionStatus(),
     }
   }
@@ -204,29 +212,44 @@ export default class MemoryWorkspace extends TypertRemoteService {
 
   /**
    * Rebuild complete active Memorix documents with the Graphify adapter and load its bounded viewer.
+   * @param signal - caller lifetime; a queued rebuild is skipped and a running one stopped when it aborts.
    * @returns the official Graphify viewer, its graph source path and the imported document count; no Graphify run when the count is 0.
    */
   @Remote
-  graph(): Promise<MemoryGraph> {
-    const pending = this.graphQueue.then(() => this.loadGraph(), () => this.loadGraph())
+  graph(signal?: AbortSignal): Promise<MemoryGraph> {
+    const caller = signal === undefined ? this.lifetime.signal : AbortSignal.any([this.lifetime.signal, signal])
+    const run = (): Promise<MemoryGraph> => {
+      caller.throwIfAborted()
+      return this.loadGraph(caller)
+    }
+    const pending = this.graphQueue.then(run, run)
     this.graphQueue = pending
     this.pending.add(pending)
     void pending.then(() => this.pending.delete(pending), () => this.pending.delete(pending))
     return pending
   }
 
-  private async loadGraph(): Promise<MemoryGraph> {
+  private async loadGraph(caller: AbortSignal): Promise<MemoryGraph> {
     const provider = await this.provider()
     const path = resolve(this.config.graphPath || join(this.config.importDirectory, 'graphify-out', 'graph.json'))
     const database = this.database(provider)
     const documents = memorixPage(database, { table: 'observations', offset: 0, limit: 1, query: '', view: 'documents' }).total
     if (documents === 0) return { path, html: '', documents }
+    const skipped: string[] = []
+    const deadline = AbortSignal.timeout(this.config.graphTimeoutMs)
     try {
-      await runNativeCommand(this.config.graphifyCommand, [...this.config.graphifyArgs,
-        'memorix', '--database', database, '--graph', path], this.lifetime.signal, 'hidden')
-    } catch (error) { throw this.graphifyFailure(error) }
-    await this.readExport(path, false)
-    return { path, html: new TextDecoder('utf-8', { fatal: true }).decode(await this.readExport(join(dirname(path), 'graph.html'), true)), documents }
+      const { stderr } = await runNativeCommand(this.config.graphifyCommand, [...this.config.graphifyArgs,
+        'memorix', '--database', database, '--graph', path,
+        '--max-documents', String(this.config.maxGraphDocuments), '--max-source-bytes', String(this.config.maxGraphSourceBytes)], AbortSignal.any([caller, deadline]), 'hidden')
+      for (const line of stderr.split(/\r?\n/)) if (line.startsWith(SKIPPED_PREFIX)) skipped.push(line.slice(SKIPPED_PREFIX.length).trimEnd())
+    } catch (error) {
+      if (deadline.aborted && !caller.aborted) {
+        throw new Error(`Graphify did not finish within ${this.config.graphTimeoutMs / 1000} s and was stopped; raise graphTimeoutMs on ui-memory-workspace or import fewer documents`, { cause: error })
+      }
+      throw this.graphifyFailure(error)
+    }
+    await this.readExport(path, false, caller)
+    return { path, html: new TextDecoder('utf-8', { fatal: true }).decode(await this.readExport(join(dirname(path), 'graph.html'), true, caller)), documents, ...skipped.length > 0 && { skipped } }
   }
 
   private graphifyFailure(error: unknown): unknown {
@@ -239,14 +262,14 @@ export default class MemoryWorkspace extends TypertRemoteService {
     return new Error(`Graphify failed: ${(stderr || error.message).slice(-600)}\n${setup}`, { cause: error })
   }
 
-  private async readExport(path: string, content: boolean): Promise<Buffer> {
+  private async readExport(path: string, content: boolean, caller: AbortSignal): Promise<Buffer> {
     const file = await open(path, 'r').catch((error: unknown) => {
       throw new Error(`Graphify finished but wrote no file at ${path}; check graphPath and that graphifyArgs runs the memorix adapter.`, { cause: error })
     })
     try {
       if ((await file.stat()).size > this.config.maxGraphBytes) throw new Error('Graphify export exceeds the configured byte limit; raise maxGraphBytes on ui-memory-workspace')
       if (!content) return Buffer.alloc(0)
-      const bytes = await file.readFile({ signal: this.lifetime.signal })
+      const bytes = await file.readFile({ signal: caller })
       if (bytes.byteLength > this.config.maxGraphBytes) throw new Error('Graphify export exceeds the configured byte limit; raise maxGraphBytes on ui-memory-workspace')
       return bytes
     } finally { await file.close() }
@@ -290,24 +313,50 @@ export default class MemoryWorkspace extends TypertRemoteService {
     const characters = Array.from(text)
     const total = Math.ceil(characters.length / this.config.chunkCharacters)
     const result: MemoryImportResult = { filename, originalPath, completed: 0, total, error: null }
+    let project: string | undefined
     for (let index = 0; index < total; index++) {
       const topicKey = `document:${hash}:part:${index + 1}`
       const narrative = characters.slice(index * this.config.chunkCharacters, (index + 1) * this.config.chunkCharacters).join('')
       try {
         signal.throwIfAborted()
-        const stored = await this.automation.inProject(provider, cwd, signal, () => storeObservation(provider, {
+        const stored = await this.automation.store(provider, cwd, signal, {
           entityName: `document:${hash}`, type: 'discovery', title: `${basename(filename)} (${index + 1}/${total})`,
           narrative, topicKey, filesModified: [originalPath],
-        }, signal, 'document chunk'))
+        }, 'document chunk')
         if (!memorixStoredChunk(this.database(provider), stored.id, stored.project, topicKey, narrative)) {
           throw new Error('Memorix did not persist the complete document chunk')
         }
+        project = stored.project
         result.completed++
       } catch (error) {
         result.error = error instanceof Error ? error.message : 'Document import failed'
         break
       }
     }
+    if (result.error === null && project !== undefined) {
+      try { await this.retireStaleParts(provider, cwd, signal, hash, total, project) }
+      catch (error) { result.error = error instanceof Error ? error.message : 'Stale document parts could not be retired' }
+    }
     return result
+  }
+
+  private async retireStaleParts(provider: McpHumanOperations, cwd: string | undefined, signal: AbortSignal, hash: string, total: number, project: string): Promise<void> {
+    const database = this.database(provider)
+    const stale = (): number[] => {
+      const ids: number[] = []
+      for (let offset = 0, seen = Infinity; offset < seen; offset += this.config.pageSize) {
+        const page = memorixPage(database, { table: 'observations', offset, limit: this.config.pageSize, query: `document:${hash}:part:`, view: 'documents' })
+        seen = page.total
+        for (const row of page.rows) {
+          const part = /^document:[a-f0-9]{64}:part:([1-9][0-9]*)$/.exec(String(row.topicKey))
+          if (part !== null && row.topicKey === `document:${hash}:part:${part[1]}` && row.projectId === project && row.status === 'active' && Number(part[1]) > total) ids.push(Number(row.id))
+        }
+      }
+      return ids
+    }
+    const ids = stale()
+    if (ids.length === 0) return
+    await this.automation.archive(provider, cwd, signal, ids, 'stale document parts')
+    if (stale().length > 0) throw new Error('Stale document parts remain active after the re-import; the new import is complete but older parts may hide it from the graph')
   }
 }

@@ -1,6 +1,6 @@
 /** RFC 5545 recurrence validation, occurrence arithmetic, and strict decoding of Host task records. */
 import { describe, expect, it } from 'vitest'
-import { MAX_FOUR_DIGIT_YEAR_MS, MIN_FOUR_DIGIT_YEAR_MS } from '@deepseek-ai/dsh-util-time'
+import { MAX_FOUR_DIGIT_YEAR_MS, MIN_FOUR_DIGIT_YEAR_MS, RRULE_MAX_LENGTH } from '@deepseek-ai/dsh-util-time'
 import type { ScheduleId } from '../src/types.ts'
 import type { RecurringOccurrence } from '../src/domain.ts'
 import {
@@ -160,6 +160,16 @@ describe('RRULE task records', () => {
     expect(decoded).toEqual(created)
     expect(decoded).not.toBe(stored)
     expect(Object.isFrozen(decoded)).toBe(true)
+  })
+
+  it('canonicalizes a stored padded rule, and refuses one over the text bound', () => {
+    const padded = { ...created, rrule: rule('FREQ=DAILY;COUNT=0002;INTERVAL=01') }
+    expect(decodeRRuleScheduleRecord(padded).rrule).toBe(rule('FREQ=DAILY;COUNT=2;INTERVAL=1'))
+    expect(createRRuleScheduleRecord(brandString<ScheduleId>('task'), 'Task', 'Prompt', padded.rrule, now).rrule)
+      .toBe(rule('FREQ=DAILY;COUNT=2;INTERVAL=1'))
+    const oversized = { ...created, rrule: rule(`FREQ=DAILY;COUNT=${'0'.repeat(RRULE_MAX_LENGTH)}2`) }
+    expect(() => decodeRRuleScheduleRecord(oversized)).toThrow(expect.objectContaining({ code: 'corrupt_schedule_log' }))
+    expect(() => normalizeRRule(oversized.rrule)).toThrow(`rrule must not exceed ${RRULE_MAX_LENGTH} characters.`)
   })
 
   const EXACT_KEYS = 'rrule schedule must contain exactly id, kind, title, prompt, rrule, and scheduledAt'

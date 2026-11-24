@@ -391,7 +391,12 @@ describe('Web session model selection', () => {
     } finally { await ctx.fiber.dispose() }
   })
 
-  it.each([false, true])('account login replaces a saved default only without another API key: %s', async (configuredKey) => {
+  it.each([
+    { configuredKey: false, saved: false, replaced: true },
+    { configuredKey: true, saved: false, replaced: false },
+    { configuredKey: false, saved: true, replaced: false },
+    { configuredKey: true, saved: true, replaced: false },
+  ])('account login initializes only an unsaved default without another API key: %o', async ({ configuredKey, saved, replaced }) => {
     const { configurationFixture } = await import('../../../settings/settings/tests/configuration-fixture.ts')
     const configured = await configurationFixture({ hmr: false })
     const { ctx } = await harness(undefined, configured.ctx)
@@ -409,15 +414,35 @@ describe('Web session model selection', () => {
       ns: 'first' as never, autoGenerate: false, schema: {}, revision: 0, applies: 'live',
       value: { providers: { custom: { apiKeyEnv: 'CUSTOM_API_KEY', models: [] } } },
     }])
-    await ctx.agentDefaultModel.saveSelection({ provider: 'removed', model: 'saved' })
+    const original = ctx.agentDefaultModel.currentSelection()
+    if (saved) await ctx.agentDefaultModel.saveSelection({ provider: 'removed', model: 'saved' })
     const controller = await createSessionTestController(ctx, {
       defaultModelSelection: () => ctx.agentDefaultModel.currentSelection(), cwd: '/tmp',
     })
     await controller.initializeDefaultModel()
-    expect(describe).toHaveBeenCalledWith('CUSTOM_API_KEY')
-    expect(ctx.agentDefaultModel.currentSelection()).toEqual(configuredKey
-      ? { provider: 'removed', model: 'saved' }
-      : { provider: 'deepseek-account', model: 'first-model', reasoningEffort: 'high' })
+    if (!saved) expect(describe).toHaveBeenCalledWith('CUSTOM_API_KEY')
+    expect(ctx.agentDefaultModel.currentSelection()).toEqual(replaced
+      ? { provider: 'deepseek-account', model: 'first-model', reasoningEffort: 'high' }
+      : saved ? { provider: 'removed', model: 'saved' } : original)
+    await ctx.fiber.dispose()
+  })
+
+  it('account login does not overwrite an explicit selection submitted while it reads the catalog', async () => {
+    const { configurationFixture } = await import('../../../settings/settings/tests/configuration-fixture.ts')
+    const configured = await configurationFixture({ hmr: false })
+    const { ctx } = await harness(undefined, configured.ctx)
+    ctx.effect(() => ctx.llm.registerAdapter(['deepseek-account'], new CatalogAdapter('Account', [
+      { provider: 'deepseek-account', id: 'first-model', name: 'First' },
+    ], REASONING)))
+    ctx.provide('credentials', { describe: vi.fn(async () => ({ configured: false, writable: true })) } as never)
+    vi.spyOn(ctx.settings, 'describe').mockReturnValue([])
+    const controller = await createSessionTestController(ctx, {
+      defaultModelSelection: () => ctx.agentDefaultModel.currentSelection(), cwd: '/tmp',
+    })
+    const initializing = controller.initializeDefaultModel()
+    await ctx.agentDefaultModel.saveSelection({ provider: 'local', model: 'chosen' })
+    await initializing
+    expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'local', model: 'chosen' })
     await ctx.fiber.dispose()
   })
 
@@ -677,8 +702,11 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
-  it('accepts consecutive model switches while default persistence is blocked', async () => {
+  it('reports a stalled default save as not saved after the bounded wait and keeps each switch applied', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const { ctx, sessionId } = await harness()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    onTestFinished(() => { warn.mockRestore() })
     const release = Promise.withResolvers<undefined>()
     const saves: Promise<void>[] = []
     const operations: Promise<unknown>[] = []
@@ -686,6 +714,7 @@ describe('Web session model selection', () => {
       release.resolve(undefined)
       await Promise.allSettled([...operations, ...saves])
       await ctx.fiber.dispose()
+      vi.useRealTimers()
     })
     const remote = await createSessionTestRemote(ctx, {
       defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
@@ -697,14 +726,60 @@ describe('Web session model selection', () => {
     })
 
     for (const model of ['deepseek-reasoner', 'deepseek-chat']) {
-      let returned = false
+      let outcome: string | undefined
       const operation = remote.selectModel({ sessionId, provider: 'deepseek-official', model })
-        .then((result) => { expectValue(result); returned = true })
+        .then((result) => { outcome = expectValue(result).defaultSave })
       operations.push(operation)
-      await expect.poll(() => returned).toBe(true)
+      for (let step = 0; step < 20 && outcome === undefined; step++) await vi.advanceTimersByTimeAsync(500)
+      expect(outcome).toBe('failed')
       expect(currentSelection(ctx, sessionId)).toMatchObject({ provider: 'deepseek-official', model })
     }
     expect(saves).toHaveLength(2)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('has not settled'))
+  })
+
+  it('keeps a default save that rejects after the bounded wait reported as failed and logs the late rejection', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { ctx, sessionId } = await harness()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    onTestFinished(() => { warn.mockRestore() })
+    const write = Promise.withResolvers<undefined>()
+    onTestFinished(async () => {
+      await ctx.fiber.dispose()
+      vi.useRealTimers()
+    })
+    const remote = await createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      saveDefaultModelSelection: () => write.promise,
+      cwd: '/tmp',
+    })
+    let outcome: string | undefined
+    const operation = remote.selectModel({ sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner' })
+      .then((result) => { outcome = expectValue(result).defaultSave })
+    for (let step = 0; step < 20 && outcome === undefined; step++) await vi.advanceTimersByTimeAsync(500)
+    expect(outcome).toBe('failed')
+    write.reject(new Error('profile write rejected late'))
+    await operation
+    await vi.advanceTimersByTimeAsync(0)
+    expect(outcome).toBe('failed')
+    expect(currentSelection(ctx, sessionId)).toMatchObject({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('profile write rejected late'))
+  })
+
+  it('reports an unsaved default when the deployment has no configuration editor', async () => {
+    const { default: DefaultModel } = await import('@deepseek-ai/dsh-agent-default-model')
+    const standalone = new Context()
+    await standalone.plugin(DefaultModel, { provider: 'deepseek-official', model: 'deepseek-chat' })
+    const { ctx, sessionId } = await harness(undefined, standalone)
+    const remote = await createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp',
+    })
+    const value = expectValue(await remote.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner',
+    })))
+    expect(value.defaultSave).toBe('unavailable')
+    expect(currentSelection(ctx, sessionId)).toMatchObject({ model: 'deepseek-reasoner' })
+    await ctx.fiber.dispose()
   })
 
   it('saves an accepted selection as the default and survives a storage failure', async () => {
@@ -722,9 +797,9 @@ describe('Web session model selection', () => {
       cwd: '/tmp',
     })
 
-    expectValue(await remote.selectModel(request({
+    expect(expectValue(await remote.selectModel(request({
       sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max',
-    })))
+    }))).defaultSave).toBe('saved')
     expect(saved).toEqual([
       { provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max' },
     ])
@@ -740,6 +815,7 @@ describe('Web session model selection', () => {
       sessionId, provider: 'deepseek-official', model: 'deepseek-chat',
     })))
     expect(stillAccepted.selected).toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
+    expect(stillAccepted.defaultSave).toBe('failed')
     expect(currentSelection(ctx, sessionId))
       .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
     expect(saved[1]).toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
@@ -972,18 +1048,20 @@ it('initializes the account model without reasoning metadata and rejects an empt
   const configured = await configurationFixture({ hmr: false })
   const { ctx } = await harness(undefined, configured.ctx)
   ctx.provide('credentials', { describe: vi.fn() } as never)
-  const dispose = ctx.llm.registerAdapter(['deepseek-account'], new CatalogAdapter('Account', [
+  const account = new CatalogAdapter('Account', [
     { provider: 'deepseek-account', id: 'basic', name: 'Basic' },
-  ]))
+  ])
+  const dispose = ctx.llm.registerAdapter(['deepseek-account'], account)
   const controller = await createSessionTestController(ctx, {
     defaultModelSelection: () => ctx.agentDefaultModel.currentSelection(), cwd: '/tmp',
   })
-  await controller.initializeDefaultModel()
-  expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'deepseek-account', model: 'basic' })
   dispose()
   await expect(controller.initializeDefaultModel()).rejects.toMatchObject({
     code: 'session/provider-models-unavailable', details: { provider: 'deepseek-account' },
   })
+  ctx.llm.registerAdapter(['deepseek-account'], account)
+  await controller.initializeDefaultModel()
+  expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'deepseek-account', model: 'basic' })
 })
 
 it.each([new Error('catalog disconnected'), 'catalog disconnected'])('reports catalog rejection as an unavailable selection: %s', async (failure) => {

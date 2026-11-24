@@ -279,16 +279,21 @@ export class SubagentModelSelectionCardController {
     this.failed = false
     this.conflicted = false
     this.publish()
-    await this.scope.mutate([
-      { op: 'set', path: ['enabled'], value: desiredEnabled },
-      {
-        op: 'set',
-        path: ['allowedModels'],
-        value: desired.map(route => ({ provider: route.provider, model: route.model })),
-      },
-    ], this.draftRevision)
+    let threw = false
+    try {
+      await this.scope.mutate([
+        { op: 'set', path: ['enabled'], value: desiredEnabled },
+        {
+          op: 'set',
+          path: ['allowedModels'],
+          value: desired.map(route => ({ provider: route.provider, model: route.model })),
+        },
+      ], this.draftRevision)
+    } catch {
+      threw = true
+    }
     if (generation !== this.saveGeneration) return
-    const landed = this.currentEnabled() === desiredEnabled && sameRoutes(this.currentRoutes(), desired)
+    const landed = !threw && this.currentEnabled() === desiredEnabled && sameRoutes(this.currentRoutes(), desired)
     this.saving = false
     this.failed = !landed
     if (landed) this.clearDraft()
@@ -321,9 +326,9 @@ export class SubagentModelSelectionCardController {
     this.catalogStatus = 'loading'
     this.catalogPartial = false
     this.publish()
-    const response = await this.ctx.remote.session.modelCatalog()
+    const response = await this.ctx.remote.session.modelCatalog().catch(() => undefined)
     if (generation !== this.catalogGeneration) return
-    if (response.ok) {
+    if (response?.ok === true) {
       this.catalogGroups = response.value.groups
       this.catalogPartial = response.value.failures.length > 0
       this.catalogStatus = 'ready'

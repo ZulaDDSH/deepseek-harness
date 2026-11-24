@@ -26,7 +26,7 @@ export { unsupportedModel } from './model.ts'
 export { provideWorkingDirectoryFixture } from './working-directory-fixture.ts'
 
 interface DriverInbox extends Inbox {
-  claim(target: InboxTarget, turn: number): UserMessage[]
+  claim(target: InboxTarget, turn: number): { readonly 'next-step': readonly UserMessage[]; readonly 'next-turn': readonly UserMessage[] }
 }
 
 /** Test driver for production Agents created by a mounted AgentLoop. */
@@ -101,6 +101,9 @@ export async function mountAgentLoopTestHarness(ctx: Context): Promise<AgentLoop
   await ctx.plugin(AgentLoop, { agents: [] })
   return {
     create: async (id, options = {}, meta = {}) => ctx.agentLoop.create(id, options, meta),
-    claim: (agent, target, turn) => (agent.inbox as DriverInbox).claim(target, turn),
+    claim: (agent, target, turn) => {
+      const claimed = (agent.inbox as DriverInbox).claim(target, turn)
+      return [...claimed['next-step'], ...claimed['next-turn']]
+    },
   }
 }

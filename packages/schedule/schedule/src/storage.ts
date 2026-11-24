@@ -7,7 +7,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type { MessageId } from '@deepseek-ai/dsh-llm/types'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import { decodeScheduleRecord } from './domain.ts'
-import type { ScheduleDeliveryRecord, ScheduleId, ScheduleRecord, ScheduleTarget } from './types.ts'
+import type { ScheduleId, ScheduleRecord, ScheduleTarget } from './types.ts'
 
 const recordSchema = z.unknown().transform((value, context): ScheduleRecord => {
   try {
@@ -36,13 +36,28 @@ const deliveryReceiptSchema = z.object({
   targetSessionId: sessionIdSchema.optional(),
 }).strict()
 
+const promptIdSchema = z.string().regex(/^[0-9a-f]{64}$/)
+
 const deliveryHistorySchema = z.object({
-  records: z.array(deliveryReceiptSchema.extend({ prompt: z.string().exactOptional() }).strict()),
+  records: z.array(deliveryReceiptSchema.extend({
+    prompt: z.string().exactOptional(),
+    promptId: promptIdSchema.exactOptional(),
+  }).strict()),
+  prompts: z.record(promptIdSchema, z.string()).exactOptional(),
   earlierRecordsUnavailable: z.boolean(),
   earlierRecordsPruned: z.boolean().default(false),
 }).strict().refine(history => new Set(history.records.map(record => record.messageId)).size === history.records.length, {
   message: 'Delivery history message identities must be unique within a task',
+}).refine(history => history.records.every(({ prompt, promptId }) => promptId === undefined
+  || (prompt === undefined && promptId in (history.prompts ?? {}))), {
+  message: 'Delivery history must name a stored prompt snapshot and never carry both an inline prompt and a prompt identity',
 })
+
+type StoredDeliveryRecord = Omit<z.infer<typeof deliveryReceiptSchema>, 'targetSessionId'> & { targetSessionId: SessionId; promptId?: string }
+
+export function promptIdOf(prompt: string): string {
+  return createHash('sha256').update(prompt).digest('hex')
+}
 
 const createSpecSchema = z.object({
   cwd: z.string().min(1).exactOptional(),
@@ -104,13 +119,28 @@ export const scheduleTaskSchema = z.object({
     return { ...value, targetSessionId: target.sessionId }
   }
   const last = lastDelivery === undefined ? undefined : receipt(lastDelivery)
+  const prompts: Record<string, string> = { ...deliveryHistory?.prompts }
+  const records = (deliveryHistory?.records ?? []).map(({ prompt, promptId, ...value }) => {
+    const normalized = receipt(value)
+    if (prompt === undefined) return promptId === undefined ? normalized : { ...normalized, promptId }
+    const id = promptIdOf(prompt)
+    prompts[id] = prompt
+    return { ...normalized, promptId: id }
+  })
+  const snapshots = Object.keys(prompts).length === 0 ? {} : { prompts }
   const history: {
-    records: ScheduleDeliveryRecord[]
+    records: StoredDeliveryRecord[]
+    prompts?: Record<string, string>
     earlierRecordsUnavailable: boolean
     earlierRecordsPruned: boolean
   } = deliveryHistory === undefined
-    ? { records: last === undefined ? [] : [last], earlierRecordsUnavailable: true, earlierRecordsPruned: false }
-    : { ...deliveryHistory, records: deliveryHistory.records.map(value => receipt(value)) }
+    ? { records: last === undefined ? [] : [last], ...snapshots, earlierRecordsUnavailable: true, earlierRecordsPruned: false }
+    : {
+      records,
+      ...snapshots,
+      earlierRecordsUnavailable: deliveryHistory.earlierRecordsUnavailable,
+      earlierRecordsPruned: deliveryHistory.earlierRecordsPruned,
+    }
   return {
     ...task,
     target,
@@ -122,7 +152,7 @@ export const scheduleTaskSchema = z.object({
 }).refine((task) => {
   const latest = task.deliveryHistory.records.at(-1)
   if (latest === undefined) return task.lastDelivery === undefined
-  const { prompt: _prompt, ...receipt } = latest
+  const { promptId: _promptId, ...receipt } = latest
   return isDeepStrictEqual(receipt, task.lastDelivery)
 }, {
   message: 'Last delivery must match the latest saved delivery receipt',
@@ -133,6 +163,6 @@ export type ScheduleTask = z.infer<typeof scheduleTaskSchema>
 
 /** Authoritative Host tasks retain their domain, backend routing, and envelope; v2 also reads v1 without startup writes. */
 export const scheduleDomain = defineDomain({
-  name: 'schedule', version: 2, compatibleVersions: [1],
+  name: 'schedule', version: 3, compatibleVersions: [1, 2],
   tables: { tasks: domainTable<ScheduleId, ScheduleTask>(scheduleTaskSchema) },
 })

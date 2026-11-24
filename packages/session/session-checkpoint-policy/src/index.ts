@@ -80,4 +80,8 @@ export function apply(ctx: Context): void {
     await ctx.sessions.flush(agent.session)
     return next()
   })
+
+  ctx.on('agent/turn-stopping', async ({ agent }) => {
+    await ctx.sessions.flush(agent.session)
+  })
 }

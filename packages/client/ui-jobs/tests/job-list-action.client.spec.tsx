@@ -890,6 +890,23 @@ describe('JobListAction human kill', () => {
     expect(stop.getAttribute('data-kill-state')).toBe('idle')
   })
 
+  it('a kill call that throws shows the failed hint, resets, and allows another attempt', async () => {
+    vi.useFakeTimers()
+    const killJob = vi.fn(async () => { throw new Error('Connection service is absent') })
+    render(<JobListAction {...props([job()], undefined, {}, killJob)} />)
+    openList()
+    const stop = screen.getByTitle(stopTitle('pnpm run build'))
+    fireEvent.click(stop)
+    await act(async () => { fireEvent.click(stop) })
+    expect(stop.getAttribute('data-kill-state')).toBe('failed')
+    expect(stop.hasAttribute('disabled')).toBe(false)
+    act(() => { vi.advanceTimersByTime(4_000) })
+    expect(stop.getAttribute('data-kill-state')).toBe('idle')
+    fireEvent.click(stop)
+    await act(async () => { fireEvent.click(stop) })
+    expect(killJob).toHaveBeenCalledTimes(2)
+  })
+
   it('arming a second row disarms the first', () => {
     render(<JobListAction {...props([
       job(),

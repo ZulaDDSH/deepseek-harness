@@ -10,10 +10,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { tmpdir } from 'node:os'
 import koffi from 'koffi'
 
+import { allocBytes, ptrAddress } from '../src/ffi.ts'
 import type { NativePtr, Win32Bindings } from '../src/ffi.ts'
 import { AclWriteGrant } from '../src/index.ts'
 
 const PVOID = koffi.pointer('void')
+
+const EMPTY_DACL = allocBytes(8)
+koffi.encode(EMPTY_DACL, 'uint8', 2)
+koffi.encode(EMPTY_DACL, 2, 'uint16', 8)
 
 /** Stub binding table: only the members a test drives, so the rest are never called. */
 function stubBindings(overrides: Partial<Win32Bindings>): Win32Bindings {
@@ -48,7 +53,7 @@ function grantThenFailApi(): { api: Win32Bindings; failReads: () => void } {
       dacl: NativePtr, sacl: NativePtr, descriptor: NativePtr,
     ) => {
       if (state.failReads) return 2 // ERROR_FILE_NOT_FOUND — the revoke's read fails
-      koffi.encode(dacl, PVOID, 0n) // no explicit DACL: the merge builds one
+      koffi.encode(dacl, PVOID, ptrAddress(EMPTY_DACL))
       koffi.encode(sacl, PVOID, 0n)
       koffi.encode(descriptor, PVOID, 0n)
       return 0

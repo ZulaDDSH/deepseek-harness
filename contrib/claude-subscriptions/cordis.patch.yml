@@ -1,0 +1,5 @@
+- insert:
+    - id: claude-code-session
+      name: dsh-claude-account-manager/bridge
+    - id: claude-subscription-accounts
+      name: dsh-claude-account-manager

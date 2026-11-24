@@ -84,7 +84,8 @@ async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true,
   const openWorkspacePath = vi.fn<ClientRemote['session']['openWorkspacePath']>(
     () => Promise.resolve({ ok: true, value: { opened: true } }),
   )
-  runtime.remote.provideNamespaces({ session: { openWorkspacePath } })
+  const outline = vi.fn<(request: unknown) => Promise<unknown>>()
+  runtime.remote.provideNamespaces({ session: { openWorkspacePath, outline } } as never)
   const openSession = vi.fn<(id: SessionId) => void>()
   runtime.ctx.provide('uiWorkspace', {
     openWorkspace: vi.fn(async (_workspaceId: WorkspaceId, beforeOpen: (id: SessionId) => void) => {
@@ -140,7 +141,7 @@ async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true,
       return preference as LinkOpeningRowInjected
     },
     runtime, chat, chatSettings, browserAvailable,
-    layout, openWorkspacePath, sidebarRight, sidebarRightTabs, session, chatViewApi, chatFlowApi, rootReference, openSession,
+    layout, openWorkspacePath, outline, sidebarRight, sidebarRightTabs, session, chatViewApi, chatFlowApi, rootReference, openSession,
   }
 }
 
@@ -246,6 +247,23 @@ describe('Chat inject API', () => {
       await Promise.resolve()
       expect(source?.getSnapshot()).toBeUndefined()
       expect(injected.keyedHooks.chatGroup(key)).toBeUndefined()
+    } finally {
+      await b.runtime.dispose()
+    }
+  })
+
+  it('reads older outline pages through the Session address and maps every failure to null', async () => {
+    const b = await bench()
+    try {
+      const { injected } = b.chatViewApi(b.rootReference)
+      const page = { entries: [{ turn: 1, seq: 0, prompt: 'p', response: 'r' }], hasMore: false, before: 0 }
+      b.outline.mockResolvedValueOnce({ ok: true, value: page })
+      await expect(injected.loadOutline(SessionSeq(42))).resolves.toEqual(page)
+      expect(b.outline).toHaveBeenCalledWith({ address: { kind: 'session', sessionId: ROOT }, beforeSeq: 42 })
+      b.outline.mockResolvedValueOnce({ ok: false, error: { code: 'remote-access/denied' } })
+      await expect(injected.loadOutline(SessionSeq(7))).resolves.toBeNull()
+      b.outline.mockRejectedValueOnce(new Error('transport down'))
+      await expect(injected.loadOutline(SessionSeq(7))).resolves.toBeNull()
     } finally {
       await b.runtime.dispose()
     }

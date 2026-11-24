@@ -197,6 +197,24 @@ describe('workflow-run Conversation Definition', () => {
     expect(workflowData(value)?.status).toBe('completed')
   })
 
+  it('shows a member with no recorded outcome as incomplete once its run has ended', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'tool-workflow/run-start', { runId: 'run-1', name: 'audit' }),
+      at(4, 'tool-workflow/agent-start', {
+        runId: 'run-1', seq: 1, label: 'worker', childId: 'child-1',
+      }),
+      at(5, 'tool-workflow/run-end', { runId: 'run-1', stopReason: 'error' }),
+      at(6, 'step/end', { turn: 1, step: 1 }),
+      at(7, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+    ])
+    expect(workflowData(value)).toMatchObject({
+      status: 'failed',
+      phases: [{ members: [{ status: 'incomplete' }] }],
+    })
+  })
+
   it.each(['interrupted', 'forked'] as const)(
     'shows missing terminal facts as interrupted once a %s closer ends the owning Turn',
     (kind) => {

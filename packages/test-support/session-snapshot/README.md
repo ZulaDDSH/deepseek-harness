@@ -167,6 +167,7 @@ These limits define when the kit needs special care. They are current package co
 
 - **Session harvest requires raw JSONL mode** — `runScenario` collects persisted `.jsonl` logs, so snapshot configs set the JSONL backend's `compression: 'none'`; compressed JSONL has no snapshot-harvest path.
 - **Built mode requires current artifacts** — run `pnpm run build` before selecting `DSH_EXAMPLE_MODE=lib`; source mode remains the zero-build path.
+- **Shutdown is bounded but kills only the direct child** — `close()` allows `shutdownTimeoutMs` (30000 ms by default) for the agent to exit after stdin EOF and the same again for stdio and client callbacks to drain. On expiry it sends SIGKILL to the agent, or destroys the parent's pipe ends when a descendant holds them open, and rejects with a message naming the missing exit or drain so `runScenario` still removes its temporary directories. Descendants are not terminated (the agent is not spawned in its own process group), and a descendant that keeps the generated working directory open can still make its removal fail on Windows. A client callback still running at the deadline is not cancelled.
 - **ACP remains for protocol behavior** — cancellation and permission round trips whose stimulus is the ACP client stay on that adapter; assembled one-shot and persistent-control behavior uses headless and SDK adapters.
 
 <a id="dev-note"></a>

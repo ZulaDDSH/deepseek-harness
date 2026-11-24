@@ -17,7 +17,11 @@ export function ApprovalCard(props: FactoryComponentPropsOf<'conversation.approv
 
 function ApprovalFlow(props: FactoryComponentPropsOf<'conversation.approval.card'>) {
   const { requestKey, title, description, subject, warning, allowLabel, canAnswer, onAllow, onReject, onAlways, t } = props
-  const detail = props.callId === undefined ? null : props.renderSlot('conversation.approval.detail', { callId: props.callId })
+  const [reported, setReported] = useState<boolean | undefined>(undefined)
+  const detail = props.callId === undefined
+    ? null
+    : props.renderSlot('conversation.approval.detail', { callId: props.callId, onAvailability: setReported })
+  const detailMissing = props.detailRequired === true && (detail === null || reported === false)
   const [answered, setAnswered] = useState(false)
   const waiting = useRef(false)
   const active = useRef(true)
@@ -75,6 +79,7 @@ function ApprovalFlow(props: FactoryComponentPropsOf<'conversation.approval.card
           </div>
           {description !== undefined && <p className={css.description}>{description}</p>}
           {detail !== null && <div className={css.command}>{detail}</div>}
+          {detailMissing && <p className={css.unavailable} role="status" data-approval-detail-unavailable="">{t('detail.unavailable')}</p>}
         </div>
         <div className={css.actionRow}>
           <Button variant="outline" className={css.reject} disabled={answered} onClick={() => { answer(onReject) }}>

@@ -38,6 +38,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { watch as chokidarWatch } from 'chokidar'
+import type { Stats } from 'node:fs'
 import { mkdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { Document, isMap, isScalar, parseDocument, type YAMLError } from 'yaml'
@@ -56,6 +57,7 @@ import type {
   ResolvedCredential,
 } from '@deepseek-ai/dsh-credentials'
 import type { LaunchEnvironmentEntry } from '@deepseek-ai/dsh-launch-environment'
+import { ownerOnlyFixCommand, restrictToOwnerWindows, windowsAclViolations } from './windows-acl.ts'
 
 /** Basename of the credentials document inside the harness home. */
 export const CREDENTIALS_FILENAME = '.credentials.yaml'
@@ -111,6 +113,8 @@ const GROUP_OTHER_BITS = 0o077
  */
 const DOCUMENT_LOCK_WAIT_MS = 30_000
 
+const COMMIT_ATTEMPTS = 3
+
 /**
  * Reject a credentials document other OS users can read, before its contents
  * are read at all. The provider creates and replaces the file at `0600`, but a
@@ -118,23 +122,38 @@ const DOCUMENT_LOCK_WAIT_MS = 30_000
  * and silently serving secrets out of a world-readable file would make the
  * mode the provider promises meaningless.
  *
- * POSIX only: Windows has no mode to inspect — its ACLs are not expressible
- * here — so the check is skipped rather than faked, and the file's protection
- * there is whatever the create and replace APIs express.
+ * On Windows the DACL is inspected instead: any allow entry beyond the current
+ * user, SYSTEM and Administrators is refused (see `windows-acl.ts`).
  * @param filename - absolute path of the document.
  * @throws when the path hierarchy is invalid or the file exists with group or other permission bits set.
  */
-async function assertOwnerOnly(filename: string): Promise<void> {
-  let mode: number
+const WINDOWS_ACL_RECHECK_MS = 5000
+const cleanAclAt = new Map<string, number>()
+
+async function assertOwnerOnly(filename: string, reload = false): Promise<void> {
+  let info: Stats
   try {
-    mode = (await stat(filename)).mode
+    info = await stat(filename)
   } catch (error) {
     if (!isENOENT(error)) throw error
     await canonicalizeWatchPath(filename)
     return
   }
-  /* v8 ignore next -- POSIX coverage cannot take the Windows peer; native Windows coverage does. */
-  if (process.platform === 'win32') return
+  const mode = info.mode
+  if (process.platform === 'win32') {
+    if (!info.isFile()) return
+    if (reload && Date.now() - (cleanAclAt.get(filename) ?? -Infinity) < WINDOWS_ACL_RECHECK_MS) return
+    const others = await windowsAclViolations(filename)
+    if (others.length === 0) {
+      cleanAclAt.set(filename, Date.now())
+      return
+    }
+    cleanAclAt.delete(filename)
+    throw new Error(
+      `credentials-local: ${filename} is readable beyond its owner (also granted to ${others.join(', ')});`
+      + ` run "${await ownerOnlyFixCommand(filename)}" before starting again`,
+    )
+  }
   /* v8 ignore start -- Windows has no POSIX mode enforcement; POSIX behavior tests enforce this peer. */
   const offending = mode & GROUP_OTHER_BITS
   if (offending === 0) return
@@ -143,6 +162,18 @@ async function assertOwnerOnly(filename: string): Promise<void> {
     + ` run "chmod 600 ${filename}" before starting again`,
   )
   /* v8 ignore stop */
+}
+
+async function protectOnWindows(filename: string): Promise<void> {
+  if (process.platform !== 'win32') return
+  try {
+    await stat(filename)
+  } catch (error) {
+    if (isENOENT(error)) return
+    throw error
+  }
+  if ((await windowsAclViolations(filename)).length > 0) await restrictToOwnerWindows(filename)
+  cleanAclAt.set(filename, Date.now())
 }
 
 /** Whether a filesystem error means absence; every non-ENOENT failure must surface. */
@@ -712,10 +743,12 @@ export class LocalCredentialProvider extends CredentialProvider {
         // next boot rejects, and a value refused here has not been stored.
         if (next.kind === 'grant') assertJsonValue(`record "${key}" payload`, next.payload, new Set())
         else assertStorableApiKey(key, next)
-        const nextText = renderRecord(this.text, key, next)
-        // 0600: a document holding secrets is never world-readable.
-        await writeFileAtomic(this.spec.filename, nextText, { mode: 0o600, dirMode: 0o700 })
-        this.text = nextText
+        await this.commitDocument(() => {
+          if (!sameJsonValue(this.records.get(key), current)) {
+            throw new Error(`credentials-local: "${key}" was edited in ${this.spec.filename} while it was being updated; nothing was written, retry`)
+          }
+          return renderRecord(this.text, key, next)
+        })
         this.records.set(key, next)
         // After the commit, on the same terms as a reference write.
         this.notifyRecordUpdated(key)
@@ -732,11 +765,8 @@ export class LocalCredentialProvider extends CredentialProvider {
       }
       await mkdir(dirname(this.spec.filename), { recursive: true, mode: 0o700 })
       await withFileLock(this.spec.filename, async () => {
-        await this.reconcileFromDisk()
-        if (!this.records.has(key)) return
-        const nextText = renderRecord(this.text, key, undefined)
-        await writeFileAtomic(this.spec.filename, nextText, { mode: 0o600, dirMode: 0o700 })
-        this.text = nextText
+        const committed = await this.commitDocument(() => this.records.has(key) ? renderRecord(this.text, key, undefined) : undefined)
+        if (committed === undefined) return
         this.records.delete(key)
         this.notifyRecordUpdated(key)
       }, { waitMs: DOCUMENT_LOCK_WAIT_MS })
@@ -748,6 +778,30 @@ export class LocalCredentialProvider extends CredentialProvider {
     const task = this.operations.then(operation)
     this.operations = task.then(() => undefined, () => undefined)
     return task
+  }
+
+  private async commitDocument(render: () => string | undefined): Promise<string | undefined> {
+    for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt++) {
+      await this.reconcileFromDisk()
+      const nextText = render()
+      if (nextText === undefined) return undefined
+      if (await this.diskMatchesCache()) {
+        await writeFileAtomic(this.spec.filename, nextText, { mode: 0o600, dirMode: 0o700 })
+        await protectOnWindows(this.spec.filename)
+        this.text = nextText
+        return nextText
+      }
+    }
+    throw new Error(`credentials-local: ${this.spec.filename} kept changing while it was being saved; nothing was written, retry`)
+  }
+
+  private async diskMatchesCache(): Promise<boolean> {
+    try {
+      return (await readFile(this.spec.filename, 'utf8')) === this.text
+    } catch (error) {
+      if (!isENOENT(error)) throw error
+      return this.text === undefined
+    }
   }
 
   /** Queue a reload; `refresh()` contains its own failures, so the queued task never rejects. */
@@ -773,13 +827,11 @@ export class LocalCredentialProvider extends CredentialProvider {
         // observed yet — an external edit still inside the watcher debounce
         // window, a change the watcher missed, or another process's write —
         // so the line edit below can never resurrect a stale document.
-        await this.reconcileFromDisk()
-        const existing = this.values.get(ref)
-        if (value === undefined && existing === undefined) return
-        const nextText = renderRef(this.text, ref, value)
-        // 0600: a document holding secrets is never world-readable.
-        await writeFileAtomic(this.spec.filename, nextText, { mode: 0o600, dirMode: 0o700 })
-        this.text = nextText
+        const committed = await this.commitDocument(() => {
+          if (value === undefined && this.values.get(ref) === undefined) return undefined
+          return renderRef(this.text, ref, value)
+        })
+        if (committed === undefined) return
         if (value === undefined) this.values.delete(ref)
         else this.values.set(ref, value)
         // After the commit: a broken observer must never make the durable
@@ -836,6 +888,7 @@ export class LocalCredentialProvider extends CredentialProvider {
       if (migrated === undefined) return current
       // 0600: a document holding secrets is never world-readable.
       await writeFileAtomic(this.spec.filename, migrated, { mode: 0o600, dirMode: 0o700 })
+      await protectOnWindows(this.spec.filename)
       this.ctx.logger.info(
         'credentials-local: migrated %s to the version %d layout; values are unchanged',
         this.spec.filename,
@@ -854,7 +907,7 @@ export class LocalCredentialProvider extends CredentialProvider {
   private async refresh(): Promise<void> {
     if (this.closed) return
     try {
-      await this.reconcileFromDisk()
+      await this.reconcileFromDisk(true)
     } catch (error) {
       this.ctx.logger.warn('credentials-local: reload failed at %s; keeping the last good document', this.spec.filename)
       this.ctx.logger.warn(error)
@@ -868,10 +921,10 @@ export class LocalCredentialProvider extends CredentialProvider {
    * and keeps the last good snapshot, a write fails loud rather than
    * overwriting a document it could not understand.
    */
-  private async reconcileFromDisk(): Promise<void> {
+  private async reconcileFromDisk(reload = false): Promise<void> {
     // Re-checked on every reload and before every write: an external editor or
     // a restored backup can loosen the mode after boot.
-    await assertOwnerOnly(this.spec.filename)
+    await assertOwnerOnly(this.spec.filename, reload)
     let text: string | undefined
     try {
       text = await readFile(this.spec.filename, 'utf8')

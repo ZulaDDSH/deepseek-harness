@@ -481,8 +481,9 @@ describe('retained Schedule delivery', () => {
     expect(await test.service.catalog()).toEqual([record])
     expect((await test.service.list({ active: true })).items).toEqual([record])
     expect(storedValue(test.pool, record.id)).toEqual(createdValue(sessionId, record))
-    await vi.advanceTimersByTimeAsync(86_400_000)
-    expect(followup).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(followup).toHaveBeenCalledTimes(2)
+    expect(changed).toHaveBeenCalled()
   })
 })
 

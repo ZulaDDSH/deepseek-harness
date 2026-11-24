@@ -378,6 +378,10 @@ export type PreToolDecision =
   | { kind: 'cancel' }
   | { kind: 'ask'; reason?: string; displayReason?: { readonly en: string; readonly [locale: string]: string } }
 
+export type ToolPreflightResult =
+  | { readonly allowed: true }
+  | { readonly allowed: false; readonly reason: string }
+
 /**
  * Post-dispatch decision: accept, replace one projection, attach context for the
  * next request, or block by turning corrective feedback into an error result

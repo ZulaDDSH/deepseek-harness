@@ -75,7 +75,7 @@ describe('permissions projection unit', () => {
     })
     ctx.permissionPresets.set(session, 'danger-full-access')
     const permissionChanges = changes.filter(change => change.key === 'permissions')
-    expect(permissionChanges).toHaveLength(3)
+    expect(permissionChanges).toHaveLength(4)
     expect(permissionChanges.at(-1)).toMatchObject({ key: 'permissions', value: { currentValue: 'danger-full-access' } })
     session.append('turn/start', { turn: 1 })
     expect(changes.filter(change => change.key === 'permissions')).toEqual(permissionChanges)
@@ -185,7 +185,7 @@ describe('/permission command', () => {
       kind: 'success',
       text: 'current preset workspace-write (available: workspace-write, danger-full-access)',
     })
-    expect(session.snapshotEvents().filter(event => event.type === 'permission/preset')).toHaveLength(1)
+    expect(session.snapshotEvents().filter(event => event.type === 'permission/preset')).toHaveLength(2)
   })
 
   it('rejects an unknown preset without touching the log', async () => {

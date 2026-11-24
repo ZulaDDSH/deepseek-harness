@@ -19,6 +19,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'plugin-market/invalid-query': { readonly field: string; readonly reason: string }
     /** Index sources cannot be saved without the settings service and this service's profile entry. */
     'plugin-market/settings-unavailable': Record<string, never>
+    'plugin-market/index-conflict': { readonly indexes: readonly string[] }
     /** The index lists no such plugin or version. */
     'plugin-market/unknown-plugin': { readonly name: string; readonly version: string }
     /**

@@ -207,8 +207,8 @@ export abstract class AttachmentStore extends Service {
 
   /**
    * Durably commit one file byte-for-byte before its owning session event is
-   * appended. Files carry no admission limits: any byte content and length is
-   * accepted, and the stored object is the exact submitted bytes. Backends
+   * appended. Files carry no type limit and the stored object is the exact
+   * submitted bytes; a backend must refuse oversized input with FILE_TOO_LARGE or FILE_STORE_FULL. Backends
    * without verbatim file storage keep this default rejection.
    * @param input - exact bytes and optional display name.
    * @returns the durable content-addressed file reference.

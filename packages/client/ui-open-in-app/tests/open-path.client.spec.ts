@@ -81,9 +81,35 @@ it('queries current handlers and carries an explicit application without changin
   expect(await controller.applications('/file.mp3', signal)).toEqual(applications)
   expect(query).toHaveBeenCalledWith({ path: '/file.mp3' }, signal)
   await controller.openPath('/file.mp3', 'open', '/Applications/Music.app')
-  expect(open).toHaveBeenLastCalledWith({ path: '/file.mp3', application: '/Applications/Music.app' })
+  expect(open).toHaveBeenLastCalledWith({ path: '/file.mp3', application: '/Applications/Music.app' }, expect.any(AbortSignal))
   await controller.openPath('/file.mp3', 'open')
-  expect(open).toHaveBeenLastCalledWith({ path: '/file.mp3' })
+  expect(open).toHaveBeenLastCalledWith({ path: '/file.mp3' }, expect.any(AbortSignal))
+})
+
+describe('OpenInAppPathController stalled opener', () => {
+  const stalled = (seen: AbortSignal[]) => (_request: SessionOpenWorkspacePathRequest, signal?: AbortSignal) =>
+    new Promise<never>((_resolve, reject) => {
+      seen.push(signal!)
+      signal!.addEventListener('abort', () => { reject(new Error('cancelled')) }, { once: true })
+    })
+
+  it('settles a stalled open as a failure when the deadline passes and lets the next gesture run', async () => {
+    const seen: AbortSignal[] = []
+    const controller = new OpenInAppPathController(remoteOf({ openWorkspacePath: stalled(seen) }), 20)
+    expect(await controller.openPath('/w/clip.mp4', 'open')).toEqual({ kind: 'failed', failure: 'openError' })
+    expect(await controller.openPath('/w/clip.mp4', 'reveal')).toEqual({ kind: 'failed', failure: 'revealError' })
+    expect(seen).toHaveLength(2)
+    expect(seen.every(signal => signal.aborted)).toBe(true)
+  })
+
+  it('aborts a pending open when the controller is disposed', async () => {
+    const seen: AbortSignal[] = []
+    const controller = new OpenInAppPathController(remoteOf({ openWorkspacePath: stalled(seen) }))
+    const pending = controller.openPath('/w/clip.mp4', 'open')
+    controller.dispose()
+    expect(await pending).toEqual({ kind: 'failed', failure: 'openError' })
+    expect(seen[0]?.aborted).toBe(true)
+  })
 })
 
 

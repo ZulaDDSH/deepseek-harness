@@ -85,14 +85,15 @@ describe('Loader tree mutation reports', () => {
     expect(changes).toEqual([])
   })
 
-  it('mounts explicit ids containing the separator without nested-path resolution', async () => {
+  it('mounts explicit ids containing the separator and resolves them by their literal id', async () => {
     const { loader, changes } = await fixture()
     const options: EntryOptions = { id: 'a:b', name: 'cordis:example' }
     await expect(loader.create(options)).resolves.toBe('a:b')
     await loader.await()
     expect(loader.store['a:b']!.fiber!.state).toBe(FiberState.ACTIVE)
     expect(changes).toEqual([{ id: 'a:b', group: loader.root, options }])
-    expect(() => loader.resolve('a:b')).toThrow('cannot resolve entry a:b')
+    expect(loader.resolve('a:b').options.id).toBe('a:b')
+    expect(() => loader.resolve('a:c')).toThrow('cannot resolve entry a:c')
   })
 })
 

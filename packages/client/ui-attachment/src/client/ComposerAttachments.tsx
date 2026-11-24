@@ -37,13 +37,14 @@ export function ComposerAttachments({
   const [preview, setPreview] = useState<ComposerImageAttachment | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const dragDepth = useRef(0)
+  const anchor = useRef<HTMLSpanElement>(null)
   const closePreview = useCallback(() => { setPreview(null) }, [])
   useEffect(() => {
     if (preview !== null && !attachments.some(attachment => attachment.id === preview.id)) setPreview(null)
   }, [attachments, preview])
 
   useEffect(() => {
-    return installDocumentDropEvents(canAcceptDrop, onAddFiles, dragDepth, setDragActive, readFileDrag)
+    return installDocumentDropEvents(anchor, canAcceptDrop, onAddFiles, dragDepth, setDragActive, readFileDrag)
   }, [canAcceptDrop, onAddFiles, readFileDrag])
 
   const railItems = useMemo<ComposerRailItem[]>(() => attachments.map(attachment => ({
@@ -53,6 +54,7 @@ export function ComposerAttachments({
 
   return (
     <>
+      <span ref={anchor} hidden />
       {dragActive && (
         <DropOverlay
           disabled={!canAcceptDrop}

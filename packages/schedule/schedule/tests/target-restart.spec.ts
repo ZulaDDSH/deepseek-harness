@@ -38,11 +38,11 @@ it('reopens Host tasks of every target kind byte-identical without activating a 
       title: 'Every run', prompt: 'Check each', timing: { kind: 'rrule', rrule: RRULE }, target: { kind: 'new', create: { agentPreset: 'reviewer' } },
     }),
   ]
-  expect(await readdir(root)).toEqual(['schedule.json'])
+  expect((await readdir(root)).filter(name => !name.endsWith('.lock'))).toEqual(['schedule.json'])
   const file = join(root, 'schedule.json')
   const bytes = await readFile(file, 'utf8')
   const document = storedUnit(bytes)
-  expect(document.unit).toEqual({ name: 'schedule', version: 2 })
+  expect(document.unit).toEqual({ name: 'schedule', version: 3 })
   expect(document.global).toBeNull()
   expect(Object.keys(document.tables.tasks).sort()).toEqual(created.map(entry => entry.id).sort())
   for (const entry of created) {

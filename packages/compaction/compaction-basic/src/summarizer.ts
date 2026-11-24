@@ -73,7 +73,10 @@ const COMPACTION_INSTRUCTION = [
 const SUMMARY_PREFIX_SAFETY_RATIO = 0.9
 
 /** Summarizer failure codes worth one identical retry; the same request can succeed on a fresh socket. */
-const TRANSIENT_SUMMARY_CODES: ReadonlySet<string> = new Set(['TRANSPORT', 'TIMEOUT', 'SERVER'])
+const TRANSIENT_SUMMARY_CODES: ReadonlySet<string> = new Set(['TRANSPORT', 'TIMEOUT', 'SERVER', 'RATE_LIMIT'])
+const SUMMARY_ATTEMPTS = 3
+const SUMMARY_BACKOFF_MS = 250
+const SUMMARY_MAX_WAIT_MS = 10_000
 
 /**
  * Largest replayed prefix the default summarizer request can carry inside a target window.
@@ -177,12 +180,17 @@ export async function summarizeWithLlm(
     purpose: 'compaction',
     ...signal === undefined ? {} : { signal },
   }
-  let assembler: BlockAssembler
-  try {
-    assembler = await streamSummary(ctx, options)
-  } catch (error: unknown) {
-    if (signal?.aborted === true || !(error instanceof LlmError) || !TRANSIENT_SUMMARY_CODES.has(error.code)) throw error
-    assembler = await streamSummary(ctx, options)
+  let assembler: BlockAssembler | undefined
+  for (let attempt = 1; assembler === undefined; attempt += 1) {
+    try {
+      assembler = await streamSummary(ctx, options)
+    } catch (error: unknown) {
+      if (signal?.aborted === true || !(error instanceof LlmError) || !TRANSIENT_SUMMARY_CODES.has(error.code)
+        || attempt >= SUMMARY_ATTEMPTS) throw error
+      const providerWait = error.failure.providerRetryAfterMs
+      if (providerWait !== undefined && providerWait > SUMMARY_MAX_WAIT_MS) throw error
+      await summaryBackoff(providerWait ?? SUMMARY_BACKOFF_MS * 2 ** (attempt - 1), signal)
+    }
   }
 
   const rawOutput = assembler.blocks()
@@ -212,6 +220,15 @@ export function frameSummary(summary: readonly ContentBlock[]): ContentBlock[] {
     ...summary,
     { type: 'text', text: SUMMARY_CLOSE_TAG },
   ]
+}
+
+function summaryBackoff(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted === true) { reject(signal.reason); return }
+    const done = (): void => { clearTimeout(timer); reject(signal?.reason) }
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', done); resolve() }, ms)
+    signal?.addEventListener('abort', done, { once: true })
+  })
 }
 
 /** Stream one summarizer attempt and fail closed on a non-successful finish. */

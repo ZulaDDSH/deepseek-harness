@@ -87,6 +87,14 @@ export interface SessionMcpOptions {
   toolCallTimeoutMs?: number
 }
 
+export function rejectSecretBearingEndpoint(config: BrowserMcpConfig): void {
+  if (config.mode !== 'attach') return
+  const { username, password } = new URL(config.endpoint)
+  if (username !== '' || password !== '' || /[?#]/u.test(config.endpoint)) {
+    throw new Error('browser endpoint must not contain credentials, a query string or a fragment because this provider passes it as a process argument')
+  }
+}
+
 interface ClientState {
   status: 'ready' | 'blocked'
   mask?: Scope

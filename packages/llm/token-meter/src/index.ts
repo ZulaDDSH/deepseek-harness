@@ -281,14 +281,20 @@ export class TokenMeter extends Service {
   /** Update only discardable positional prices and the pre-assistant view. */
   private _foldEvent(state: ReplayState, event: SessionEvent): void {
     if (event.type === 'request/header') state.header = { seq: event.seq, value: canonicalHeader(event.data.header) }
-    if (event.type === 'image/offload') {
-      const offloaded = new Map(event.data.targets.map(target => [target.seq, new Set(target.imageIndexes)]))
+    if (event.type === 'image/offload' || event.type === 'image/restore') {
+      const offload = event.type === 'image/offload'
+      const selected = new Map(event.data.targets.map(target => [target.seq, new Set(target.imageIndexes)]))
       state.surface = state.surface.map((node) => {
-        const indexes = offloaded.get(node.seq)
+        const indexes = selected.get(node.seq)
         if (indexes === undefined) return node
         return {
           ...node,
-          images: node.images.map((image, index) => (indexes.has(index) ? { ...image, offloaded: true as const } : image)),
+          images: node.images.map((image, index) => {
+            if (!indexes.has(index)) return image
+            if (offload) return { ...image, offloaded: true as const }
+            const { offloaded: _offloaded, ...restored } = image
+            return restored
+          }),
         }
       })
     }

@@ -1,6 +1,6 @@
 /** Every timing kind uses one record construction and edit path. */
 import { expect, it } from 'vitest'
-import { createScheduleRecord, updateScheduleRecord } from '../src/update.ts'
+import { MAX_SCHEDULE_PROMPT_BYTES, createScheduleRecord, updateScheduleRecord } from '../src/update.ts'
 import type { ScheduleTiming, ScheduleId } from '../src/types.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 
@@ -100,4 +100,24 @@ it.each([false, true])('keeps the original error for an explicit past timing rep
   const current = createScheduleRecord(id, 'Title', 'Prompt', timings[2]!, now)
   expect(() => updateScheduleRecord(current, { timing: { kind: 'at', at: new Date(now).toISOString() } }, now, resume))
     .toThrow(expect.objectContaining({ code: 'not_future', message: 'The scheduled time must be strictly in the future.' }))
+})
+
+it('retimes and resumes a task whose stored prompt is above the creation limit without changing that prompt', () => {
+  const legacy = 'x'.repeat(MAX_SCHEDULE_PROMPT_BYTES + 1)
+  const current = { ...createScheduleRecord(id, 'Title', 'Prompt', timings[2]!, now), prompt: legacy }
+  expect(updateScheduleRecord(current, { timing: { kind: 'every', every_seconds: 600 } }, now, false))
+    .toMatchObject({ everySeconds: 600, prompt: legacy })
+  expect(updateScheduleRecord(current, { active: true }, now + 86_400_000, true).prompt).toBe(legacy)
+  expect(() => updateScheduleRecord(current, { prompt: legacy }, now, false))
+    .toThrow(expect.objectContaining({ code: 'invalid_prompt' }))
+})
+
+it('limits a prompt to the byte budget at creation and at an edit that supplies one', () => {
+  const limit = MAX_SCHEDULE_PROMPT_BYTES
+  const oversized = { code: 'invalid_prompt', message: `prompt must be at most ${limit} bytes.` }
+  expect(createScheduleRecord(id, 'Title', 'x'.repeat(limit), timings[2]!, now).prompt).toHaveLength(limit)
+  expect(() => createScheduleRecord(id, 'Title', 'x'.repeat(limit + 1), timings[2]!, now)).toThrow(expect.objectContaining(oversized))
+  expect(() => createScheduleRecord(id, 'Title', '€'.repeat(limit / 3 + 1), timings[2]!, now)).toThrow(expect.objectContaining(oversized))
+  const current = createScheduleRecord(id, 'Title', 'Prompt', timings[2]!, now)
+  expect(() => updateScheduleRecord(current, { prompt: 'x'.repeat(limit + 1) }, now, false)).toThrow(expect.objectContaining(oversized))
 })

@@ -72,7 +72,7 @@ describe('local request-image cache', () => {
 
       const reopened = new LocalAttachmentStore(new Context(), { dshHome })
       await expect(reopened.readImage(attachment)).resolves.toEqual(stored)
-      await expect(readFile(reopened.fileHostPath(file))).resolves.toEqual(Buffer.from(fileData))
+      await expect(readFile(reopened.fileHostPath(file)!)).resolves.toEqual(Buffer.from(fileData))
       await expect(reopened.readImageRequest(attachment, policy)).resolves.toEqual(initial)
       await expect(readFile(path)).resolves.toEqual(Buffer.from(initial.data))
       await expect(readdir(fallbackHome)).resolves.toEqual([])
@@ -95,6 +95,24 @@ describe('local request-image cache', () => {
 
     expect(request.data).toEqual(firstStored.data)
     expect(batch.map(value => value.attachment.attachmentId)).toEqual([first.attachmentId, second.attachmentId])
+  })
+
+  it('returns each concurrent caller its own reference for identical bytes and target', async () => {
+    const attachments = await store()
+    const data = await image(64, 32)
+    const first = await attachments.saveImage({ data, mediaType: 'image/png', name: 'first.png' })
+    const second = await attachments.saveImage({ data, mediaType: 'image/png', name: 'second.png' })
+    const third = { ...second, name: 'third.png', originalDimensions: { width: 640, height: 320 } }
+    const policy = { width: 16, height: 8, maxBytes: 1024 * 1024 }
+
+    const results = await Promise.all([first, second, third].map(ref => attachments.readImageRequest(ref, policy)))
+
+    expect(results.map(result => result.attachment)).toEqual([first, second, third])
+    expect(new Set(results.map(result => result.variantId)).size).toBe(1)
+    await expect(Promise.all([
+      attachments.readImageRequest(first, { ...policy, width: 8, height: 4 }),
+      attachments.readImageRequest({ ...first, width: 63 }, { ...policy, width: 8, height: 4 }),
+    ])).rejects.toMatchObject({ code: 'ATTACHMENT_CORRUPT' })
   })
 
   it('rejects invalid request targets', async () => {
@@ -200,6 +218,48 @@ describe('local request-image cache', () => {
       const regenerated = await attachments.readImageRequest(attachment, policy)
       expect(regenerated.data).toEqual(initial.data)
     }
+  })
+
+  it('regenerates a cached variant replaced by another valid image or lacking its digest sidecar', async () => {
+    const dshHome = await home()
+    const attachments = new LocalAttachmentStore(new Context(), { dshHome })
+    const attachment = await attachments.saveImage({ data: await image(64, 32), mediaType: 'image/png' })
+    const policy = { width: 22, height: 11, maxBytes: 4_096 }
+    const initial = await attachments.readImageRequest(attachment, policy)
+    const hash = String(initial.variantId).slice('sha256:'.length)
+    const path = join(dshHome, 'cache', 'attachments', 'request-images', hash.slice(0, 2), hash)
+    const jpeg = async (width: number, height: number, r: number): Promise<Uint8Array> => new Uint8Array(await sharp({
+      create: { width, height, channels: 3, background: { r, g: 200, b: 10 } },
+    }).jpeg().toBuffer())
+
+    for (const replacement of [await jpeg(22, 11, 250), await jpeg(11, 6, 12)]) {
+      await writeFile(path, replacement)
+      const regenerated = await attachments.readImageRequest(attachment, policy)
+      expect(regenerated.data).toEqual(initial.data)
+      await expect(readFile(path)).resolves.toEqual(Buffer.from(initial.data))
+    }
+
+    await rm(`${path}.sha256`)
+    await writeFile(path, await jpeg(22, 11, 250))
+    await expect(attachments.readImageRequest(attachment, policy)).resolves.toMatchObject({ data: initial.data })
+    await expect(readFile(`${path}.sha256`, 'utf8')).resolves.toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('regenerates a cached variant whose bytes were corrupted in place', async () => {
+    const dshHome = await home()
+    const attachments = new LocalAttachmentStore(new Context(), { dshHome })
+    const attachment = await attachments.saveImage({ data: await image(64, 32), mediaType: 'image/png' })
+    const policy = { width: 22, height: 11, maxBytes: 4_096 }
+    const initial = await attachments.readImageRequest(attachment, policy)
+    const hash = String(initial.variantId).slice('sha256:'.length)
+    const path = join(dshHome, 'cache', 'attachments', 'request-images', hash.slice(0, 2), hash)
+    const corrupted = Buffer.from(await readFile(path))
+    corrupted[Math.floor(corrupted.length / 2)]! ^= 0xff
+    await writeFile(path, corrupted)
+
+    const regenerated = await attachments.readImageRequest(attachment, policy)
+    expect(regenerated.data).toEqual(initial.data)
+    await expect(readFile(path)).resolves.toEqual(Buffer.from(initial.data))
   })
 
   it('derives stable square and wide previews and separates route budgets in the cache key', async () => {

@@ -285,6 +285,23 @@ describe('ConfigFormController', () => {
     expect(published.map(section => section?.preference)).toEqual([undefined, 'system', 'light'])
   })
 
+  it('recovers from Host state when the final queued write throws after an accepted superseded write', async () => {
+    const describeCall = vi.fn()
+      .mockResolvedValueOnce(described({ preference: 'system' }, 2))
+      .mockResolvedValueOnce(described({ preference: 'dark' }, 3))
+    const mutate = vi.fn()
+      .mockResolvedValueOnce(ok(view({ preference: 'dark' }, 3)))
+      .mockRejectedValueOnce(new Error('no Connection'))
+    const { mirror, scope } = derivedScope({ describe: describeCall, mutate })
+    await mirror.load()
+    const first = scope.set('preference', 'dark')
+    const last = scope.set('preference', 'light')
+    await expect(first).resolves.toBe(true)
+    await expect(last).resolves.toBe(false)
+    expect(describeCall).toHaveBeenCalledTimes(2)
+    expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'dark' }, revision: 3 })
+  })
+
   it('does not recover superseded refused writes', async () => {
     const describeCall = vi.fn().mockResolvedValueOnce(described({ preference: 'system' }, 2))
     const mutate = vi.fn()

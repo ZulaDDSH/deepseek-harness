@@ -1,7 +1,7 @@
 /** Root-fiber shutdown drains buffered session events durably (both mount orders). */
 
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
-import { describe, expect, it, afterEach } from 'vitest'
+import { describe, expect, it, afterEach, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -29,7 +29,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   })
 }
 
-async function mount(order: 'backend-first' | 'loop-first'): Promise<{ ctx: Context; root: string }> {
+async function mount(order: 'backend-first' | 'loop-first', script: ConstructorParameters<typeof MockAdapter>[0] = [textResponse('done')]): Promise<{ ctx: Context; root: string; adapter: MockAdapter }> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-shutdown-drain-'))
   dirs.push(root)
   const ctx = new Context()
@@ -47,8 +47,9 @@ async function mount(order: 'backend-first' | 'loop-first'): Promise<{ ctx: Cont
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(JsonlSessionPersistence, { root })
   }
-  ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('done')]))
-  return { ctx, root }
+  const adapter = new MockAdapter(script)
+  ctx.llm.registerAdapter(['mock'], adapter)
+  return { ctx, root, adapter }
 }
 
 describe.each(['backend-first', 'loop-first'] as const)('root shutdown drain (%s)', (order) => {
@@ -67,6 +68,23 @@ describe.each(['backend-first', 'loop-first'] as const)('root shutdown drain (%s
     const { events } = await reader.read()
     await reader.close()
     expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+    await verify.fiber.dispose()
+  })
+
+  it.each(['hang', 'hang-slow'] as const)('persists the final turn/end when the root shuts down during a %s active turn', async (marker) => {
+    const { ctx, root, adapter } = await mount(order, [marker])
+    const sessionId = brandString<SessionId>('shutdown-active')
+    const handle = await ctx.agents.create({ sessionId, agentOptions: { provider: 'mock', model: 'mock' } })
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }))
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    await ctx.fiber.dispose()
+
+    const verify = new Context()
+    await verify.plugin(JsonlSessionPersistence, { root })
+    const reader = await verify.sessionPersistence.open(sessionId, 'read')
+    const { events } = await reader.read()
+    await reader.close()
+    expect(events.at(-1)).toMatchObject({ type: 'turn/end' })
     await verify.fiber.dispose()
   })
 })

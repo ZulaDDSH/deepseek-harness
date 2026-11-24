@@ -29,6 +29,10 @@ Add the row below to a preset's plugin list when that preset's agents should man
 
 Choose it for any preset whose agents need to schedule future work, and load `@deepseek-ai/dsh-schedule` in the same process: this package is only the model-facing consumer of that service. A preset that should stay capability-poor — `minimal` is the shipped example — omits the row, and its agents see no Schedule tool at all.
 
+### Mount rule: session ownership or administrator
+
+Mount the row without configuration for agent sessions. The shipped Web `standard`, `cordis`, and `ptc` presets and the SDK `cordis` composition do this: each agent lists, views, edits, and deletes only tasks its Session created, edited, or is the target of. Add `config: { administrator: true }` to the row only for a scope that must manage every Host task, such as an operator-run headless automation preset, and never for a preset that serves untrusted or unrelated Sessions. The Host Automation page and Remote callers use `ctx.schedule` directly and do not depend on this setting.
+
 ### User authorization
 
 One shared `tool:schedule` system-prompt section requires explicit user authorization to create or modify tasks. Prior explicit authorization for the running scheduled task remains valid, such as pausing that task after a monitored PR merges.
@@ -36,7 +40,7 @@ One shared `tool:schedule` system-prompt section requires explicit user authoriz
 ### The four tools
 
 - `schedule_create(title, prompt, rrule, target)` — Create one task; all four inputs are required. `title` has at most 120 characters and names the action and object in the user's language; keep timing, status, and ids in their fields. `prompt` is the instruction delivered at each occurrence, and `rrule` is one `DTSTART` line and one `RRULE` line in the [RFC 5545 subset of Schedule](../../../docs/subsystems/schedule.md#rrule-input). Returns the task with its generated id.
-- `schedule_list(active?, limit?, offset?)` — List one page of every Host task, including tasks that other Sessions created. Active tasks come first by next occurrence, and paused and ended tasks follow, newest first. `active: true` keeps only active tasks and `active: false` only paused and ended tasks; `limit` is 1 through 500 and defaults to 100.
+- `schedule_list(active?, limit?, offset?)` — List one page of the tasks the calling Session is involved in (every Host task under an `administrator` mount). Active tasks come first by next occurrence, and paused and ended tasks follow, newest first. `active: true` keeps only active tasks and `active: false` only paused and ended tasks; `limit` is 1 through 500 and defaults to 100.
 - `schedule_view(id)` — Read one task by id. An unknown id returns `{ id, code: 'schedule_not_found' }`.
 - `schedule_edit(id, action, ...)` — An `update` changes at least one of `title`, `prompt`, `rrule`, `target`, and `active`; `active: false` pauses the task and `active: true` resumes it. Resume needs a future occurrence; supply a new `rrule` if the old rule is exhausted. With `expectedUpdatedAt`, an update or delete of a task that changed after that read returns `schedule_conflict` and changes nothing. A `delete` accepts no patch field and removes the task with its saved deliveries.
 
@@ -48,7 +52,7 @@ One shared `tool:schedule` system-prompt section requires explicit user authoriz
 - name: '@deepseek-ai/dsh-tool-schedule'
 ```
 
-The package declares no `Config` fields. It injects `ctx.tools` and `ctx.systemPrompt` and registers the four tools and their shared guidance once the scope resolves the Host `ctx.schedule` service, so a composition that keeps that service off mounts no Schedule tool. Each call acts for the Agent that dispatched it.
+The package declares one `Config` field, `administrator` (boolean, default `false`; see the mount rule above), and rejects any other type. It injects `ctx.tools` and `ctx.systemPrompt` and registers the four tools and their shared guidance once the scope resolves the Host `ctx.schedule` service, so a composition that keeps that service off mounts no Schedule tool. Each call acts for the Agent that dispatched it.
 
 -----
 
@@ -138,7 +142,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 - **No tools without the Host service** — a composition that mounts this package without `ctx.schedule` leaves the plugin pending, so none of the four tools register.
 - **Every call needs a calling Agent** — a call dispatched without one returns `internal_error` rather than guessing a Session.
-- **Every tool reaches every Host task** — `schedule_list` returns tasks that other Sessions created, and `schedule_view` and `schedule_edit` read, change, and delete any task by id. The authorization sentence guides model behavior; the Host does not validate user intent or add ownership checks per Session. A preset whose agents must not manage Host tasks omits the row.
+- **Tasks are scoped to involved Sessions** — unless the plugin is mounted with `administrator: true`, `schedule_list`, `schedule_view`, and `schedule_edit` reach only tasks whose involved Sessions (the creating or editing Session and the target Session, recorded by the Host) include the calling Agent's Session. `schedule_list` totals count only reachable tasks, and a task outside that set answers `schedule_not_found` for view and edit, as an absent id does. An `administrator` mount restores Host-wide management for its scope; a task created without any Session (a human or Remote caller targeting a new Session) is reachable only through an administrator mount or the Host UI. The check lives in these tools; `ctx.schedule` itself still trusts its callers, and the authorization sentence remains model guidance rather than user-intent validation.
 - **Deletion does not retract a queued message** — a message that the Host already delivered stays in the target Session inbox after a `schedule_edit` delete.
 - **Task timing belongs to the Host** — the tools expose no clock source, delivery retry, or execution result; those limits are the service's.
 - **Every tool refuses a delegated caller** — each of the four tools reads the calling Agent's delegation depth before it calls the service and returns `{ code: 'subagent_session', message: 'A delegated subagent cannot use scheduled tasks.' }` when that depth is above zero. The guard lives in this package and reads `delegationDepthOf` from `@deepseek-ai/dsh-subagent`, the same accounting the delegation cap enforces, so it holds under any preset that mounts the tools.

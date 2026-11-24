@@ -231,11 +231,14 @@ export class SenseVoiceWorker {
     if (this.pending >= this.config.maxPending) throw new Error('Speech transcription queue is full')
     clearTimeout(this.idle)
     this.pending++
-    const job = this.tail.then(async () => {
-      combined.throwIfAborted()
-      return await run(combined)
-    })
-    this.tail = job.then(() => undefined, () => undefined).finally(() => {
+    const previous = this.tail
+    const turn = Promise.withResolvers<void>()
+    this.tail = previous.then(() => turn.promise, () => turn.promise)
+    let released = false
+    const release = (): void => {
+      turn.resolve()
+      if (released) return
+      released = true
       this.pending--
       if (this.pending === 0 && !this.lifetime.signal.aborted && this.config.idleTimeoutMs > 0) {
         this.idle = setTimeout(() => {
@@ -243,6 +246,29 @@ export class SenseVoiceWorker {
           void this.tail.catch((error: unknown) => { this.ctx.logger.warn('Speech worker idle cleanup failed', error) })
         }, this.config.idleTimeoutMs)
       }
+    }
+    const job = new Promise<T>((resolve, reject) => {
+      const cancelWaiting = (): void => {
+        reject(combined.reason)
+        release()
+      }
+      combined.addEventListener('abort', cancelWaiting, { once: true })
+      void previous.then(async () => {
+        combined.removeEventListener('abort', cancelWaiting)
+        if (combined.aborted) return
+        try {
+          resolve(await run(combined))
+        } catch (error) {
+          reject(error)
+        } finally {
+          release()
+        }
+      }, (error: unknown) => {
+        combined.removeEventListener('abort', cancelWaiting)
+        if (combined.aborted) return
+        reject(error)
+        release()
+      })
     })
     return await job
   }

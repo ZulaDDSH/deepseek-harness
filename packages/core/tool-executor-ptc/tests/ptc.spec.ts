@@ -2,6 +2,7 @@ import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { ToolExecutionInput } from '@deepseek-ai/dsh-tools'
 import * as PtcToolExecutor from '@deepseek-ai/dsh-tool-executor-ptc'
 import { PtcExecutor, CodeRunFailedError, CodeResetFailedError } from '../src/index.ts'
+import { jsonByteSize } from '../src/ptc.ts'
 import { NativeToolExecutor } from '@deepseek-ai/dsh-tool-executor-native'
 import { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
@@ -73,6 +74,8 @@ interface SetupOptions {
   mode?: 'native' | 'ptc'
   maxSubCallsPerMinute?: number
   maxParallelSubCalls?: number
+  maxBindingResultBytes?: number
+  maxProgramResultBytes?: number
   runtime?: false | { language?: string }
   toolOrder?: string[]
 }
@@ -85,6 +88,8 @@ async function setup(options: SetupOptions = {}) {
   const executor = options.mode === 'native' ? new NativeToolExecutor(ctx) : new PtcExecutor(ctx, {
     ...options.maxSubCallsPerMinute !== undefined ? { maxSubCallsPerMinute: options.maxSubCallsPerMinute } : {},
     ...options.maxParallelSubCalls !== undefined ? { maxParallelSubCalls: options.maxParallelSubCalls } : {},
+    ...options.maxBindingResultBytes !== undefined ? { maxBindingResultBytes: options.maxBindingResultBytes } : {},
+    ...options.maxProgramResultBytes !== undefined ? { maxProgramResultBytes: options.maxProgramResultBytes } : {},
   })
   ctx.tools.setExecutor(executor)
   let runtime: FakeRuntime | undefined
@@ -717,6 +722,52 @@ describe('the per-program tool-call limit', () => {
     expect((await runCode(ctx, 'program', { timeoutMs: requestedMs })).isError).toBe(true)
     expect(calls).toHaveLength(limit)
     expect(resolver).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ timeoutMs: requestedMs }))
+  })
+
+  it('rejects a binding result over the per-binding byte limit and keeps smaller results working', async () => {
+    const { ctx, runtime } = await setup({ maxBindingResultBytes: 1_000 })
+    onTestFinished(() => ctx.fiber.dispose())
+    const calls = registerEcho(ctx)
+    const seen: string[] = []
+    runtime.behavior = async (request) => {
+      const echo = request.bindings[0]!.functions.echo!
+      seen.push(String(await echo({ value: 'small' })))
+      await expect(echo({ value: 'x'.repeat(2_000) })).rejects.toThrow('echo result is over the 1000 byte limit')
+      seen.push(String(await echo({ value: 'after' })))
+      return printed(seen)
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    expect(calls).toHaveLength(3)
+    expect(seen).toEqual(['echo:small', 'echo:after'])
+  })
+
+  it('rejects results that pass the run-wide delivered byte budget, including concurrent ones, in order', async () => {
+    const { ctx, runtime } = await setup({ maxBindingResultBytes: 1_000, maxProgramResultBytes: 1_500 })
+    onTestFinished(() => ctx.fiber.dispose())
+    registerEcho(ctx)
+    const settled: string[] = []
+    runtime.behavior = async (request) => {
+      const echo = request.bindings[0]!.functions.echo!
+      const outcomes = await Promise.allSettled([
+        echo({ value: 'a'.repeat(700) }), echo({ value: 'b'.repeat(700) }), echo({ value: 'c'.repeat(700) }),
+      ])
+      for (const outcome of outcomes) settled.push(outcome.status)
+      return printed(settled)
+    }
+    expect((await runCode(ctx, 'program')).isError).toBe(false)
+    expect(settled).toEqual(['fulfilled', 'fulfilled', 'rejected'])
+  })
+
+  it('estimates JSON size without serializing and stops once past the limit', () => {
+    expect(jsonByteSize('abc', 100)).toBe(5)
+    expect(jsonByteSize({ k: [1, 'é'] }, 100)).toBeGreaterThan(8)
+    expect(jsonByteSize(Array.from({ length: 1_000_000 }, () => 'x'), 50)).toBeGreaterThan(50)
+    expect(jsonByteSize('x'.repeat(1_000), 10)).toBeGreaterThan(10)
+  })
+
+  it.each([0, -1, 1.5])('rejects maxBindingResultBytes=%s in configuration', (maxBindingResultBytes) => {
+    expect(() => PtcToolExecutor.Config({ maxBindingResultBytes })).toThrow('maxBindingResultBytes')
   })
 
   it('does not impose a finite call allowance when the runtime resolves no deadline', async () => {

@@ -93,6 +93,8 @@ function StarIcon({ filled }: { filled: boolean }) {
 const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
 
 const NO_RUN_OPTIONS: SessionRunOptions = {}
+
+const DEFAULT_NOT_SAVED_HOLD_MS = 30000
 /** Claude Code native effort levels with their labels, faster to smarter. */
 const CLAUDE_EFFORTS = [
   ['low', 'runOptions.effortLow'],
@@ -145,8 +147,10 @@ export function ModelSelect(
   // instead, so the strip renders only while the latest failure-capable
   // action was a load.
   const lastActionRef = useRef<'load' | 'select'>('load')
-  const [toast, setToast] = useState<{ seq: number; text: string } | null>(null)
+  const [toast, setToast] = useState<{ seq: number; text: string; retry?: () => void } | null>(null)
   const toastSeq = useRef(0)
+  const ownSelection = useRef(false)
+  const retryDefault = useRef<() => void>(() => {})
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const searchRef = useRef<HTMLInputElement | null>(null)
@@ -256,6 +260,19 @@ export function ModelSelect(
       document.removeEventListener('mousedown', closeOutside)
     }
   }, [open])
+
+  const defaultNotSaved = state.pending === null && state.defaultNotSaved === true
+  useEffect(() => {
+    if (state.pending !== null) return
+    if (ownSelection.current && defaultNotSaved) {
+      setToast({
+        seq: ++toastSeq.current,
+        text: t('warning.defaultNotSaved'),
+        retry: () => { retryDefault.current() },
+      })
+    }
+    ownSelection.current = false
+  }, [state.pending, defaultNotSaved, t])
 
   useLayoutEffect(() => {
     if (!showSearch) {
@@ -571,11 +588,17 @@ export function ModelSelect(
   }
 
   const submit = (selection: ModelSelection): void => {
+    setToast(null)
     lastActionRef.current = 'select'
+    ownSelection.current = true
     // Disabled option rows cannot retain focus while a selection is pending.
     setSelectionFocus(true)
     triggerRef.current?.focus()
     void select(selection).then(settleSelection)
+  }
+
+  retryDefault.current = () => {
+    if (state.current !== null) submit(state.current)
   }
 
   const choose = (selection: ModelSelection): void => {
@@ -1015,6 +1038,10 @@ export function ModelSelect(
           key={toast.seq}
           text={toast.text}
           icon={<IconWarningOutlineRegular />}
+          {...toast.retry === undefined ? {} : {
+            holdMs: DEFAULT_NOT_SAVED_HOLD_MS,
+            actions: [{ label: t('warning.defaultRetry'), onClick: toast.retry }],
+          }}
           anchor={rootRef.current?.closest<HTMLElement>('[data-composer-card]') ?? null}
           onDone={() => { setToast(null) }}
         />

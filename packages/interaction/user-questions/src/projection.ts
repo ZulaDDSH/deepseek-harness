@@ -226,7 +226,7 @@ function settleQuestion(
  * pending payload, or Session resume repair appended the synthetic
  * `TOOL_OUTCOME_UNKNOWN` result for a call the process never finished. An
  * answer batch settles it with that batch; any failure drops it. A PTC
- * sub-call enters the fold when its recorded result is pending. A late reply
+ * sub-call enters the fold as open when its dispatch starts; a pending result continues it, any other result drops it, and an unknown-outcome root `run_code` result continues every still-open sub-call it started. A late reply
  * settles only when the agent admits its user message; queued inbox messages
  * can still be discarded before that point.
  * @param fold - Current fold state.
@@ -258,9 +258,35 @@ export function applyUserQuestionEvent(fold: UserQuestionFold, event: SessionEve
         },
       }
     }
+    case 'tool/ptc-dispatch-start': {
+      if (event.data.name !== ASK_USER_QUESTION_TOOL) return fold
+      const questions = questionsOf(JSON.stringify(event.data.arguments))
+      if (questions === null) return fold
+      const callId = event.data.subCallId
+      return {
+        ...fold,
+        questions: {
+          ...view,
+          active: [...view.active.filter(question => question.callId !== callId), { callId, questions, state: 'open' }],
+        },
+      }
+    }
     case 'tool/result': {
       const callId = event.data.message.toolCallId
-      if (!view.active.some(question => question.callId === callId)) return fold
+      if (!view.active.some(question => question.callId === callId)) {
+        const prefix = `${callId}:ptc:`
+        if (!view.active.some(question => question.state === 'open' && question.callId.startsWith(prefix))) return fold
+        const unknown = event.data.error?.code === TOOL_OUTCOME_UNKNOWN
+        return {
+          ...fold,
+          questions: {
+            ...view,
+            active: unknown
+              ? view.active.map(question => question.state === 'open' && question.callId.startsWith(prefix) ? { ...question, state: 'continued' as const } : question)
+              : view.active.filter(question => !(question.state === 'open' && question.callId.startsWith(prefix))),
+          },
+        }
+      }
       if (isPendingResult(event.data.message.content) || event.data.error?.code === TOOL_OUTCOME_UNKNOWN) {
         return {
           ...fold,
@@ -281,7 +307,13 @@ export function applyUserQuestionEvent(fold: UserQuestionFold, event: SessionEve
       }
     }
     case 'tool/ptc-dispatch': {
-      if (event.data.name !== ASK_USER_QUESTION_TOOL || event.data.isError || !isPendingResult(event.data.content)) return fold
+      if (event.data.name !== ASK_USER_QUESTION_TOOL) return fold
+      const subCallId = event.data.subCallId
+      if (event.data.isError || !isPendingResult(event.data.content)) {
+        return view.active.some(question => question.callId === subCallId)
+          ? { ...fold, questions: { ...view, active: view.active.filter(question => question.callId !== subCallId) } }
+          : fold
+      }
       const questions = questionsOf(JSON.stringify(event.data.arguments))
       if (questions === null) return fold
       const callId = event.data.subCallId
@@ -328,5 +360,5 @@ export const userQuestionProjectionDefinition = {
     return fold === state ? state : { ...state, ...fold }
   },
   wire: { viewSchema: projectionViewSchema, view: state => state.questions },
-  stateVersion: 2,
+  stateVersion: 3,
 } satisfies ProjectionDefinition<'userQuestions', UserQuestionProjectionState>

@@ -196,3 +196,78 @@ it('leaves ordinary CLI arguments to the CLI and rejects an invalid private down
     await expect(readdir(cache)).rejects.toMatchObject({ code: 'ENOENT' })
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+const identity = 'a'.repeat(64)
+const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'
+
+it.each([
+  ['a missing sidecar file', (office: string) => rm(join(office, 'node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js'))],
+  ['a missing Node interpreter', (office: string) => rm(join(office, 'node', 'bin', nodeName))],
+  ['a marker for another identity', (office: string) => writeFile(join(office, 'complete'), 'b'.repeat(64))],
+])('repairs a completed Office cache with %s on the next explicit download', async (_name, damage) => {
+  const { root, cache, run } = await fixture()
+  try {
+    const first = await run('office').done
+    expect(first.code, first.stderr).toBe(0)
+    const office = JSON.parse(first.stdout) as string
+    await damage(office)
+    const repaired = await run('office').done
+    expect(repaired.code, repaired.stderr).toBe(0)
+    expect(await readFile(join(office, 'node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js'), 'utf8')).toBe('cli')
+    expect(await readFile(join(office, 'node', 'bin', nodeName), 'utf8')).toBe('node')
+    expect(await readFile(join(office, 'complete'), 'utf8')).toBe(identity)
+    expect(await readdir(join(cache, identity))).toEqual(['office'])
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it('repairs a damaged primary cache whose manifest is gone', async () => {
+  const { root, cache, run } = await fixture()
+  try {
+    expect((await run('primary').done).code).toBe(0)
+    await rm(join(cache, identity, 'primary', 'primary-runtime', 'runtime.json'))
+    const repaired = await run('primary').done
+    expect(repaired.code, repaired.stderr).toBe(0)
+    expect(await readFile(join(cache, identity, 'primary', 'primary-runtime', 'runtime.json'), 'utf8')).toBe('{}')
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it('lets two processes repair one damaged cache without losing it', async () => {
+  const { root, cache, run } = await fixture()
+  try {
+    const first = await run('office').done
+    const office = JSON.parse(first.stdout) as string
+    await rm(join(office, 'node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js'))
+    const jobs = [run('office', { DSH_FIXTURE_BARRIER: '1' }), run('office', { DSH_FIXTURE_BARRIER: '1' })]
+    try {
+      await Promise.all(jobs.map(job => job.ready))
+      for (const job of jobs) job.child.stdin.end('continue')
+      const results = await Promise.all(jobs.map(job => job.done))
+      for (const result of results) expect(result.code, result.stderr).toBe(0)
+      expect(await readFile(join(office, 'node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js'), 'utf8')).toBe('cli')
+      expect(await readdir(join(cache, identity))).toEqual(['office'])
+    } finally {
+      for (const job of jobs) if (job.child.exitCode === null && job.child.signalCode === null) job.child.kill()
+      await Promise.allSettled(jobs.map(job => job.done))
+    }
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it('ignores an automatically discovered Office cache whose marker or files do not verify', async () => {
+  const { root, run } = await fixture()
+  try {
+    const office = JSON.parse((await run('office').done).stdout) as string
+    const valid = await run().done
+    expect(valid.code, valid.stderr).toBe(0)
+    expect(valid.stderr).not.toContain('ignoring the cached Office sidecar')
+    await writeFile(join(office, 'complete'), 'b'.repeat(64))
+    const mismatched = await run().done
+    expect(mismatched.code, mismatched.stderr).toBe(0)
+    expect(mismatched.stderr).toContain('ignoring the cached Office sidecar')
+    expect(mismatched.stderr).toContain('does not match the runtime manifest identity')
+    await writeFile(join(office, 'complete'), identity)
+    await rm(join(office, 'node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js'))
+    const missing = await run().done
+    expect(missing.stderr).toContain('required file is missing')
+    expect((await run(undefined, { DSH_OFFICE_SIDECAR: office }).done).stderr).not.toContain('ignoring')
+  } finally { await rm(root, { recursive: true, force: true }) }
+})

@@ -479,3 +479,26 @@ it('reuses a loaded worker only after explicitly classified input rejection', as
   expect((await worker.transcribe({ audio, language: 'zh' }, signal())).text).toBe('zh')
   expect(spawn).toHaveBeenCalledTimes(2)
 })
+
+it('settles cancelled waiting recordings at once, frees their slots, and keeps the order of the rest', async () => {
+  const { worker } = await fixture({ maxPending: 3 })
+  const enqueue = (run: (signal: AbortSignal) => Promise<string>, signal = new AbortController().signal): Promise<string> =>
+    worker['enqueue'](run, signal)
+  const gate = Promise.withResolvers<undefined>()
+  const order: string[] = []
+  const active = enqueue(async () => { order.push('active'); await gate.promise; return 'active' })
+  const first = new AbortController(), second = new AbortController()
+  const waitingA = enqueue(async () => 'a', first.signal).then(() => 'ran', (error: unknown) => (error as Error).message)
+  const waitingB = enqueue(async () => 'b', second.signal).then(() => 'ran', (error: unknown) => (error as Error).message)
+  await expect(enqueue(async () => 'full')).rejects.toThrow('queue is full')
+  first.abort(new Error('cancelled a'))
+  second.abort(new Error('cancelled b'))
+  await expect(waitingA).resolves.toBe('cancelled a')
+  await expect(waitingB).resolves.toBe('cancelled b')
+  const later = enqueue(async () => { order.push('later'); return 'later' })
+  const extra = enqueue(async () => { order.push('extra'); return 'extra' })
+  expect(order).toEqual(['active'])
+  gate.resolve(undefined)
+  expect(await Promise.all([active, later, extra])).toEqual(['active', 'later', 'extra'])
+  expect(order).toEqual(['active', 'later', 'extra'])
+})

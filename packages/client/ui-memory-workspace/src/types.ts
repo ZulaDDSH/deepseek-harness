@@ -7,6 +7,7 @@ export interface MemoryGraph {
   path: string
   /** Imported document chunks in the store; 0 means no graph was built and `html` is empty. */
   documents: number
+  skipped?: string[] | undefined
 }
 /** Provider-confirmed document import outcome. */
 export interface MemoryImportResult { filename: string; originalPath: string; completed: number; total: number; error: string | null }
@@ -22,6 +23,7 @@ export interface MemoryActivity {
 /** Automatic chat memory switch, Memorix state and the latest outcomes shown on the Memory page. */
 export interface MemoryStatus extends MemoryActivity {
   chatMemory: boolean
+  maxDocumentBytes: number
   /** `ready` once the Memorix client is connected, `starting` while it connects, `unavailable` when it failed or is not mounted. */
   server: 'ready' | 'starting' | 'unavailable'
   /** Why Memorix is unavailable; absent otherwise. */

@@ -105,7 +105,7 @@ describe('/feedback real Loader composition through cordis.yml', () => {
     const rejected = await context.commands.execute(owner, '/feedback', [], signal)
     expect(rejected?.result).toEqual({
       kind: 'error',
-      text: 'Feedback text is required. Usage: /feedback <text>',
+      text: 'Feedback text is required. Usage: /feedback [--local] <text>',
     })
 
     // The domain event owns the payload; generic command bookkeeping omits it.

@@ -4,7 +4,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import z from '@deepseek-ai/schemastery'
-import { createGitHubWebhookHandler } from './handler.ts'
+import {
+  createGitHubWebhookHandler,
+  DEFAULT_BODY_TIMEOUT_MS,
+  DEFAULT_MAX_CONCURRENT_REQUESTS,
+  DEFAULT_REPLAY_WINDOW_MS,
+} from './handler.ts'
 
 export type * from './types.ts'
 
@@ -23,6 +28,9 @@ export interface Config {
   readonly secretEnv: string
   /** Positive raw body ceiling in bytes. */
   readonly maxBodyBytes: number
+  readonly maxConcurrentRequests?: number
+  readonly bodyTimeoutMs?: number
+  readonly replayWindowMs?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -30,6 +38,9 @@ export const Config: z<Config> = z.object({
   path: z.string().required(),
   secretEnv: z.string().role('credential-ref').required(),
   maxBodyBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).required(),
+  maxConcurrentRequests: z.number().step(1).min(1).default(DEFAULT_MAX_CONCURRENT_REQUESTS),
+  bodyTimeoutMs: z.number().step(1).min(1).default(DEFAULT_BODY_TIMEOUT_MS),
+  replayWindowMs: z.number().step(1).min(0).default(DEFAULT_REPLAY_WINDOW_MS),
 })
 
 /** Validate route and source facts that Schemastery cannot express. */
@@ -54,6 +65,9 @@ export function apply(ctx: Context, config: Config): void {
       source: config.source,
       secretEnv: credentialRef(config.secretEnv),
       maxBodyBytes: config.maxBodyBytes,
+      ...config.maxConcurrentRequests === undefined ? {} : { maxConcurrentRequests: config.maxConcurrentRequests },
+      ...config.bodyTimeoutMs === undefined ? {} : { bodyTimeoutMs: config.bodyTimeoutMs },
+      ...config.replayWindowMs === undefined ? {} : { replayWindowMs: config.replayWindowMs },
     }),
   }
   ctx.effect(

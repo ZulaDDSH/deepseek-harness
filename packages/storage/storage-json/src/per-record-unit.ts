@@ -32,7 +32,8 @@ import { dirname, join } from 'node:path'
 import type { Dirent } from 'node:fs'
 import { StorageError } from '@deepseek-ai/dsh-storage'
 import type { KvUnit, KvUnitDescriptor } from '@deepseek-ai/dsh-storage'
-import { fsyncDirectory, writeAtomic } from './atomic.ts'
+import { writeAtomic } from './atomic.ts'
+import { fsyncDirectory } from './dirsync.ts'
 import { parseRecord, serializeRecord } from './format.ts'
 import type { UnitState } from './format.ts'
 
@@ -352,7 +353,10 @@ export class PerRecordJsonUnit implements KvUnit {
   private async writeDocument(path: string, value: unknown): Promise<void> {
     const text = serializeRecord(this.descriptor.version, value)
     await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-    await writeAtomic(path, text)
+    await writeAtomic(path, text).catch((error: unknown) => {
+      if (error instanceof StorageError && error.code === 'unknown-state') this.unusable = error
+      throw error
+    })
   }
 
   /** Track one durable write so close() drains it. */

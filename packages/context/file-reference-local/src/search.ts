@@ -6,7 +6,8 @@
  * @module @deepseek-ai/dsh-file-reference-local/src/search
  */
 
-import { lstat, readdir } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
+import { lstat, opendir } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { FileReferenceCandidate } from '@deepseek-ai/dsh-file-reference'
 
@@ -72,7 +73,10 @@ interface IndexGeneration {
 interface SettledIndex {
   entries: IndexedPath[]
   startedAt: number
+  settledAt: number
 }
+
+const REVALIDATE_AFTER_MS = 5000
 
 /**
  * Cancellable, reusable fuzzy index rooted at one agent working directory.
@@ -159,7 +163,7 @@ export class WorkspaceFileSearch {
   private async indexFor(signal: AbortSignal): Promise<readonly IndexedPath[]> {
     const settled = this.settled
     if (settled === undefined) return waitForPromise(this.ensureIndex(), signal)
-    if (settled.startedAt < this.invalidations) {
+    if (settled.startedAt < this.invalidations || Date.now() - settled.settledAt > REVALIDATE_AFTER_MS) {
       void this.ensureIndex().catch(() => {
         // A background refresh failure is not this caller's error: the stale
         // entries still answer and `settled.startedAt` stays behind, so the
@@ -185,7 +189,7 @@ export class WorkspaceFileSearch {
          * not hand a disposed index its entries back. */
         if (this.disposed) return entries
         this.generation = undefined
-        this.settled = { entries, startedAt }
+        this.settled = { entries, startedAt, settledAt: Date.now() }
         return entries
       },
       (error: unknown) => {
@@ -199,33 +203,45 @@ export class WorkspaceFileSearch {
   }
 
   private async scanWorkspace(signal: AbortSignal): Promise<IndexedPath[]> {
+    const max = this.config.maxEntries
     const indexed: IndexedPath[] = []
-    const directories: { absolute: string; relative: string }[] = [{ absolute: this.root, relative: '' }]
-    for (let cursor = 0; cursor < directories.length && indexed.length < this.config.maxEntries; cursor += 1) {
+    const deferred: IndexedPath[] = []
+    const visibleDirectories: { absolute: string; relative: string }[] = [{ absolute: this.root, relative: '' }]
+    const hiddenDirectories: { absolute: string; relative: string }[] = []
+    let directories = visibleDirectories
+    let hiddenPhase = false
+    let cursor = 0
+    while (indexed.length < max) {
       signal.throwIfAborted()
       const directory = directories[cursor]
-      /* v8 ignore next 3 -- cursor is bounded by this exact queue's length. */
+      cursor += 1
       if (directory === undefined) {
-        throw new Error('file search selected a missing directory')
+        if (hiddenPhase) break
+        indexed.push(...deferred.slice(0, max - indexed.length))
+        hiddenPhase = true
+        directories = hiddenDirectories
+        cursor = 0
+        continue
       }
-      // The root is not a subtree: an unreadable branch costs its own
-      // candidates, but an unreadable root means the traversal learned
-      // nothing. Letting that settle would publish an empty index over
-      // entries that are still good and leave no invalidation to retry from.
-      const entries = cursor === 0
-        ? await readWorkspaceRoot(directory.absolute, signal)
-        : await readDirectory(directory.absolute, signal)
+      const entries = directory.relative === '' && !hiddenPhase
+        ? await readEntries(directory.absolute, max, signal)
+        : await readDirectory(directory.absolute, max, signal)
       for (const entry of entries) {
         signal.throwIfAborted()
         const path = directory.relative === '' ? entry.name : `${directory.relative}/${entry.name}`
+        const isHidden = hiddenPhase || entry.name.startsWith('.')
+        const target = isHidden && !hiddenPhase ? deferred : indexed
+        if (target === deferred && deferred.length >= max) continue
         if (entry.isDirectory()) {
           if (this.excludedDirectories.has(entry.name)) continue
-          indexed.push({ path, kind: 'directory' })
-          directories.push({ absolute: join(directory.absolute, entry.name), relative: path })
+          target.push({ path, kind: 'directory' })
+          const child = { absolute: join(directory.absolute, entry.name), relative: path }
+          if (isHidden) hiddenDirectories.push(child)
+          else visibleDirectories.push(child)
         } else if (entry.isFile()) {
-          indexed.push({ path, kind: 'file' })
+          target.push({ path, kind: 'file' })
         }
-        if (indexed.length >= this.config.maxEntries) break
+        if (indexed.length >= max) break
       }
     }
     return indexed
@@ -239,7 +255,7 @@ export class WorkspaceFileSearch {
     if (displayDirectory.split('/').some(segment => this.excludedDirectories.has(segment))) return []
     const absolute = await resolveDisplayDirectory(this.root, displayDirectory, signal)
     if (absolute === undefined) return []
-    const entries = await readDirectory(absolute, signal)
+    const entries = await readDirectory(absolute, this.config.maxEntries, signal)
     const candidates: FileReferenceCandidate[] = []
     for (const entry of entries) {
       if (entry.name.startsWith('.') && !fragment.startsWith('.')) continue
@@ -281,24 +297,26 @@ async function resolveDisplayDirectory(
   return absolute
 }
 
-async function readWorkspaceRoot(absolute: string, signal: AbortSignal) {
+async function readEntries(absolute: string, limit: number, signal: AbortSignal): Promise<Dirent[]> {
   signal.throwIfAborted()
-  const entries = await readdir(absolute, { withFileTypes: true })
+  const entries: Dirent[] = []
+  for await (const entry of await opendir(absolute)) {
+    signal.throwIfAborted()
+    if (entry.name.includes('\\')) continue
+    entries.push(entry)
+    if (entries.length >= limit) break
+  }
   signal.throwIfAborted()
   return entries.sort((left, right) => compareText(left.name, right.name))
 }
 
-async function readDirectory(absolute: string, signal: AbortSignal) {
+async function readDirectory(absolute: string, limit: number, signal: AbortSignal) {
   signal.throwIfAborted()
   try {
-    const entries = await readdir(absolute, { withFileTypes: true })
-    signal.throwIfAborted()
-    return entries.sort((left, right) => compareText(left.name, right.name))
+    return await readEntries(absolute, limit, signal)
   } catch (_error: unknown) {
     /* v8 ignore start -- Windows chmod cannot make the unreadable-directory fixture fail readdir; POSIX behavior covers this fallback. */
     signal.throwIfAborted()
-    // An unreadable/missing subtree contributes no candidates; other readable
-    // branches remain useful and autocomplete is advisory.
     return []
     /* v8 ignore stop */
   }

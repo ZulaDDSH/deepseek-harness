@@ -1,6 +1,7 @@
-import { strToU8, zipSync } from 'fflate'
+import { randomBytes } from 'node:crypto'
+import { Inflate, strToU8, zipSync } from 'fflate'
 import type { Zippable } from 'fflate'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ExportSourceError, openExportArchive } from '../src/archive.ts'
 import type { ExportArchive, ExportEntryInfo, ExportStreamHandler } from '../src/archive.ts'
 import {
@@ -171,6 +172,30 @@ describe('ExportArchive.stream', () => {
       name: 'chat_sessions/big.json', oversized: false,
       message: `chat_sessions/big.json yields more bytes than the ${declared} bytes it declares`,
     }])
+  })
+
+  it('stops inflating an entry as soon as it passes its limit', async () => {
+    const declared = LIMIT * 100
+    const archive = await openExportArchive(
+      misdeclaredZip({ 'chat_sessions/big.json': [new Uint8Array(randomBytes(declared * 3)), { level: 9 }] }, 'chat_sessions/big.json', declared),
+      declared * 5, live())
+    const push = vi.spyOn(Inflate.prototype, 'push')
+    try {
+      const record = await pass(archive)
+      expect(record.rejected).toHaveLength(1)
+      expect(push.mock.calls.length).toBeLessThan(10)
+    } finally {
+      push.mockRestore()
+    }
+  })
+
+  it('rejects a second data record for one entry name', async () => {
+    const archive = await openExportArchive(localNameZip({
+      'chat_sessions/a.json': strToU8('{"id":"a"}'),
+      'chat_sessions/b.json': strToU8('{"id":"b"}'),
+    }, 'chat_sessions/b.json', 'chat_sessions/a.json'), LIMIT, live())
+    await expect(archive.stream(recorder().handler, live()))
+      .rejects.toThrow(new ExportSourceError('unreadable-archive', 'the archive carries more than one data record for chat_sessions/a.json'))
   })
 
   it('reports a damaged entry and keeps streaming the entries after it', async () => {

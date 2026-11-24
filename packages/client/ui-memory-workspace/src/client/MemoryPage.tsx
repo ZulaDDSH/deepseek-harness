@@ -184,34 +184,42 @@ export function MemoryPage({ memory, t }: PageProps): ReactNode {
   useEffect(() => {
     if (tab !== 'graph') return undefined
     let active = true
+    const request = new AbortController()
     setBusy(true)
     setError('')
     const load = async (): Promise<void> => {
       try {
-        const data = answer(await memory.graph())
+        const data = answer(await memory.graph(request.signal))
         if (active) setGraph(data)
       } catch (failure) {
         if (active) { setGraph(null); setError(reason(failure)) }
       } finally { if (active) setBusy(false) }
     }
     void load()
-    return () => { active = false }
+    return () => { active = false; request.abort() }
   }, [memory, tab, revision])
 
   const upload = async (files: FileList): Promise<void> => {
     setBusy(true)
     setImportError('')
     const outcomes: MemoryImportResult[] = []
+    const refused: string[] = []
+    let failed = ''
     setImports([])
     setUploading(true)
     try {
       for (const file of Array.from(files)) {
+        if (status !== null && file.size > status.maxDocumentBytes) {
+          refused.push(`${file.name}: ${t('fileTooLarge')} ${Number((status.maxDocumentBytes / 1_048_576).toFixed(2))} MiB`)
+          continue
+        }
         const bytes = new Uint8Array(await file.arrayBuffer())
         outcomes.push(answer(await memory.importDocument(file.name, bytesToBase64(bytes))))
         setImports([...outcomes])
       }
-    } catch (failure) { setImportError(reason(failure)) }
+    } catch (failure) { failed = reason(failure) }
     finally {
+      setImportError([...refused, failed].filter(text => text !== '').join('\n'))
       if (outcomes.some(result => result.completed > 0)) setRevision(value => value + 1)
       setBusy(false)
       setUploading(false)
@@ -337,6 +345,7 @@ export function MemoryPage({ memory, t }: PageProps): ReactNode {
         {graph !== null && graph.documents > 0 && <>
           <iframe className={css.graph} title={t('graph')} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={graph.html} />
           <p className={css.caption}>{t('source')}: {graph.path}</p>
+          {graph.skipped?.map((reason, index) => <p key={index} role="status" className={css.caption}>{t('graphSkipped')}: {reason}</p>)}
         </>}
       </>}
     </div>

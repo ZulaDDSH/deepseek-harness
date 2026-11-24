@@ -52,7 +52,7 @@ Open a task or report to ask a question or give feedback in **Discussion**. Swit
 
 Use **Fork session** to continue work in a separate session. The fork keeps the task trees, saved progress, and discussions at the selected point. It starts a new report history. Pending pause and continue requests stay in the source session.
 
-Use **Task tree actions → Export task tree** to download a `.timeline.json` file. The same menu lets you import a saved tree or delete a tree and its discussions from the session. The file keeps task progress, weights, priorities, change history, and task tree discussions. Timed reports stay with the session where they were generated.
+Use **Task tree actions → Export task tree** to download a `.timeline.json` file. The same menu lets you import a saved tree or delete a tree and its discussions from the session. The file keeps task progress, weights, remaining-time estimates, serial or parallel mode, priorities, change history, and task tree discussions. Timed reports stay with the session where they were generated.
 
 Type `/timeline` in the message box to open the sidebar and see command help. To import a checkpoint, wait until the session is idle, then type `/timeline @plan.timeline.json`. Quote paths with spaces, as in `/timeline @"My plan.timeline.json"`.
 
@@ -112,11 +112,12 @@ Enabling Timeline adds tools and planning guidance to subsequent requests. The f
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- The timeline shows up to seven days of reports at a time and up to 512 discussions. The Session log retains report history outside the visible range.
+- The timeline shows up to seven days of reports at a time and up to 512 discussions. When the discussion limit is reached, saving another discussion or request removes the oldest answered discussion or completed request from the view; open discussions and pending requests are never removed, and the Session log keeps the removed records. The Session log retains report history outside the visible range.
 - A task update writes the current tree to the Session log, up to 2 MiB per write. Revisions keep the description and progress at each edit and show a short preview when details change.
 - Pause and continue controls ask the agent to update the plan at a safe checkpoint. Use Harness Stop to stop an active turn.
+- A pause or continue request that is still waiting for confirmation blocks an opposite request for the same or overlapping work. Timeline reports the conflict instead of saving a second request, because the agent may already have read the first. Wait for the confirmation or for two minutes. If a request could not be saved, retrying the same action sends it; that recovery state is held in memory, so after a restart an unsent request waits out the two minute window before it can be retried.
 
 <a id="dev-note"></a>
 ### Dev Note
 
-The projection stores up to 50,400 reports across all levels. Each report event scans the retained list to replace duplicate IDs and enforce retention. When the list loses entries, the projection checks any report discussions against the retained IDs. With N reports inside the window, full replay can scan O(N²) entries. An observed report change sends the complete Timeline view through the Session projection.
+The projection stores up to 50,400 reports across all levels. Each report event scans the retained list to replace duplicate IDs and enforce retention. When the list loses entries, the projection checks any report discussions against the retained IDs. With N reports inside the window, full replay can scan O(N²) entries; this is a known limit that is not mitigated yet, and it only approaches the maximum at a one-minute report interval. An observed report change sends the complete Timeline view through the Session projection.

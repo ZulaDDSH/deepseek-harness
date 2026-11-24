@@ -291,6 +291,39 @@ describe('idleWatchdog', () => {
     expect(timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT')).toMatchObject({ timeoutMs: 100 })
   })
 
+  it('rejects an outstanding demand at upstream cancellation without waiting for the idle deadline', async () => {
+    vi.useFakeTimers()
+    const upstream = new AbortController()
+    using watchdog = idleWatchdog(upstream.signal, 300_000, 'LLM_STREAM_IDLE_TIMEOUT')
+    const outcome = watchdog.next({ next: () => new Promise<IteratorResult<number>>(() => {}) })
+      .catch((error: unknown) => error)
+    await vi.advanceTimersByTimeAsync(10)
+    upstream.abort('caller cancelled')
+    expect(await outcome).toBe('caller cancelled')
+    expect(timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT')).toBeUndefined()
+  })
+
+  it('lets an iterator settle a demand made after upstream was already aborted', async () => {
+    const upstream = new AbortController()
+    upstream.abort('already gone')
+    using watchdog = idleWatchdog(upstream.signal, 100, 'LLM_STREAM_IDLE_TIMEOUT')
+    await expect(watchdog.next({ next: () => Promise.resolve({ done: true, value: undefined }) }))
+      .resolves.toEqual({ done: true, value: undefined })
+  })
+
+  it('keeps the timeout reason when the idle deadline fires before upstream cancellation', async () => {
+    vi.useFakeTimers()
+    const upstream = new AbortController()
+    using watchdog = idleWatchdog(upstream.signal, 100, 'LLM_STREAM_IDLE_TIMEOUT')
+    const outcome = watchdog.next({ next: () => new Promise<IteratorResult<number>>(() => {}) })
+      .catch((error: unknown) => error)
+    await vi.advanceTimersByTimeAsync(100)
+    upstream.abort('too late')
+    expect(timeoutOf(await outcome as { reason?: unknown }, 'LLM_STREAM_IDLE_TIMEOUT')).toBeUndefined()
+    expect(await outcome).toBe(watchdog.signal.reason)
+    expect(timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT')).toMatchObject({ timeoutMs: 100 })
+  })
+
   it('rejects invalid bounds and concurrent iterator demand', async () => {
     expect(() => idleWatchdog(undefined, 0, 'IDLE')).toThrow(/positive finite/)
     expect(() => idleWatchdog(undefined, Number.NaN, 'IDLE')).toThrow(/positive finite/)

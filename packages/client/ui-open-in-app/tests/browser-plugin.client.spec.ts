@@ -331,7 +331,7 @@ describe('open-in-app browser half', () => {
     expect(remote.session.workspacePathApplications).toHaveBeenCalledWith({ path: '/w/clip.mp4' }, signal)
     expect(face.hooks.openInAppDesktop.getSnapshot()).toBe(true)
     expect(await face.openPath('/w/clip.mp4', 'reveal')).toEqual({ kind: 'revealed' })
-    expect(remote.session.openWorkspacePath).toHaveBeenLastCalledWith({ path: '/w/clip.mp4', action: 'reveal' })
+    expect(remote.session.openWorkspacePath).toHaveBeenLastCalledWith({ path: '/w/clip.mp4', action: 'reveal' }, expect.any(AbortSignal))
     await fiber.dispose()
     expect(ctx.slots.entries('sidebar.right.tab.document.actions').map(entry => entry.options.id)).not.toContain('open-in-app')
     expect(ctx.slots.entries('sidebar.right.tab.document.unpreviewable').map(entry => entry.options.id)).not.toContain('open-in-app')

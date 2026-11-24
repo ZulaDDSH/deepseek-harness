@@ -2,7 +2,7 @@ import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { createInboxStub, unsupportedModel, provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
@@ -29,6 +29,24 @@ import { Session, type SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 
 const testToolSignal = new AbortController().signal
+
+function asFakeSpill(value: unknown): FakeSpill {
+  if (value instanceof FakeSpill) return value
+  throw new Error('spillStore is not the test FakeSpill')
+}
+
+class FakeSpill extends Service {
+  saves: { owner: { sessionId: string }; source: Record<string, unknown>; suggestedName: string; content: string }[] = []
+  failWith?: Error
+
+  constructor(ctx: Context) { super(ctx, 'spillStore') }
+
+  saveText(input: FakeSpill['saves'][number]): Promise<{ locator: string; bytes: number; retrievalHint: string }> {
+    if (this.failWith) return Promise.reject(this.failWith)
+    this.saves.push(input)
+    return Promise.resolve({ locator: `/spill/${input.suggestedName}`, bytes: input.content.length, retrievalHint: 'Read it with the file tool.' })
+  }
+}
 
 /** A controllable engine standing in behind ctx.workflowEngine (the tool's only seam). */
 class StubEngine extends WorkflowEngine {
@@ -135,6 +153,17 @@ function execute(ctx: Context, args: unknown, extra?: {
 }
 
 describe('dsh-tool-workflow', () => {
+  it('reports unconfirmed child cleanup beside a completed foreground result', async () => {
+    const { ctx, engine, parent } = await setup()
+    const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
+    await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
+    engine.settle({ value: 1, stopReason: 'completed', agentsStarted: 1, cleanupFailures: ['child c1 (call 1): disposal failed'] })
+    const result = await pending
+    if (result.isError) throw new Error('expected workflow success')
+    expect(result.value).toEqual({ kind: 'foreground', runId: 'run-1', agentsStarted: 1, result: 1, cleanupFailures: ['child c1 (call 1): disposal failed'] })
+    expect((result.content[0] as { text: string }).text).toContain('child cleanup unconfirmed: child c1 (call 1): disposal failed')
+  })
+
   it('starts a run with the script/args/parent/signal and renders the completed value', async () => {
     const { ctx, engine, parent } = await setup()
     const controller = new AbortController()
@@ -271,8 +300,8 @@ describe('dsh-tool-workflow', () => {
     const types = session.snapshotEvents().map(event => event.type)
     const expectedPrefixes = {
       'tool-workflow/run-start': [],
-      'tool-workflow/agent-start': ['tool-workflow/run-start'],
-      'tool-workflow/agent-end': ['tool-workflow/run-start', 'tool-workflow/agent-start'],
+      'tool-workflow/agent-start': ['tool-workflow/run-start', 'tool-workflow/run-end'],
+      'tool-workflow/agent-end': ['tool-workflow/run-start', 'tool-workflow/agent-start', 'tool-workflow/run-end'],
       'tool-workflow/run-end': [
         'tool-workflow/run-start', 'tool-workflow/agent-start', 'tool-workflow/agent-end',
       ],
@@ -406,6 +435,69 @@ describe('dsh-tool-workflow', () => {
     const rendered = (result.content[0] as { text: string }).text
     expect(rendered).toContain('[truncated:')
     expect(rendered.length).toBeLessThan(400)
+  })
+
+  describe('oversized result spill', () => {
+    const big = { blob: 'x'.repeat(500), tail: 'MEANINGFUL-TAIL' }
+
+    it('saves the complete JSON and points the clipped render at it (foreground)', async () => {
+      const { ctx, engine, parent, session } = await setup({ maxResultChars: 40 })
+      await ctx.plugin(FakeSpill)
+      const spill = asFakeSpill(ctx.get('spillStore'))
+      const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
+      await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
+      engine.settle({ value: big, stopReason: 'completed', agentsStarted: 1 })
+      const result = await pending
+      if (result.isError) throw new Error('expected workflow success')
+      expect(spill.saves).toHaveLength(1)
+      expect(spill.saves[0]).toMatchObject({
+        owner: { sessionId: session.header.id },
+        source: { kind: 'tool', toolName: 'workflow', callId: 'call-1' },
+        content: JSON.stringify(big, null, 2),
+      })
+      expect(result.value).toMatchObject({ result: big, spill: { locator: '/spill/workflow-result.json', retrievalHint: 'Read it with the file tool.' } })
+      const rendered = (result.content[0] as { text: string }).text
+      expect(rendered).toContain('[truncated:')
+      expect(rendered).toContain('Full result stored at: /spill/workflow-result.json. Read it with the file tool.')
+      expect(rendered).not.toContain('MEANINGFUL-TAIL')
+    })
+
+    it('does not save a result that fits, and degrades to the plain notice without a backend or on a save failure', async () => {
+      const fits = await setup({ maxResultChars: 40 })
+      await fits.ctx.plugin(FakeSpill)
+      const fitsSpill = asFakeSpill(fits.ctx.get('spillStore'))
+      const small = execute(fits.ctx, { script: SCRIPT, meta: META }, { agent: fits.parent })
+      await vi.waitFor(() => { expect(fits.engine.requests.length).toBe(1) })
+      fits.engine.settle({ value: 1, stopReason: 'completed', agentsStarted: 1 })
+      const smallResult = await small
+      if (smallResult.isError) throw new Error('expected workflow success')
+      expect(fitsSpill.saves).toHaveLength(0)
+      expect(smallResult.value).not.toHaveProperty('spill')
+
+      const none = await setup({ maxResultChars: 40 })
+      const warnings: string[] = []
+      none.ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof none.ctx.logger.warn
+      const noBackend = execute(none.ctx, { script: SCRIPT, meta: META }, { agent: none.parent })
+      await vi.waitFor(() => { expect(none.engine.requests.length).toBe(1) })
+      none.engine.settle({ value: big, stopReason: 'completed', agentsStarted: 1 })
+      const noBackendResult = await noBackend
+      if (noBackendResult.isError) throw new Error('expected workflow success')
+      expect((noBackendResult.content[0] as { text: string }).text).toContain('[truncated:')
+      expect((noBackendResult.content[0] as { text: string }).text).not.toContain('Full result stored')
+      expect(warnings.join('\n')).toContain('no ctx.spillStore backend loaded')
+
+      const failing = await setup({ maxResultChars: 40 })
+      await failing.ctx.plugin(FakeSpill)
+      ;asFakeSpill(failing.ctx.get('spillStore')).failWith = new Error('disk full')
+      failing.ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof failing.ctx.logger.warn
+      const failed = execute(failing.ctx, { script: SCRIPT, meta: META }, { agent: failing.parent })
+      await vi.waitFor(() => { expect(failing.engine.requests.length).toBe(1) })
+      failing.engine.settle({ value: big, stopReason: 'completed', agentsStarted: 1 })
+      const failedResult = await failed
+      if (failedResult.isError) throw new Error('expected workflow success')
+      expect((failedResult.content[0] as { text: string }).text).not.toContain('Full result stored')
+      expect(warnings.join('\n')).toContain('disk full')
+    })
   })
 
   it('registers under a configured toolName and unregisters on fiber dispose (HMR safety)', async () => {
@@ -552,6 +644,35 @@ describe('dsh-tool-workflow', () => {
       // A straggling event after settlement finds no tracked run and is dropped.
       engine.phase(runId, 'Late')
       expect(retained(ctx, job.id, parent)).not.toContain('Late')
+    })
+
+    it('a completed run with an oversized value saves it and the job result carries the spill reference', async () => {
+      const { ctx, engine, parent, session } = await setupBackground()
+      await ctx.plugin(FakeSpill)
+      const spill = asFakeSpill(ctx.get('spillStore'))
+      const result = await execute(ctx, { script: SCRIPT, meta: META, run_in_background: true }, { agent: parent })
+      if (result.isError) throw new Error('expected background acceptance')
+      const jobId = (result.value as { jobId: string }).jobId as JobId
+      const value = { blob: 'x'.repeat(60_000), tail: 'MEANINGFUL-TAIL' }
+      engine.settleRun(brandString<WorkflowRunId>('run-1'), { value, stopReason: 'completed', agentsStarted: 2 })
+      await vi.waitFor(() => { expect(ctx.jobs.get(jobId, parent.id).status).toBe('completed') })
+      expect(spill.saves).toHaveLength(1)
+      expect(spill.saves[0]).toMatchObject({
+        owner: { sessionId: session.header.id },
+        source: { kind: 'tool', toolName: 'workflow', callId: 'call-1' },
+        content: JSON.stringify(value, null, 2),
+      })
+      const read = await executeToolFixture(ctx, {
+        signal: testToolSignal,
+        callId: brandString<ToolCallId>('call-settled-read'),
+        name: 'job_output',
+        arguments: { job_id: jobId },
+        agent: parent,
+      })
+      const readText = (read.content[0] as { text: string }).text
+      expect(readText).toContain('[truncated:')
+      expect(readText).toContain('Full result stored at: /spill/workflow-result.json. Read it with the file tool.')
+      expect(readText).not.toContain('MEANINGFUL-TAIL')
     })
 
     it('a registry kill cancels the run and the reason lands in the killed detail', async () => {

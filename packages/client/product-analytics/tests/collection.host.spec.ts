@@ -226,3 +226,92 @@ it('encodes failed fields as a sorted scalar and omits an empty failure list', a
   await b.ctx.productAnalytics.report({ eventName: 'desktop_upgrade_click', timestamp: 1, attributes: {} })
   expect(b.emit.mock.calls[0]![0].attributes?.missing_fields).toBe('cpu_physical_core_count=query-failed,os_version_full=timeout')
 })
+
+async function setPolicy(b: Awaited<ReturnType<typeof setup>>, enabled: boolean): Promise<void> {
+  const { updateVolatile, createVolatile } = await import('../../../../vendor/cosmokit/src/volatile.ts')
+  const config = b.fiber.effectiveConfig as import('../src/index.ts').Config
+  updateVolatile(config.enabled, createVolatile(enabled))
+  b.fiber.ctx.emit('loader/volatile-update', [['enabled']])
+}
+
+it('discards an event admitted before a disable and re-enable during identity lookup', async () => {
+  const b = await setup(true)
+  const identity = Promise.withResolvers<undefined>()
+  b.getDeviceIdentity.mockReturnValueOnce(identity.promise)
+  const report = b.ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: 1, attributes: {} })
+  await setPolicy(b, false)
+  await setPolicy(b, true)
+  identity.resolve(undefined)
+  await report
+  expect(b.emit).not.toHaveBeenCalled()
+  await b.ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: 2, attributes: {} })
+  expect(b.emit).toHaveBeenCalledOnce()
+})
+
+it('discards an event admitted before a disable and re-enable during environment sampling', async () => {
+  const b = await setup(true)
+  const pending = Promise.withResolvers<EnvironmentAttributes>()
+  vi.mocked(collectEnvironment).mockReturnValueOnce(pending.promise)
+  const report = b.ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: 1, attributes: {} })
+  await setPolicy(b, false)
+  await setPolicy(b, true)
+  pending.resolve(environment)
+  await report
+  expect(b.emit).not.toHaveBeenCalled()
+})
+
+it('stops waiting for a stalled identity lookup and submits the event without identity', async () => {
+  const b = await setup(true)
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    b.getDeviceIdentity.mockReturnValueOnce(new Promise<undefined>(() => {}))
+    const report = b.ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: 1, attributes: {} })
+    await vi.advanceTimersByTimeAsync(5000)
+    await report
+  } finally {
+    vi.useRealTimers()
+  }
+  expect(b.emit.mock.calls[0]![0].attributes).toEqual({ ...commonEnvironment, app_version: 'test-version' })
+})
+
+it('caps pending reports and outstanding identity lookups, dropping reports beyond 256', async () => {
+  const b = await setup(true)
+  const identity = Promise.withResolvers<undefined>()
+  b.getDeviceIdentity.mockReturnValue(identity.promise)
+  const reports = Array.from({ length: 257 }, (_, timestamp) => b.ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp, attributes: {} }))
+  expect(b.getDeviceIdentity).toHaveBeenCalledTimes(64)
+  identity.resolve(undefined)
+  await Promise.all(reports)
+  expect(b.emit).toHaveBeenCalledTimes(256)
+})
+
+it('bounds stalled identity lookups across repeated deadlines', async () => {
+  const b = await setup(true)
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    b.getDeviceIdentity.mockReturnValue(new Promise<undefined>(() => {}))
+    for (let round = 0; round < 3; round += 1) {
+      const reports = Array.from({ length: 64 }, (_, index) => b.ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: round * 64 + index, attributes: {} }))
+      await vi.advanceTimersByTimeAsync(5000)
+      await Promise.all(reports)
+    }
+  } finally {
+    vi.useRealTimers()
+  }
+  expect(b.getDeviceIdentity).toHaveBeenCalledTimes(64)
+  expect(b.emit).toHaveBeenCalledTimes(192)
+})
+
+it('replaces string attributes over 256 UTF-8 bytes before they reach the exporter', async () => {
+  const b = await setup(true)
+  await b.ctx.productAnalytics.report({ eventName: 'plugin_install_click', timestamp: 1, attributes: { input_value: 'x'.repeat(257) } })
+  await b.ctx.productAnalytics.report({ eventName: 'plugin_install_click', timestamp: 2, attributes: { input_value: '界'.repeat(86) } })
+  await b.ctx.productAnalytics.report({ eventName: 'plugin_install_click', timestamp: 3, attributes: { input_value: 'x'.repeat(256) } })
+  expect(b.emit.mock.calls.map(([record]) => record.attributes?.input_value)).toEqual(['[oversized]', '[oversized]', 'x'.repeat(256)])
+})
+
+it('reports an event that arrives without an attributes object', async () => {
+  const b = await setup(true)
+  await b.ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: 100 } as never)
+  expect(b.emit.mock.calls[0]?.[0].attributes).toEqual({ ...commonEnvironment, device_id: 'login-device', user_id: 'user-1', app_version: 'test-version' })
+})

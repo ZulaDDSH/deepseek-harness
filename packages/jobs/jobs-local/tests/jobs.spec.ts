@@ -399,6 +399,26 @@ describe('LocalJobRegistry reads and settlement', () => {
     expect(jobs.read(id).result).toBeUndefined()
   })
 
+  it('peek returns the next read without moving the cursor, spending the result or trimming', async () => {
+    const ctx = await harness()
+    const p = producer({ kind: 'test-task' })
+    const id = ctx.jobs.start(p.spec)
+    p.job().append('abc')
+    p.settle({ status: 'completed', result: 'final answer' })
+    await tick()
+
+    const peeked = ctx.jobs.peek(id)
+    expect(peeked.chunks).toEqual([{ at: 0, text: 'abc' }])
+    expect(peeked.result).toBe('final answer')
+    expect(ctx.jobs.peek(id)).toEqual(peeked)
+
+    const read = ctx.jobs.read(id)
+    expect(read.chunks).toEqual(peeked.chunks)
+    expect(read.result).toBe('final answer')
+    expect(ctx.jobs.peek(id)).toMatchObject({ chunks: [], job: { status: 'completed' } })
+    expect(ctx.jobs.peek(id).result).toBeUndefined()
+  })
+
   it('a settled job without a result reads as empty', async () => {
     const ctx = await harness()
     const p = producer({ kind: 'test-task' })

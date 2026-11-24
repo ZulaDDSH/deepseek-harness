@@ -74,6 +74,12 @@ export function apply(ctx: ClientContext): void {
   const handle = createFilesStore()
   // One book for the plugin, not per Session: Sessions rooted at the same workspace share its preferences.
   const preferences = createSearchPreferenceBook(createSnapshotStore<unknown>({}, { persist: { name: SEARCH_PREFERENCES_KEY } }))
+  ctx.effect(() => {
+    if (typeof window === 'undefined') return () => {}
+    const onStorage = (event: StorageEvent): void => { if (event.key === SEARCH_PREFERENCES_KEY) preferences.refresh() }
+    window.addEventListener('storage', onStorage)
+    return () => { window.removeEventListener('storage', onStorage) }
+  }, 'ui-sidebar-files: search preferences storage')
   const face = filesFace(createList(ctx.remote), createWatch(ctx.remote), canOpenOf(ctx.sidebarRightTabs), (sessionId, tabId) => {
     const source = ctx.sidebarRight.tabDomain.occurrence(sessionId, { id: tabId }).navigation
     return {

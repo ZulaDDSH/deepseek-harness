@@ -77,7 +77,7 @@ The pruner is built on three commitments:
 
 ### Pruning mechanics
 
-Pruning measures `text` blocks by Unicode code point (non-text blocks cost zero), produces a bounded replacement — or none when content is already within budget — and swaps each over-budget tool result for one newly appended `tool/result` that replaces the original event and cites it through `sourceEventSeqs`, immediately preceded by a `compaction/prune` shadow-price event. A session that rejects a replacement fails the run synchronously; replacements committed earlier in the pass stay durable. Non-text blocks keep their original relative positions, and slicing never splits a UTF-16 surrogate pair. Exact signatures are in [`src/index.ts`](src/index.ts).
+Pruning measures `text` blocks by Unicode code point (non-text blocks cost zero), produces a bounded replacement — or none when content is already within budget — and swaps each over-budget tool result for one newly appended `tool/result` that replaces the original event and cites it through `sourceEventSeqs`, immediately preceded by a `compaction/prune` shadow-price event. A session that rejects a replacement fails the run synchronously; replacements committed earlier in the pass stay durable. Non-text blocks keep their original relative positions, and slicing never splits a UTF-16 surrogate pair. Counting and slicing scan the text by offset without allocating per-code-point arrays, so extra memory stays bounded by the retained text; CPU is still linear in the input and a pass over many large results is synchronous. Exact signatures are in [`src/index.ts`](src/index.ts).
 
 ### Source map
 

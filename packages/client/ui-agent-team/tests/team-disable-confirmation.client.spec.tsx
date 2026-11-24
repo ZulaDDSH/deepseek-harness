@@ -8,6 +8,7 @@ import {
   TeamDisableConfirmation, type TeamDisableConfirmationProps, type TeamDisableRequest,
 } from '../src/client/TeamDisableConfirmation.tsx'
 import { zh } from '../src/client/locales.ts'
+import type { TeamSelectionFailure } from '../src/client/TeamModeToggle.tsx'
 import { brandString } from '@deepseek-ai/dsh-brand'
 
 afterEach(cleanup)
@@ -29,7 +30,7 @@ function props(
 }
 
 function pendingDisable() {
-  const result = Promise.withResolvers<string | null>()
+  const result = Promise.withResolvers<TeamSelectionFailure | null>()
   onTestFinished(async () => {
     await act(async () => { result.resolve(null) })
   })
@@ -106,7 +107,7 @@ it.each(['returned', 'error', 'string'] as const)('keeps a %s failure visible an
     .mockImplementationOnce(async () => {
       if (failure === 'error') throw new Error('offline')
       if (failure === 'string') throw 'offline'
-      return 'offline'
+      return { message: 'offline', unconfirmed: false }
     })
     .mockImplementationOnce(() => result.promise)
   const input = props({ sessionId: ORIGINAL }, disableTeam)
@@ -126,9 +127,27 @@ it.each(['returned', 'error', 'string'] as const)('keeps a %s failure visible an
   expect(input.cancelDisable).toHaveBeenCalledExactlyOnceWith(ORIGINAL)
 })
 
+it('reports an unconfirmed disable as applied-but-unsaved and retries the same disable', async () => {
+  const result = pendingDisable()
+  const disableTeam = vi.fn<TeamDisableConfirmationProps['disableTeam']>()
+    .mockResolvedValueOnce({ message: 'flush failed', unconfirmed: true })
+    .mockImplementationOnce(() => result.promise)
+  const input = props({ sessionId: ORIGINAL }, disableTeam)
+  render(<TeamDisableConfirmation {...input.props} />)
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: zh['disable.confirm'] })) })
+  expect(screen.getByRole('alert').textContent).toBe(zh['mode.unconfirmed'])
+  expect(screen.getByRole('alert').textContent).not.toContain('flush failed')
+  expect(input.cancelDisable).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: zh['disable.confirm'] }))
+  expect(disableTeam.mock.calls).toEqual([[ORIGINAL], [ORIGINAL]])
+  expect(screen.queryByRole('alert')).toBeNull()
+  await act(async () => { result.resolve(null) })
+  expect(input.cancelDisable).toHaveBeenCalledExactlyOnceWith(ORIGINAL)
+})
+
 it('clears the previous failure when the request targets a different Session', async () => {
   const input = props({ sessionId: ORIGINAL }, vi.fn<TeamDisableConfirmationProps['disableTeam']>()
-    .mockResolvedValueOnce('old failure').mockResolvedValueOnce(null))
+    .mockResolvedValueOnce({ message: 'old failure', unconfirmed: false }).mockResolvedValueOnce(null))
   const view = render(<TeamDisableConfirmation {...input.props} />)
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: zh['disable.confirm'] })) })
   expect(screen.getByRole('alert').textContent).toContain('old failure')
@@ -157,7 +176,7 @@ it.each(['success', 'returned', 'error'] as const)('isolates a replacement reque
   expect(input.disableTeam.mock.calls).toEqual([[ORIGINAL], [REPLACEMENT]])
   await act(async () => {
     if (outcome === 'error') original.reject(new Error('old failure'))
-    else original.resolve(outcome === 'success' ? null : 'old failure')
+    else original.resolve(outcome === 'success' ? null : { message: 'old failure', unconfirmed: false })
   })
   expect(screen.getByRole('dialog', { name: zh['disable.title'] })).toBeTruthy()
   expect(screen.queryByRole('alert')).toBeNull()

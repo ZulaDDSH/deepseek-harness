@@ -103,6 +103,8 @@ export function webBlockLabels(t: T): WebBlockLabels {
     noResults: t('web.noResults'),
     sourcesTruncated: t('web.sourcesTruncated'),
     http: t('web.http'),
+    statusNotReported: t('web.statusNotReported'),
+    finalUrlNotReported: t('web.finalUrlNotReported'),
     contentTruncated: t('web.contentTruncated'),
     markdown: markdownLabels(t),
   }

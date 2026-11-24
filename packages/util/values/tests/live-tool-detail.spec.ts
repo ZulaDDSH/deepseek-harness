@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { liveToolDetail, normalizeLiveToolDetail } from '../src/index.ts'
 
 describe('liveToolDetail', () => {
@@ -38,5 +38,40 @@ describe('liveToolDetail', () => {
 describe('normalizeLiveToolDetail', () => {
   it('yields empty text for a value without text', () => {
     expect(normalizeLiveToolDetail(undefined)).toBe('')
+  })
+
+  it('segments only a bounded prefix of a huge text and still truncates with an ellipsis', () => {
+    const segment = vi.spyOn(Intl.Segmenter.prototype, 'segment')
+    try {
+      const detail = normalizeLiveToolDetail(`${'word  \n '.repeat(500_000)}end`)
+      expect(detail).toHaveLength(160)
+      expect(detail.endsWith('…')).toBe(true)
+      expect(detail.startsWith('word word word')).toBe(true)
+      const segmented = segment.mock.calls.map(([input]) => input.length)
+      expect(Math.max(...segmented)).toBeLessThanOrEqual(1100)
+    } finally {
+      segment.mockRestore()
+    }
+  })
+
+  it('keeps supplementary-plane graphemes whole at the cut and short text exact', () => {
+    expect(normalizeLiveToolDetail(`  a \t b\n${'😀'.repeat(2000)}`)).toBe(`a b ${'😀'.repeat(155)}…`)
+    expect(normalizeLiveToolDetail('  a \n b  ')).toBe('a b')
+  })
+})
+
+describe('liveToolDetail memo', () => {
+  it('parses an unchanged streamed argument once', () => {
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      const raw = JSON.stringify({ command: 'x'.repeat(50_000) })
+      liveToolDetail('bash', raw)
+      liveToolDetail('bash', raw)
+      expect(parse).toHaveBeenCalledTimes(1)
+      expect(liveToolDetail('other', raw)).toBe(liveToolDetail('other', raw))
+      expect(parse).toHaveBeenCalledTimes(2)
+    } finally {
+      parse.mockRestore()
+    }
   })
 })

@@ -1,4 +1,8 @@
 /** Windows provider registration through the Loader without an interactive desktop. */
+import { copyFile, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -21,7 +25,11 @@ it.skipIf(process.platform !== 'win32')('loads the Windows provider and rejects 
   ctx.baseUrl = import.meta.url
   await ctx.plugin(Loader)
   Object.assign(ctx.loader.builtins, { include: Include, 'windows-provider': WindowsProvider })
-  await ctx.loader.create({ name: 'cordis:include', config: { path: new URL('./fixtures/provider.yml', import.meta.url).href } })
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-cua-windows-loader-'))
+  onTestFinished(() => rm(directory, { recursive: true, force: true }))
+  const config = join(directory, 'provider.yml')
+  await copyFile(new URL('./fixtures/provider.yml', import.meta.url), config)
+  await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
   await ctx.loader.await()
   const entry = [...ctx.loader.entries()].find(entry => entry.options.id === 'windows-provider')
   if (!entry?.fiber) throw new Error('Loader did not activate the Windows provider')

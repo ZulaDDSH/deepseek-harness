@@ -46,7 +46,7 @@ Load the web service and the provider; the API key falls back to `$EXA_API_KEY` 
 | `baseURL` | `https://api.exa.ai` | Endpoint base; `/search` is appended. An unparseable value makes the provider unavailable |
 | `searchType` | `auto` | Retrieval mode sent as Exa's `type`: `auto`, `keyword`, or `neural` |
 | `numResults` | (unset) | Default result count when a request carries no `maxResults`; must be a positive integer |
-| `highlightsPerResult` | `1` | Highlight sentences requested per result (Exa's `highlightsPerUrl`); must be a positive integer |
+| `highlightsPerResult` | `1` | Most non-blank highlights joined into each result's `snippet`; must be a positive integer. Exa's `highlightsPerUrl` is deprecated and no longer sent, so Exa decides how many highlights it returns |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-web-search-exa) is the exhaustive source for every accepted field and its JSDoc.
 
@@ -72,7 +72,7 @@ This section explains the design decisions behind the provider; the observable b
 
 The provider is a thin adapter over Exa's API with two deliberate rules:
 
-- **Portable snippets only.** A source gains a `snippet` only from a real highlight; inventing one from other fields would make the seam lie, so snippet-less results are dropped entirely.
+- **Portable snippets only.** A snippet comes only from real highlights; a result without any keeps its URL and metadata but no snippet.
 - **No invented answers.** Exa returns no generated answer, so `content` is omitted rather than fabricating provider prose the model might trust.
 
 ### Source map
@@ -121,9 +121,9 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 These limits define when the provider is a poor fit. They are current package constraints.
 
-- **A result with no non-blank highlight is dropped entirely** — there is no portable snippet to map, so fewer sources than requested can return.
+- **A result with no highlight keeps its URL, without a snippet** — Exa results never vanish for lacking an excerpt, but such sources show no excerpt text.
 - **Only `searchType`/`numResults`/`highlightsPerResult` are exposed** — Exa's other controls (livecrawl, category, domain/date filters, full-text contents) wait on provider-neutral service fields ([seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md)).
-- **Abort classification is error-shape-based** — only a `DOMException` named `AbortError` maps to `WEB_ABORTED`; an abort carrying a custom reason (such as `dsh-timeout`'s `TimeoutReason`) surfaces as `WEB_PROVIDER_ERROR`.
+- **Cancellation follows the caller's signal** — an aborted `signal` maps to `WEB_ABORTED` with the signal's reason as `cause`, whatever the thrown value was, including during a bounded body read.
 
 <a id="dev-note"></a>
 ### Dev Note

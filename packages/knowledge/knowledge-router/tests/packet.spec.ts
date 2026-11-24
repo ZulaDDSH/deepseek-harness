@@ -181,15 +181,17 @@ describe('assemblePacket', () => {
     expect(packet.items).toEqual([])
   })
 
-  it('drops items without shortening when even the empty packet exceeds the bound', () => {
-    const packet = assemblePacket({
-      task: 'x'.repeat(1000),
-      providers: ['gitnexus'],
-      unavailable: [],
-      items: [item('gitnexus', 'short')],
-      maxBytes: 10,
-    })
-    expect(packet.truncated).toBe(true)
-    expect(packet.items).toEqual([])
+  it('rejects a task that cannot fit instead of returning an over-bound packet', () => {
+    const input = { providers: ['gitnexus' as const], unavailable: [], items: [item('gitnexus', 'short')] }
+    expect(() => assemblePacket({ ...input, task: 'x'.repeat(1000), maxBytes: 10 })).toThrow(/maxPacketBytes is 10/)
+    expect(() => assemblePacket({ ...input, task: '日本語'.repeat(100), maxBytes: 400 })).toThrow(/needs 9[0-9]{2} bytes/)
+    expect(() => assemblePacket({ ...input, task: 'task', maxBytes: 5 })).toThrow(/maxPacketBytes is 5/)
+  })
+
+  it('keeps the reported bytes within the bound whenever a packet is returned', () => {
+    const task = '日本語'
+    const header = byteLength(renderPacket({ task, providers: ['gitnexus'], unavailable: [], items: [] }))
+    const packet = assemblePacket({ task, providers: ['gitnexus'], unavailable: [], items: [item('gitnexus', 'z'.repeat(5000))], maxBytes: header + 300 })
+    expect(packet.bytes).toBeLessThanOrEqual(header + 300)
   })
 })

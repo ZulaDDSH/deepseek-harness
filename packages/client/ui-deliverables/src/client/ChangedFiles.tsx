@@ -25,7 +25,7 @@ function Counts({ added, deleted, t }: { added: number; deleted: number } & Prop
 
 export function ChangedFiles({ changes, cwd, openReview, t, sessionId, useChangesDiff, loadChangesDiff, compact = false }: {
   /** The served summary with the sequence of the event that announced it. */
-  changes: Pick<ChangesSummary, 'files' | 'total' | 'added' | 'deleted'> & { seq: number }
+  changes: Pick<ChangesSummary, 'files' | 'total' | 'added' | 'deleted' | 'incomplete'> & { seq: number }
   cwd: string | undefined
   compact?: boolean
   /** Open the turn's review on the file at an original summary index. */
@@ -36,7 +36,8 @@ export function ChangedFiles({ changes, cwd, openReview, t, sessionId, useChange
   const [open, setOpen] = useState(false)
   const onlyFile = changes.total === 1 ? changes.files[0] : undefined
   const singleFile = compact ? undefined : onlyFile
-  const title = onlyFile === undefined ? t('changes.title', { count: String(changes.total) })
+  const title = changes.incomplete !== undefined ? t('changes.incomplete', { count: String(changes.total) })
+    : onlyFile === undefined ? t('changes.title', { count: String(changes.total) })
     : t('changes.singleTitle', { name: basename(onlyFile.path) })
   const header = <button type="button" className={css.header}
     aria-label={singleFile === undefined ? title : t('changes.viewDiff', { name: singleFile.display })}

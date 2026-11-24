@@ -204,8 +204,28 @@ describe('bypassesProxy', () => {
     expect(bypassesProxy('[::1]:3000', new URL('http://[::1]:4000/a'))).toBe(false)
   })
 
-  it('does not match CIDR notation, so an OS bypass list must be rewritten as suffixes', () => {
-    expect(bypassesProxy('10.0.0.0/8', new URL('http://10.1.2.3/a'))).toBe(false)
+  it('matches IPv4 and IPv6 CIDR blocks against an IP-literal destination', () => {
+    const matches = (noProxy: string, url: string): boolean => bypassesProxy(noProxy, new URL(url))
+    expect(matches('10.0.0.0/8', 'http://10.1.2.3/a')).toBe(true)
+    expect(matches('10.0.0.0/8', 'http://11.0.0.1/a')).toBe(false)
+    expect(matches('192.168.1.0/24', 'http://192.168.1.255/a')).toBe(true)
+    expect(matches('192.168.1.0/24', 'http://192.168.2.1/a')).toBe(false)
+    expect(matches('1.2.3.4/32', 'http://1.2.3.4/a')).toBe(true)
+    expect(matches('0.0.0.0/0', 'http://8.8.8.8/a')).toBe(true)
+    expect(matches('fd00::/8', 'http://[fd12:3456::1]/a')).toBe(true)
+    expect(matches('fd00::/8', 'http://[fe80::1]/a')).toBe(false)
+    expect(matches('[2001:db8::]/32', 'http://[2001:db8:ffff::1]/a')).toBe(true)
+    expect(matches('2001:db8::/32', 'http://[2001:db9::1]/a')).toBe(false)
+    expect(matches('10.0.0.0/8', 'http://[::ffff:10.1.2.3]/a')).toBe(true)
+    expect(matches('::ffff:10.0.0.0/104', 'http://[::ffff:10.1.2.3]/a')).toBe(true)
+    expect(matches('fd00::/8', 'http://10.1.2.3/a')).toBe(false)
+  })
+
+  it('never matches a CIDR block against a host name, and ignores malformed blocks', () => {
+    expect(bypassesProxy('10.0.0.0/8', new URL('http://example.com/a'))).toBe(false)
+    for (const entry of ['10.0.0.0/33', '10.0.0.0/', '10.0.0.0/x', '10.0.0/8', '10.0.0.0/8/8', 'fd00::/129', 'zz::/8', '999.0.0.0/8']) {
+      expect(bypassesProxy(entry, new URL('http://10.1.2.3/a'))).toBe(false)
+    }
   })
 
   it('skips blank and bracket-only entries', () => {

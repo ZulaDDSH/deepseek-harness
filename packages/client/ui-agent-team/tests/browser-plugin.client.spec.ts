@@ -94,7 +94,9 @@ describe('task-board browser plugin', () => {
     await expect(mode.selectTeamMode(false)).resolves.toBeNull()
     expect(setEnabled).toHaveBeenLastCalledWith('chosen-session', false)
     setEnabled.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'connection failed', {}) })
-    await expect(mode.selectTeamMode(true)).resolves.toBe('connection failed')
+    await expect(mode.selectTeamMode(true)).resolves.toEqual({ message: 'connection failed', unconfirmed: false })
+    setEnabled.mockResolvedValueOnce({ ok: false, error: new RemoteError('TEAM_MODE_PERSISTENCE_UNCONFIRMED', 'flush failed', { enabled: true }) })
+    await expect(mode.selectTeamMode(true)).resolves.toEqual({ message: 'flush failed', unconfirmed: true })
     const overlayEntry = () => b.ctx.slots.entries('shell.overlay').find(candidate => candidate.component === TeamDisableConfirmation)
     const overlayValue: object = overlayEntry()!.inject!()
     const overlay = overlayValue as TeamDisableConfirmationInjected

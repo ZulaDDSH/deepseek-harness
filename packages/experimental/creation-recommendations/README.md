@@ -115,7 +115,8 @@ Skill contents and proposal metadata append to the transcript; loading the skill
 - Intent recognition depends on model semantics. Guidance does not enforce tool choice or factual grounding: the Agent can still inspect files unnecessarily or infer capabilities absent from the catalog. Generated code runs with the existing Creator permissions; package validation is not a code sandbox.
 - Source directories and profile copies remain after success, failure, cancellation and Undo. Undo removes the installed plugin and its UI, not these files. The card identifies `.dsh-created-plugins/` in the original workspace as the source location. Historical receipts do not continuously track manual plugin changes.
 
-- There is no automatic creation timeout. Closing the Session or disabling this experiment stops owned generation; Plugin Manager retains ownership of an accepted installation.
+- The Creator run is limited to 60 minutes of wall-clock time (fixed, not configurable, and there is no token or tool-call budget). Expiry stops the child and records an interrupted card that can be retried once cleanup finished. Closing the Session or disabling this experiment also stops owned generation; Plugin Manager retains ownership of an accepted installation.
+- Generated packages are limited to 20,000 entries, 32 directory levels, 64 MiB per file, 256 MiB in total and 1 MiB each for `package.json` and the patch; oversized output fails the card before installation. The copy is staged and removed on failure, but a copy in progress cannot be aborted and a source changed during it is caught only by the validation that follows.
 
 <a id="dev-note"></a>
 ### Dev Note

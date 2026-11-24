@@ -48,6 +48,7 @@ None; this package neither assembles nor sends a provider request.
 
 <a id="known-limitations-and-deferred-work"></a>
 
+- `execute` rejects when a script's uncaught error is raised in the same task as its load event, which covers sanitized cross-origin errors and redirected scripts. It cannot see an error the script catches, or one thrown later from a timer or event handler, and the cross-origin and redirect cases are covered by tests that dispatch the browser's events, not by a real browser.
 - Same-origin access is not hostile-code isolation. Native `window`, `document`, viewport, timers, and DOM constructors belong to the iframe; no transparent main-page emulation is provided. Module placement, pooling, and Shadow DOM are deferred.
 
 <a id="dev-note"></a>

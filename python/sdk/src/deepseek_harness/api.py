@@ -157,20 +157,24 @@ class DeepSeekHarness:
     def start(self) -> None:
         if self._initialized:
             return
-        self._client.start()
-        self._client.initialize(
-            cwd=self._cwd,
-            provider=self.config.provider,
-            model=self.config.model,
-            reasoning_effort=self.config.reasoning_effort,
-            max_tokens=self.config.max_tokens,
-            approval_requests=self.config.approval_requests,
-        )
-        self._initialized = True
+        with self._client.lifecycle:
+            if self._initialized:
+                return
+            self._client.start()
+            self._client.initialize(
+                cwd=self._cwd,
+                provider=self.config.provider,
+                model=self.config.model,
+                reasoning_effort=self.config.reasoning_effort,
+                max_tokens=self.config.max_tokens,
+                approval_requests=self.config.approval_requests,
+            )
+            self._initialized = True
 
     def close(self) -> None:
-        self._client.close()
-        self._initialized = False
+        with self._client.lifecycle:
+            self._client.close()
+            self._initialized = False
 
     def start_session(self, session_id: str | None = None) -> "Session":
         self.start()

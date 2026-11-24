@@ -17,7 +17,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, type Stats } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
@@ -36,6 +36,8 @@ export interface AnonymousUserIdOptions {
   env?: NodeJS.ProcessEnv
   /** UUID generator; defaults to `crypto.randomUUID` (test hook). */
   randomUUID?: () => string
+  /** Longest wait in ms for the creation lock held by another process; defaults to 2000. */
+  lockTimeoutMs?: number
 }
 
 /** Process-lifetime memo keyed by resolved file path, so distinct test homes never share an id. */
@@ -54,47 +56,86 @@ function readPersistedId(file: string): AnonymousUserId | undefined {
   return UUID_PATTERN.test(value) ? (value as AnonymousUserId) : undefined
 }
 
-/**
- * Return the harness home's anonymous user id, creating and persisting one on
- * first use. A concurrent first launch is settled by an exclusive-create
- * write: the loser rereads the winner's id. (A reread landing in the winner's
- * narrow create-to-write window can still yield two per-process ids for that
- * run; the next launch converges on the persisted one.) Persistence is
- * best-effort — a write failure (read-only home) still returns a usable id
- * for the current run so feedback and telemetry are never blocked.
- * @param options - home-location and UUID-generation seams.
- * @returns the stable per-harness-home anonymous user id.
- */
+const LOCK_POLL_MS = 10
+const LOCK_STALE_MS = 10_000
+const DEFAULT_LOCK_TIMEOUT_MS = 2000
+const LOCK_CONTENTION_CODES = new Set(['EEXIST', 'EPERM', 'EBUSY'])
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+type LockState = 'held' | 'timeout' | 'unavailable'
+
+function statIfPresent(path: string): Stats | undefined {
+  try {
+    return statSync(path)
+  } catch (_vanished) {
+    return undefined
+  }
+}
+
+function removeStaleLock(lockFile: string, seen: Stats): void {
+  const again = statIfPresent(lockFile)
+  if (again?.ino !== seen.ino || again.mtimeMs !== seen.mtimeMs) return
+  try {
+    rmSync(lockFile, { force: true })
+  } catch (_removeFailed) {
+    return
+  }
+}
+
+/** Take the exclusive-create lock file, retrying until `timeoutMs`; a lock older than the stale age is removed. */
+function acquireLock(lockFile: string, timeoutMs: number): LockState {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    try {
+      writeFileSync(lockFile, `${process.pid}\n`, { encoding: 'utf8', flag: 'wx' })
+      return 'held'
+    } catch (error) {
+      if (!LOCK_CONTENTION_CODES.has((error as NodeJS.ErrnoException).code ?? '')) return 'unavailable'
+    }
+    const seen = statIfPresent(lockFile)
+    if (seen !== undefined && Date.now() - seen.mtimeMs > LOCK_STALE_MS) removeStaleLock(lockFile, seen)
+    if (Date.now() >= deadline) return 'timeout'
+    sleepSync(LOCK_POLL_MS)
+  }
+}
+
+/** Under the lock, adopt a valid persisted id or atomically publish `created`; never overwrites unlocked. */
+function publishId(file: string, created: AnonymousUserId, timeoutMs: number): AnonymousUserId {
+  try {
+    mkdirSync(dirname(file), { recursive: true })
+  } catch {
+    return created
+  }
+  const lockFile = `${file}.lock`
+  const state = acquireLock(lockFile, timeoutMs)
+  if (state === 'unavailable') return created
+  try {
+    const existing = readPersistedId(file)
+    if (existing !== undefined || state === 'timeout') return existing ?? created
+    const temp = `${file}.${process.pid}.tmp`
+    try {
+      writeFileSync(temp, `${created}\n`, 'utf8')
+      renameSync(temp, file)
+    } catch {
+      rmSync(temp, { force: true })
+    }
+    return created
+  } finally {
+    if (state === 'held') rmSync(lockFile, { force: true })
+  }
+}
+
+/** Return the harness home's anonymous user id, minting it under a cross-process lock on first use; an unwritable home still yields an in-memory id for the run. */
 export function getOrCreateAnonymousUserId(options: AnonymousUserIdOptions = {}): AnonymousUserId {
   const file = join(resolveDshHome(undefined, options.env ?? process.env), ANONYMOUS_USER_ID_FILE_NAME)
   const cached = memo.get(file)
   if (cached !== undefined) return cached
 
-  let id = readPersistedId(file)
-  if (id === undefined) {
-    const generate = options.randomUUID ?? randomUUID
-    const created = generate() as AnonymousUserId
-    try {
-      mkdirSync(dirname(file), { recursive: true })
-      writeFileSync(file, `${created}\n`, { encoding: 'utf8', flag: 'wx' })
-      id = created
-    } catch {
-      // A wx refusal (EEXIST) covers both a concurrent winner and a
-      // pre-existing corrupt file: the reread adopts a valid winner, and an
-      // invalid reread falls through to the overwrite path. Non-EEXIST
-      // failures (read-only home) land there too, accepted best-effort below.
-      id = readPersistedId(file)
-      if (id === undefined) {
-        try {
-          writeFileSync(file, `${created}\n`, 'utf8')
-        } catch {
-          // Best-effort persistence: keep the fresh id in memory even when the
-          // home is unwritable, so this run still reports a consistent id.
-        }
-        id = created
-      }
-    }
-  }
+  const id = readPersistedId(file)
+    ?? publishId(file, (options.randomUUID ?? randomUUID)() as AnonymousUserId, options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS)
   memo.set(file, id)
   return id
 }

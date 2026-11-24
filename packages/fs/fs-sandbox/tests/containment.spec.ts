@@ -3,6 +3,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, parse } from 'node:path'
@@ -25,9 +26,28 @@ describe('filesystem sandbox containment', () => {
     expect(await isPathUnder(base, parse(base).root)).toBe(true)
   })
 
-  it('uses case-insensitive lexical comparison for Windows-style containment', async () => {
-    expect(await isPathUnder(join(base.toUpperCase(), 'child'), base.toLowerCase(), false)).toBe(true)
-    expect(await isPathUnder(join(base, 'case-sensitive-child'), base, true)).toBe(true)
+  it.skipIf(process.platform !== 'win32')('accepts a differently cased spelling of the same directory by identity on Windows', async () => {
+    expect(await isPathUnder(join(base.toUpperCase(), 'child'), base.toLowerCase())).toBe(true)
+  })
+
+  it('denies a case-only distinct sibling directory', async (context) => {
+    if (process.platform === 'win32') {
+      try {
+        execFileSync('fsutil', ['file', 'setCaseSensitiveInfo', base, 'enable'], { stdio: 'ignore' })
+      } catch {
+        return context.skip()
+      }
+    }
+    const root = join(base, 'Repo')
+    const sibling = join(base, 'repo')
+    await mkdir(root)
+    try {
+      await mkdir(sibling)
+    } catch {
+      return context.skip()
+    }
+    expect(await isPathUnder(join(sibling, 'file.txt'), root)).toBe(false)
+    expect(await isPathUnder(join(root, 'file.txt'), root)).toBe(true)
   })
 
   it('recognizes an alias-equivalent root by filesystem identity for a missing target', async () => {

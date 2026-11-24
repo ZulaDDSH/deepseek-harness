@@ -143,7 +143,7 @@ describe('ACP automation output boundary', () => {
 
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'test' } }))
     await agent.whenIdle()
-    await vi.waitFor(() => { expect(warn).toHaveBeenCalledWith(expect.stringContaining('output conversion failed')) })
+    await vi.waitFor(() => { expect(warn).toHaveBeenCalledWith(expect.stringContaining('assistant output delivery failed')) })
     expect(harness.updates).toEqual([])
   })
 

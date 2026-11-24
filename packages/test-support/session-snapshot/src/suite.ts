@@ -19,6 +19,7 @@
  */
 
 import { readFile, readdir, writeFile } from 'node:fs/promises'
+import { publishStagedWrites, type StagedWrite } from './staged-write.ts'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { isSurfaceEligibleType } from '@deepseek-ai/dsh-session/surface'
@@ -1403,8 +1404,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           const outputFixtures = redactSessionSnapshotIds(stabilizeFixtureMessageIds(
             reconcileCatalogCreationTimes(freshFixtures, 'preserve-headers'), existingFixtures,
           ))
-          await Promise.all(outputFixtures.map((fixture, index) =>
-            writeFile(join(dir, outputFixtureFiles[index] as string), fixture)))
+          const staged: StagedWrite[] = outputFixtures.map((content, index) => (
+            { path: join(dir, outputFixtureFiles[index] as string), content }))
           fixtureFiles = outputFixtureFiles
           if (scenario.pinsHeader === true) {
             const primary = result.sessionLogs[0] as HarvestedLog
@@ -1416,7 +1417,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             const promptSource = promptSourceByClass.get(classOf(scenario)) ?? scenario
             const promptPath = join(snapshotsDir, promptSource.name, SYSTEM_PROMPT_SNAPSHOT)
             claimSharedSnapshot(promptClaims, promptPath, scenario.name, promptSnapshot)
-            await writeFile(promptPath, promptSnapshot)
+            staged.push({ path: promptPath, content: promptSnapshot })
 
             const schemaSets = toolSchemasFrom(pinningHeaderPayloads(primary.content, ctx))
             expect(schemaSets.length, `${mode} produced a tool-schema count that differs from 1 + expectedHeaderChanges`)
@@ -1429,7 +1430,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             const schemaSource = schemaSourceByClass.get(classOf(scenario)) ?? scenario
             const schemaPath = join(snapshotsDir, schemaSource.name, TOOL_SCHEMAS_SNAPSHOT)
             claimSharedSnapshot(schemaClaims, schemaPath, scenario.name, toolSchemasSnapshot)
-            await writeFile(schemaPath, toolSchemasSnapshot)
+            staged.push({ path: schemaPath, content: toolSchemasSnapshot })
           }
           for (const index of childSchemaPins) {
             const log = result.sessionLogs[index]
@@ -1441,10 +1442,10 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             ))
             expect(schemaSets.length, `${mode}: child ${index} produced no tool schemas to snapshot`)
               .toBeGreaterThan(0)
-            await writeFile(join(dir, childToolSchemasSnapshot(index)), formatToolSchemasSnapshot(
+            staged.push({ path: join(dir, childToolSchemasSnapshot(index)), content: formatToolSchemasSnapshot(
               schemaSets[0] as unknown[],
               schemaSets.slice(1),
-            ))
+            ) })
           }
           for (const index of childPromptPins) {
             const log = result.sessionLogs[index]
@@ -1453,11 +1454,12 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             const prompts = normalizedSystemPrompts((log as HarvestedLog).content, ctx)
             expect(prompts.length, `${mode}: child ${index} produced no system prompt to snapshot`)
               .toBeGreaterThan(0)
-            await writeFile(
-              join(dir, childSystemPromptSnapshot(index)),
-              formatSystemPromptSnapshot(prompts[0] as string),
-            )
+            staged.push({
+              path: join(dir, childSystemPromptSnapshot(index)),
+              content: formatSystemPromptSnapshot(prompts[0] as string),
+            })
           }
+          await publishStagedWrites(staged)
         }
 
         for (const expected of stdoutExpectedVariants(scenario)) {

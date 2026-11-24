@@ -25,7 +25,7 @@ import { HISTORY_MS, MAX_ANNOTATIONS, MINUTE_MS } from './policy.ts'
 import { recordTaskHistory } from './tasks.ts'
 import { mergeRanges } from './periods.ts'
 import type { Activity, TimeRange } from './records.ts'
-import { reconcileControl, controlTargetsOverlap } from './controls.ts'
+import { reconcileControl, controlTargetsOverlap, oldestResolvedAnnotation } from './controls.ts'
 
 /** Validate the private recovery state and its user view. */
 export const stateSchema = z.object({
@@ -234,13 +234,15 @@ export function foldRecord(state: TimelineState, record: { type: string; data: u
               (target.kind === 'tree' ||
                 tree.tasks.some(task => task.id === target.task && task.status !== 'retired')),
         )
+    const full = state.view.annotations.length >= MAX_ANNOTATIONS
+    const resolved = full ? oldestResolvedAnnotation(state.view.annotations) : -1
     if (
       !exists ||
-      state.view.annotations.length >= MAX_ANNOTATIONS ||
+      (full && resolved < 0) ||
       state.view.annotations.some(annotation => annotation.id === data.annotation.id)
     ) return state
     const annotation = reconcileControl(data.annotation, state.view.trees, data.annotation.createdAt)
-    const annotations = state.view.annotations.map((item) => {
+    const annotations = state.view.annotations.filter((_, index) => index !== resolved).map((item) => {
       if (
         annotation.control === undefined ||
         item.control === undefined ||

@@ -53,6 +53,8 @@ async function fixture() {
         maxLines: 100,
         maxEntries: 100,
         search: { maxResults: 100, maxEntries: 1000, graceMs: 3000, timeoutMs: 30000, stderrMaxBytes: 65536 },
+        confineReads: true,
+        readRoots: [],
       })
     },
   })
@@ -99,6 +101,12 @@ describe('change summary route', () => {
       expect((await read(bad)).status).toBe(400)
     }
     expect(summary).toHaveBeenCalledTimes(3)
+  })
+
+  it('serves the incomplete marker of a partial snapshot', async () => {
+    const { read, data, summary } = await fixture()
+    summary.mockReturnValueOnce({ ...data, incomplete: { paths: ['locked.txt'] } })
+    expect(await (await read()).json()).toMatchObject({ incomplete: { paths: ['locked.txt'] } })
   })
 })
 
@@ -195,6 +203,9 @@ describe('changed files native open route', () => {
     expect(isChangedFile([])).toBe(false)
     expect(isChangesSummary({ turn: 1, total: 0, added: 0, deleted: 0, files: [] })).toBe(true)
     expect(isChangesSummary({ turn: 1, total: 1, added: 1, deleted: 0, files: [{ path: 'a', display: 'a', added: 1, deleted: 0 }] })).toBe(true)
+    expect(isChangesSummary({ turn: 1, total: 0, added: 0, deleted: 0, files: [], incomplete: { paths: ['a'] } })).toBe(true)
+    expect(isChangesSummary({ turn: 1, total: 0, added: 0, deleted: 0, files: [], incomplete: { paths: [1] } })).toBe(false)
+    expect(isChangesSummary({ turn: 1, total: 0, added: 0, deleted: 0, files: [], incomplete: true })).toBe(false)
     expect(isChangesSummary({ turn: '1', total: 0, added: 0, deleted: 0, files: [] })).toBe(false)
     expect(isChangesSummary({ turn: 0, total: 0, added: 0, deleted: 0, files: [] })).toBe(false)
     expect(isChangesSummary({ turn: 1, total: 1.5, added: 0, deleted: 0, files: [] })).toBe(false)

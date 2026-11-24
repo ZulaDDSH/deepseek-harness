@@ -59,6 +59,7 @@ Uploading modes require an exporter URL. Processor settings control the independ
 | `exporter.url` | required in uploading modes | Full OTLP logs endpoint; must parse as `http(s)` |
 | `exporter`, `processor` | — | SDK transport plus byte/count batching; headers/TLS identity are not inherited from the environment. Agent factories own their returned agent settings, including keepAlive |
 | `shutdownTimeoutMillis` | `3,000` | Outer deadline for all queued HTTP requests; remaining queued sends stop at expiry |
+| `redactSecrets` | `true` | Scrub recognisable secrets from exported bodies |
 | `maxRequestBytes` | `4,000,000` | Maximum complete OTLP JSON request bytes before gzip; may only be lowered |
 
 Direct `ctx.sessionTelemetry.emit()` calls are no-ops in every mode and cannot bypass feedback authorization. Inherited parent feedback does not authorize a child export: the child needs new feedback of its own. Its authorized prefix then includes inherited context.
@@ -68,6 +69,8 @@ Model requests, request headers, Session creation or adoption, restoration, and 
 ### What leaves the machine
 
 Each Session event becomes one `eventName: "session-log"` record. `attributes.sessionId` is the collector Session identity; `attributes.content` encodes the complete event envelope with redacted `event.data`. JSON values are preserved, not the original JSONL bytes or key ordering. Legacy `session.id`, `event.seq`, and `event.type` metadata remain for existing consumers. Resources carry application and anonymous-user identity; scope carries the backend package name and version. The base profile uses `https://dsh-otel-collector.deepseeksvc.com/v1/logs`; `DSH_TELEMETRY_OTLP_URL` overrides it. No channel header is added implicitly.
+
+**Local-only feedback and default redaction.** A `feedback/record` event carrying `localOnly: true` (`/feedback --local`) is recorded in the Session log but authorizes no capture, and its body is exported as `{ "localOnly": true }` when a later feedback releases a prefix that contains it. Before enqueue the backend also scrubs recognisable secrets from every string in an exported body: PEM private keys, `Bearer` tokens, `sk-` keys, GitHub tokens, AWS access key ids, the password in `scheme://user:password@` URLs, and values assigned to `api_key`, `secret`, `token` or `password`. The scrub runs after the `session-telemetry/record` waterfall, so a listener cannot reintroduce a secret; `redactSecrets: false` switches it off. It is a pattern list: a secret it does not recognise still leaves the machine. The same holds for a `feedback/message-put` or `feedback/message-delete` event carrying `localOnly: true`. The backend publishes the origin of `exporter.url` (no path, query or credentials) as `destination` on the seam, which `sessionFeedback.sharing` reports to the browser.
 
 The shared OTel channel measures each record once with the SDK OTLP JSON serializer, including its resource/scope envelope, then greedily packs requests using those conservative sizes. A single oversized event produces one rejection diagnostic without truncation. Session logs never mix with product analytics in a request. Capture handoff and shutdown are not collector acknowledgements.
 

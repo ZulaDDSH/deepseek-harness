@@ -170,5 +170,23 @@ it.each([parseGfm, parseGfmWithMath])('uses the shared image categories for bare
 
 it('uses the fallback filename for an external image URL without a path', () => {
   mount('![Remote](https://example.com/)')
+  fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
   expect(screen.getByRole('img').getAttribute('src')).toBe('https://example.com/')
+})
+
+it('contacts a remote image host only after an explicit click, one image at a time', () => {
+  const view = render(<MarkdownText text={'![a](https://tracker.example/a.png?id=1)\n\n![](https://tracker.example/b.png?id=2)'} />)
+  expect(view.container.querySelector('img')).toBeNull()
+  const first = screen.getByRole('button', { name: 'a' })
+  expect(first.getAttribute('title')).toBe('https://tracker.example/a.png?id=1')
+  fireEvent.click(first)
+  expect([...view.container.querySelectorAll('img')].map(image => image.getAttribute('src'))).toEqual(['https://tracker.example/a.png?id=1'])
+  expect(screen.getByRole('button', { name: 'tracker.example' })).toBeTruthy()
+})
+
+it('keeps a remote image inside a link inert', () => {
+  const view = render(<MarkdownText text={'[![badge](https://tracker.example/b.png)](https://example.com/target)'} />)
+  expect(view.container.querySelector('img')).toBeNull()
+  expect(view.container.querySelector('a button')).toBeNull()
+  expect(view.container.textContent).toContain('badge')
 })

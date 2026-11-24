@@ -245,7 +245,7 @@ describe('ticket-mod: a mod-registered tool, prompt context, and a turn.complete
     await waitFor(() => h.info.mock.calls.some(call => call[0] === 'claude-code-mods: Done in some ms'))
   })
 
-  it('appends prompt.submit context as blocks after the prompt as typed, inside the user\'s own message', async () => {
+  it('admits prompt.submit context as its own mod-sourced message after the prompt as typed', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const h = await harness(['ticket-mod'], adapter)
     const agent = await h.agent()
@@ -253,10 +253,10 @@ describe('ticket-mod: a mod-registered tool, prompt context, and a turn.complete
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('Current branch: feature/mods')
     const prompts = events(agent).filter(e => e.type === 'user/message' && e.data.source.kind === 'user')
     expect(prompts.map(e => e.type === 'user/message' && e.data.source)).toEqual([{ kind: 'user' }])
-    expect(prompts[0]?.type === 'user/message' && prompts[0].data.content).toEqual([
-      { type: 'text', text: 'open a PR for this change' },
-      { type: 'text', text: 'Current branch: feature/mods' },
-    ])
+    expect(prompts[0]?.type === 'user/message' && prompts[0].data.content).toEqual([{ type: 'text', text: 'open a PR for this change' }])
+    const context = events(agent).filter(e => e.type === 'user/message' && e.data.source.kind === 'claude-code-mod')
+    expect(context.map(e => e.type === 'user/message' && e.data.source)).toEqual([{ kind: 'claude-code-mod' }])
+    expect(context[0]?.type === 'user/message' && context[0].data.content).toEqual([{ type: 'text', text: 'Current branch: feature/mods' }])
     expect(toolResult(agent)).toBeUndefined()
   })
 })
@@ -310,12 +310,13 @@ describe('prompt.submit: rewrite and drop', () => {
     // A result with the wrong types keeps the original text and only the string context lines.
     await h.turn(agent, 'some junk')
     const last = adapter.requests[1]?.messages.filter(message => message.role === 'user') ?? []
-    expect(last.at(-1)?.content).toEqual([{ type: 'text', text: 'some junk' }, { type: 'text', text: 'kept context' }])
+    expect(last.at(-2)?.content).toEqual([{ type: 'text', text: 'some junk' }])
+    expect(last.at(-1)?.content).toEqual([{ type: 'text', text: 'kept context' }])
 
     await h.turn(agent, 'reach past the host')
     const reached = adapter.requests[2]?.messages.filter(message => message.role === 'user') ?? []
+    expect(reached.at(-2)?.content).toEqual([{ type: 'text', text: 'reach past the host' }])
     expect(reached.at(-1)?.content).toEqual([
-      { type: 'text', text: 'reach past the host' },
       { type: 'text', text: 'prompt-mod: no implementation for model.complete' },
       { type: 'text', text: 'prompt-mod: no implementation for fs.ancestors' },
       { type: 'text', text: 'prompt-mod: no implementation for ui.notice' },
@@ -664,9 +665,8 @@ describe('commands and prompts raised by a mod', () => {
     expect(nudged?.result).toEqual({ kind: 'success', text: 'driver-mod: sent 47' })
     await agent.whenIdle()
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('Message from the \\"driver-mod\\" mod:\\nfrom the mod')
-    // Claude Code submits a mod's prompt as the user's own; the framing in the text names the mod.
     const submitted = events(agent).find(e => e.type === 'user/message')
-    expect(submitted?.type === 'user/message' && submitted.data.source).toEqual({ kind: 'user' })
+    expect(submitted?.type === 'user/message' && submitted.data.source).toEqual({ kind: 'claude-code-mod', mod: 'driver-mod' })
 
     const relayed = await h.ctx.commands.execute(agent, '/relay', [], signal)
     expect(relayed?.result).toEqual({ kind: 'success', text: 'driver-mod: {"text":"driver-mod: sent 11"}' })

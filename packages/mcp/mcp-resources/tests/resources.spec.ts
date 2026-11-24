@@ -234,6 +234,22 @@ describe('MCP resource tools', () => {
     expect(renderPrompt(await ctx.systemPrompt.assemble())).toContain('server argument: ["docs"]')
   })
 
+  it('turns an oversized resource read into a model-facing error naming the URI', async () => {
+    const ctx = await setup()
+    const tooLarge = Object.assign(new Error('MCP resource docs://big is 9000000 bytes, over the 8388608 byte limit for one read'), { code: 'MCP_RESOURCE_TOO_LARGE' })
+    const request = vi.fn<McpResourceProvider['request']>().mockRejectedValue(tooLarge)
+    ctx.mcpResources.register('docs', { request })
+    const read = await call(ctx, 'read_mcp_resource', { server: 'docs', uri: 'docs://big' })
+    expect(read.isError).toBe(true)
+    expect(JSON.stringify(read)).toContain('docs://big')
+    expect(JSON.stringify(read)).toContain('cannot be read in full')
+    request.mockRejectedValue(new Error('MCP server disconnected'))
+    const other = await call(ctx, 'read_mcp_resource', { server: 'docs', uri: 'docs://big' })
+    expect(other.isError).toBe(true)
+    expect(JSON.stringify(other)).toContain('MCP server disconnected')
+    expect(JSON.stringify(other)).not.toContain('cannot be read in full')
+  })
+
   it.each([false, true])('rolls back a partial shared-tool registration (scoped: %s)', async (scoped) => {
     const ctx = await setup()
     const owner = {} as Agent

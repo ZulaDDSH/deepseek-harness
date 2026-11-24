@@ -43,7 +43,10 @@ export function createCodexQuotaSource(auth: PiAiAuthInjection, enabled: () => b
           headers: { Authorization: `Bearer ${resolved.auth.apiKey}`, 'ChatGPT-Account-Id': claims['https://api.openai.com/auth'].chatgpt_account_id, Accept: 'application/json' },
           signal: AbortSignal.timeout(15_000),
         })
-        if (!response.ok) throw new Error(`Codex usage API returned HTTP ${response.status}`)
+        if (!response.ok) {
+          await response.body?.cancel().catch(() => undefined)
+          throw new Error(`Codex usage API returned HTTP ${response.status}`)
+        }
         const { rate_limit: rate } = usageSchema.parse(await response.json())
         const windows: Partial<Record<QuotaWindowId, QuotaWindow>> = {}
         for (const window of [rate.primary_window, rate.secondary_window]) {

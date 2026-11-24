@@ -72,6 +72,7 @@ export class SessionResources<T> {
   private readonly ownerCleanups = new Map<Agent, () => Promise<void>>()
   private readonly disposedOwners = new WeakSet<Agent>()
   private disposing: Promise<void> | undefined
+  private stopped = false
 
   /**
    * @param ctx - provider context with the live Agent registry.
@@ -85,7 +86,7 @@ export class SessionResources<T> {
    * @returns whether this owner can use or acquire the configured browser.
    */
   available(agent: Agent): boolean {
-    return this.disposing === undefined && !this.disposedOwners.has(agent)
+    return !this.stopped && !this.disposedOwners.has(agent)
       && this.ctx.get('agents')?.get(agent.id) === agent
       && (this.entries.has(agent) || !this.options.exclusive || this.entries.size === 0)
   }
@@ -147,7 +148,8 @@ export class SessionResources<T> {
    * @returns the shared quiescent disposal promise.
    */
   dispose(): Promise<void> {
-    return this.disposing ??= Promise.resolve().then(async () => {
+    this.stopped = true
+    const disposing = this.disposing ??= Promise.resolve().then(async () => {
       const settled = await Promise.allSettled([...this.entries].map(([agent, entry]) => this.closeEntry(agent, entry)))
       const errors = settled.flatMap(result => result.status === 'rejected' ? [result.reason as unknown] : [])
       if (errors.length > 0) {
@@ -157,15 +159,18 @@ export class SessionResources<T> {
       }
       await Promise.all([...this.ownerCleanups.values()].map(close => close()))
     })
+    disposing.catch(() => { if (this.disposing === disposing) this.disposing = undefined })
+    return disposing
   }
 
   private entry(agent: Agent): Entry<T> {
-    if (this.disposing !== undefined || this.disposedOwners.has(agent) || this.ctx.get('agents')?.get(agent.id) !== agent) {
+    if (this.stopped || this.disposedOwners.has(agent) || this.ctx.get('agents')?.get(agent.id) !== agent) {
       throw new BrowserSessionError(`${this.options.label}: Session is not a live browser owner`, 'BROWSER_OWNER_NOT_LIVE')
     }
     const current = this.entries.get(agent)
     if (current !== undefined) return current
     if (this.options.exclusive && this.entries.size > 0) {
+      this.retryDisposedCleanups()
       throw new BrowserSessionError(`${this.options.label}: attached browser is already reserved by another Session`, 'BROWSER_LOCKED')
     }
     if (!this.ownerCleanups.has(agent)) {
@@ -196,8 +201,17 @@ export class SessionResources<T> {
     return entry
   }
 
+  private retryDisposedCleanups(): void {
+    for (const [agent, entry] of this.entries) {
+      if (!this.disposedOwners.has(agent)) continue
+      this.closeEntry(agent, entry).catch((error: unknown) => {
+        this.ctx.logger.warn(`${this.options.label}: browser cleanup retry failed: ${String(error)}`)
+      })
+    }
+  }
+
   private closeEntry(agent: Agent, entry: Entry<T>): Promise<void> {
-    return entry.closing ??= Promise.resolve().then(async () => {
+    const closing = entry.closing ??= Promise.resolve().then(async () => {
       entry.controller.abort(new BrowserSessionError(`${this.options.label}: Session browser is closing`, 'BROWSER_CLOSED'))
       const resource = await entry.ready.catch(() => undefined)
       try {
@@ -207,5 +221,7 @@ export class SessionResources<T> {
       }
       this.entries.delete(agent)
     })
+    closing.catch(() => { if (entry.closing === closing) delete entry.closing })
+    return closing
   }
 }

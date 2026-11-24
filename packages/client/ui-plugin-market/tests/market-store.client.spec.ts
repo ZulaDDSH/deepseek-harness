@@ -11,6 +11,7 @@ import { INITIAL_QUERY } from '../src/client/presentation.ts'
 
 const A = 'https://a.example/index.json'
 const B = 'https://b.example/index.json'
+const C = 'https://c.example/index.json'
 
 function listing(url: string, title = 'Market', description?: string, fields: Partial<MarketSearchResult> = {}): MarketSearchResult {
   const metadata = { categories: {}, labels: {}, sortKeys: {} }
@@ -47,7 +48,7 @@ function setup(indexes: MarketIndexSummary[] = [{ url: A }, { url: B }]) {
   const market = {
     listIndexes: vi.fn(() => ok(state.indexes)),
     search: vi.fn((url: string, _query: MarketQuery) => ok(listing(url, url === A ? 'A' : 'B', url === A ? 'Desc' : undefined))),
-    setIndexes: vi.fn((urls: string[]) => { state.indexes = urls.map(url => ({ url: url.trim() })); return ok(undefined) }),
+    setIndexes: vi.fn((urls: string[], _expected?: string[]) => { state.indexes = urls.map(url => ({ url: url.trim() })); return ok(undefined) }),
     readEntryDetail: vi.fn(
       (_url: string, _name: string, _version: string, _language: string, _options: object): Promise<Answer<PluginDetail>> => ok({ status: 'none' }),
     ),
@@ -147,11 +148,11 @@ describe('DiscoverController', () => {
     face.editDraft(` ${B} `)
     face.addSource()
     await vi.waitFor(() => { expect(snapshot().selected).toBe(B) })
-    expect(market.setIndexes).toHaveBeenCalledWith([A, B])
+    expect(market.setIndexes).toHaveBeenCalledWith([A, B], [A])
     expect(snapshot()).toMatchObject({ draft: '', saving: false })
     face.removeSource(B)
     await vi.waitFor(() => { expect(snapshot().selected).toBe(A) })
-    expect(market.setIndexes).toHaveBeenLastCalledWith([A])
+    expect(market.setIndexes).toHaveBeenLastCalledWith([A], [A, B])
     face.removeSource(A)
     await vi.waitFor(() => { expect(snapshot().indexes).toEqual([]) })
     expect(snapshot()).toMatchObject({ editing: false, selected: null, listing: null })
@@ -173,6 +174,23 @@ describe('DiscoverController', () => {
     expect(snapshot()).toMatchObject({ saving: false, draft: 'x' })
     face.editDraft('y')
     expect(snapshot().sourceFailure).toBeNull()
+  })
+
+  it('keeps the draft, says the sources changed, and reloads them when the list changed since it was read', async () => {
+    const { face, market, state, snapshot } = setup([{ url: A }])
+    face.ensure()
+    await vi.waitFor(() => { expect(snapshot().status).toBe('ready') })
+    state.indexes = [{ url: A }, { url: C }]
+    market.setIndexes.mockImplementationOnce(() => fail('plugin-market/index-conflict', 'changed', { indexes: [A, C] }))
+    face.editDraft(B)
+    face.addSource()
+    await vi.waitFor(() => { expect(snapshot().indexes.map(index => index.url)).toEqual([A, C]) })
+    expect(snapshot()).toMatchObject({ saving: false, draft: B, sourceFailure: { kind: 'changed' } })
+    expect(market.setIndexes).toHaveBeenCalledOnce()
+    expect(market.setIndexes).toHaveBeenCalledWith([A, B], [A])
+    face.addSource()
+    await vi.waitFor(() => { expect(snapshot().draft).toBe('') })
+    expect(market.setIndexes).toHaveBeenLastCalledWith([A, C, B], [A, C])
   })
 
   it('reacts to Host changes only after the first render', async () => {

@@ -40,7 +40,7 @@ Use `mode: attach` and set `endpoint` to an HTTP(S) debugging URL or WS(S) brows
 | `mode` | required | `launch` or `attach`, fixed for this provider activation |
 | `headless` | `true` | Launch without a visible window |
 | `executablePath` | upstream discovery | Chromium executable for launch |
-| `endpoint` | required for attach | Existing browser debugging endpoint |
+| `endpoint` | required for attach | Existing browser debugging endpoint; it is passed to the server through its `PLAYWRIGHT_MCP_CDP_ENDPOINT` environment variable, not its arguments |
 | `toolCallTimeoutMs` | MCP client default | Per-call timeout in milliseconds |
 
 The [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-experimental-browser-use-playwright-mcp) lists accepted fields. The profile or preset selects the browser mode. The child process clears inherited `PLAYWRIGHT_MCP_*` options so they cannot replace that configuration.
@@ -96,6 +96,7 @@ An unchanged catalog preserves its tool-definition prefix. Results append to his
 The integration retains the pinned server's browser and tool restrictions.
 
 - Chromium only; Firefox and WebKit are not selectable.
+- The attach endpoint, which may carry a token, travels in the server's `PLAYWRIGHT_MCP_CDP_ENDPOINT` environment variable rather than its arguments. The server's child environment is visible only to its own account; it is not a secret store, and the URL still reaches the upstream server and its logs.
 - Startup failure or cancellation rejects Session creation or resume and triggers client cleanup. A disconnected client is not retried; after fixing the cause, create a new Session or unload and resume the existing one.
 - Attachment exclusivity is local to this provider instance. Other processes and browser users can still modify the same pages.
 - The shared resource-server inventory can show inherited server names; it does not grant access to another Session's browser.

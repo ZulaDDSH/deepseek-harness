@@ -354,6 +354,61 @@ describe('durable step context', () => {
     expect(contextTexts(independent)).toHaveLength(1)
   })
 
+  it('publishes a fresh reading inside the interval when the browser zone changes, and stays quiet when it does not', async () => {
+    const { ctx } = await mount({ refreshIntervalMs: 60_000 })
+    const session = Session.create(brandString<SessionId>('interval-zone-change'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session, 1, 'Asia/Shanghai')
+    await fire(ctx, agent, 1, 1)
+    vi.setSystemTime(BASE + 1_000)
+    await fire(ctx, agent, 1, 2)
+    expect(contextTexts(session)).toHaveLength(1)
+
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    vi.setSystemTime(BASE + 2_000)
+    openMessageTurn(session, 2, 'Asia/Shanghai')
+    await fire(ctx, agent, 2, 1)
+    expect(contextTexts(session)).toHaveLength(1)
+
+    session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    vi.setSystemTime(BASE + 3_000)
+    openMessageTurn(session, 3, 'America/New_York')
+    await fire(ctx, agent, 3, 1)
+    const texts = contextTexts(session)
+    expect(texts).toHaveLength(2)
+    expect(texts[1]).toContain('Browser time zone for this request: America/New_York.')
+  })
+
+  it('publishes a clarification inside the interval when a mixed-zone message arrives in the same turn', async () => {
+    const { ctx } = await mount({ refreshIntervalMs: 60_000 })
+    const session = Session.create(brandString<SessionId>('interval-zone-mixed'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session, 1, 'Asia/Shanghai')
+    await fire(ctx, agent, 1, 1)
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'steer' }],
+      source: { kind: 'user', rpcId: 'steer', clientTimeZone: 'America/New_York' } as never,
+    }), { surfaceOp: 'append' })
+    vi.setSystemTime(BASE + 1_000)
+    await fire(ctx, agent, 1, 2)
+    const texts = contextTexts(session)
+    expect(texts).toHaveLength(2)
+    expect(texts[1]).toContain('mixed ["America/New_York","Asia/Shanghai"]')
+  })
+
+  it('publishes inside the interval when the zone becomes missing', async () => {
+    const { ctx } = await mount({ refreshIntervalMs: 60_000 })
+    const session = Session.create(brandString<SessionId>('interval-zone-missing'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session, 1, 'Asia/Shanghai')
+    await fire(ctx, agent, 1, 1)
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    vi.setSystemTime(BASE + 1_000)
+    openMessageTurn(session, 2)
+    await fire(ctx, agent, 2, 1)
+    expect(contextTexts(session)[1]).toContain('Browser time zone for this request: unavailable.')
+  })
+
   it('skips an already-aborted prompt submission', async () => {
     const { ctx } = await mount()
     const session = Session.create(brandString<SessionId>('ordering'))
@@ -473,7 +528,7 @@ describe('time-context projection fold edges', () => {
     const cold = Session.create(brandString<SessionId>('browser-old-cold'), session.snapshotEvents())
     ctx.sessionProjections.hydrate(cold, oldRows, cold.snapshotEvents(), SessionLogOffset(0))
     expect(ctx.sessionProjections.checkpoint(cold).timeContext).toEqual({
-      ver: 3, seq: cold.seq - 1, val: rows.timeContext!.val,
+      ver: 4, seq: cold.seq - 1, val: rows.timeContext!.val,
     })
     const row = ctx.sessionProjections.checkpoint(cold).timeContext
     await fiber.dispose()

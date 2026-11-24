@@ -25,8 +25,8 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   }
 })
 
-vi.mock('../src/atomic.ts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/atomic.ts')>()
+vi.mock('../src/dirsync.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/dirsync.ts')>()
   return {
     ...actual,
     fsyncDirectory: async (path: string): Promise<void> => {

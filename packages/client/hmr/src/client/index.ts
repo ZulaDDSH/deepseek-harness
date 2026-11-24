@@ -17,6 +17,20 @@ const LEADER_LOCK = 'dsh-hmr-events'
 /** BroadcastChannel name relaying leader frames and joining-tab hellos. */
 const CHANNEL = 'dsh-hmr-events'
 
+const RETRY_MIN_MS = 1000
+const RETRY_MAX_MS = 30_000
+const EVENT_SOURCE_CLOSED = 2
+
+class AuthRefusedError extends Error {}
+
+function wait(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = (): void => { clearTimeout(timer); signal.removeEventListener('abort', done); resolve() }
+    const timer = setTimeout(done, ms)
+    signal.addEventListener('abort', done, { once: true })
+  })
+}
+
 type ChannelMessage = { type: 'hello' } | { type: 'frame'; data: string }
 
 /** Request carrier a shell installs when it owns the page transport, such as the worker preview's tunnel. */
@@ -36,6 +50,9 @@ interface PageTransportGlobal {
  */
 async function readPageTransportEvents(fetch: PageTransportFetch, signal: AbortSignal, receive: (data: string) => void): Promise<void> {
   const response = await fetch(EVENTS_ROUTE, { method: 'GET', headers: { accept: 'text/event-stream' }, signal })
+  if (response.status === 401 || response.status === 403) {
+    throw new AuthRefusedError(`client-hmr: ${EVENTS_ROUTE} answered ${String(response.status)}; client graph changes stop until the page reloads`)
+  }
   if (!response.ok || response.body === null) {
     throw new Error(`client-hmr: ${EVENTS_ROUTE} answered ${String(response.status)}`)
   }
@@ -78,18 +95,56 @@ export function apply(ctx: Context): void {
     }
   }
   const connect = (onData: (data: string) => void): (() => void) => {
-    const source = new EventSource(EVENTS_ROUTE)
-    source.addEventListener('message', (event: MessageEvent<string>) => { onData(event.data) })
-    return () => { source.close() }
+    let source: EventSource | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let delay = RETRY_MIN_MS
+    const open = (): void => {
+      timer = undefined
+      const next = new EventSource(EVENTS_ROUTE)
+      source = next
+      next.addEventListener('message', (event: MessageEvent<string>) => {
+        delay = RETRY_MIN_MS
+        onData(event.data)
+      })
+      next.onerror = () => {
+        if (source !== next || next.readyState !== EVENT_SOURCE_CLOSED) return
+        ctx.logger.warn(`client-hmr: ${EVENTS_ROUTE} refused the stream; retrying in ${String(delay)} ms`)
+        timer = setTimeout(open, delay)
+        delay = Math.min(delay * 2, RETRY_MAX_MS)
+      }
+    }
+    open()
+    return () => {
+      clearTimeout(timer)
+      source?.close()
+      source = undefined
+    }
   }
 
   ctx.effect(() => {
     const transport = (globalThis as PageTransportGlobal).__DSH_TRANSPORT__
-    if (transport?.fetch !== undefined) {
+    const carrier = transport?.fetch
+    if (carrier !== undefined) {
       const controller = new AbortController()
-      void readPageTransportEvents(transport.fetch, controller.signal, receive).catch((error: unknown) => {
-        if (!controller.signal.aborted) ctx.logger.error(error)
-      })
+      void (async () => {
+        let delay = RETRY_MIN_MS
+        const onData = (data: string): void => {
+          delay = RETRY_MIN_MS
+          receive(data)
+        }
+        const stopped = (): boolean => controller.signal.aborted
+        while (!stopped()) {
+          try {
+            await readPageTransportEvents(carrier, controller.signal, onData)
+          } catch (error) {
+            if (stopped()) return
+            ctx.logger.error(error)
+            if (error instanceof AuthRefusedError) return
+          }
+          await wait(delay, controller.signal)
+          delay = Math.min(delay * 2, RETRY_MAX_MS)
+        }
+      })()
       return () => { controller.abort() }
     }
     if (!('locks' in navigator) || typeof BroadcastChannel === 'undefined') return connect(receive)

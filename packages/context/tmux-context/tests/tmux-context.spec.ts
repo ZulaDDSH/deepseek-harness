@@ -60,6 +60,9 @@ class FakeBash extends ShellExecutor {
   result: ShellRunResult = runResult(`${tmuxLine()}\n`)
   runError?: Error
   resolveError?: Error
+  hang = false
+  signals: Array<AbortSignal | undefined> = []
+  timeouts: number[] = []
 
   override resolve(request: ShellExecRequest): ShellExecSpec {
     if (this.resolveError) throw this.resolveError
@@ -76,6 +79,8 @@ class FakeBash extends ShellExecutor {
   override async execute(spec: ShellExecSpec): Promise<ShellExecution> {
     if (spec.onExpiry === 'none') throw new Error('tmux-context must never start a background job')
     this.commands.push(spec.command)
+    this.signals.push(spec.signal)
+    this.timeouts.push(spec.timeoutMs)
     return {
       status: 'completed',
       exitCode: 0,
@@ -84,7 +89,8 @@ class FakeBash extends ShellExecutor {
       readOutput: () => ({ delta: '', lossy: false }),
       observed: { stdout: silentReader, stderr: silentReader },
       kill: () => false,
-      result: () => this.runError ? Promise.reject(this.runError) : Promise.resolve(this.result),
+      result: () => this.hang ? new Promise<ShellRunResult>(() => undefined)
+        : this.runError ? Promise.reject(this.runError) : Promise.resolve(this.result),
     }
   }
 }
@@ -480,5 +486,138 @@ describe('tmux-context configuration', () => {
     await expect(mount({ refreshIntervalMs: 1.5 })).rejects.toThrow(
       /refreshIntervalMs must be a non-negative safe integer/,
     )
+  })
+})
+
+describe('tmux-context transitions to an unavailable location', () => {
+  const absentText = 'tmux location (turn %N):\nThis process is not running in a tmux pane; any earlier tmux location no longer applies.'
+  const unknownText = 'tmux location (turn %N):\nThe tmux location could not be read; any earlier tmux location may be out of date.'
+  const marker = (template: string, turn: number): string => template.replace('%N', String(turn))
+
+  async function withPriorReading(id: string) {
+    const { ctx, bash } = await mount({}, true)
+    const session = Session.create(brandString<SessionId>(id))
+    const agent = sessionAgent(session)
+    openMessageTurn(session, 1)
+    await fire(ctx, agent, 1, 1)
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    return { ctx, bash, session, agent }
+  }
+
+  async function turn(f: Awaited<ReturnType<typeof withPriorReading>>, n: number): Promise<void> {
+    openMessageTurn(f.session, n)
+    await fire(f.ctx, f.agent, n, 1)
+    f.session.append('turn/end', { turn: n, reason: { kind: 'completed' } })
+  }
+
+  it('records a confirmed move out of tmux once, then republishes the same location on return', async () => {
+    const f = await withPriorReading('resume-outside')
+    const original = contextTexts(f.session)[0]!
+    f.bash.result = runResult('', { exitCode: 3 })
+    await turn(f, 2)
+    await turn(f, 3)
+    expect(contextTexts(f.session)).toEqual([original, marker(absentText, 2)])
+
+    f.bash.result = runResult(`${tmuxLine()}\n`)
+    await turn(f, 4)
+    expect(contextTexts(f.session)).toEqual([original, marker(absentText, 2), original.replace('turn 1', 'turn 4')])
+  })
+
+  it.each([
+    ['a nonzero exit', (bash: FakeBash) => { bash.result = runResult('', { exitCode: 1 }) }],
+    ['a malformed reading', (bash: FakeBash) => { bash.result = runResult('0\t1\n') }],
+    ['an executor rejection', (bash: FakeBash) => { bash.runError = new Error('executor down') }],
+  ])('records %s as an unknown location, not a confirmed absence', async (_name, fail) => {
+    const f = await withPriorReading('query-failure')
+    fail(f.bash)
+    await turn(f, 2)
+    await turn(f, 3)
+    expect(contextTexts(f.session).slice(1)).toEqual([marker(unknownText, 2)])
+  })
+
+  it('does not repeat unknown after a confirmed absence, and reports absence after unknown', async () => {
+    const f = await withPriorReading('absent-unknown')
+    f.bash.result = runResult('', { exitCode: 3 })
+    await turn(f, 2)
+    f.bash.result = runResult('', { exitCode: 1 })
+    await turn(f, 3)
+    expect(contextTexts(f.session).slice(1)).toEqual([marker(absentText, 2)])
+
+    const g = await withPriorReading('unknown-absent')
+    g.bash.result = runResult('', { exitCode: 1 })
+    await turn(g, 2)
+    g.bash.result = runResult('', { exitCode: 3 })
+    await turn(g, 3)
+    expect(contextTexts(g.session).slice(1)).toEqual([marker(unknownText, 2), marker(absentText, 3)])
+  })
+
+  it('records an unknown location when the shell is gone after a prior reading', async () => {
+    const withShell = await withPriorReading('shell-gone')
+    const { ctx } = await mount()
+    const agent = sessionAgent(withShell.session, 'agent-2')
+    openMessageTurn(withShell.session, 2)
+    await fire(ctx, agent, 2, 1)
+
+    expect(contextTexts(withShell.session).slice(1)).toEqual([marker(unknownText, 2)])
+  })
+
+  it('stays silent about an unavailable location when there was no prior reading', async () => {
+    const { ctx, bash } = await mount({}, true)
+    bash.result = runResult('', { exitCode: 3 })
+    const session = Session.create(brandString<SessionId>('no-prior'))
+    openMessageTurn(session, 1)
+    await fire(ctx, sessionAgent(session), 1, 1)
+
+    expect(contextTexts(session)).toHaveLength(0)
+  })
+})
+
+describe('tmux-context query deadline', () => {
+  it('abandons a stalled query at its own deadline and aborts the executor signal', async () => {
+    const { ctx, bash } = await mount({ queryTimeoutMs: 30 }, true)
+    bash.hang = true
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    const session = Session.create(brandString<SessionId>('stalled'))
+    openMessageTurn(session, 1)
+
+    await fire(ctx, sessionAgent(session), 1, 1)
+
+    expect(contextTexts(session)).toHaveLength(0)
+    expect(bash.timeouts).toEqual([30])
+    expect(bash.signals[0]?.aborted).toBe(true)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('timed out after 30ms'))
+  })
+
+  it('records an unknown location when a stalled query follows a prior reading', async () => {
+    const { ctx, bash } = await mount({ queryTimeoutMs: 30 }, true)
+    const session = Session.create(brandString<SessionId>('stalled-after-prior'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session, 1)
+    await fire(ctx, agent, 1, 1)
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    bash.hang = true
+    openMessageTurn(session, 2)
+    await fire(ctx, agent, 2, 1)
+
+    expect(contextTexts(session).at(-1)).toContain('could not be read')
+  })
+
+  it('stops waiting when the turn is cancelled and adds nothing', async () => {
+    const { ctx, bash } = await mount({}, true)
+    bash.hang = true
+    const session = Session.create(brandString<SessionId>('cancelled'))
+    openMessageTurn(session, 1)
+    const abort = new AbortController()
+    const firing = fire(ctx, sessionAgent(session), 1, 1, abort.signal)
+    await vi.waitFor(() => { expect(bash.commands).toHaveLength(1) })
+    abort.abort()
+    await firing
+
+    expect(contextTexts(session)).toHaveLength(0)
+    expect(bash.timeouts).toEqual([5000])
+  })
+
+  it('rejects a non-positive query timeout at plugin load', async () => {
+    await expect(mount({ queryTimeoutMs: 0 })).rejects.toThrow(/queryTimeoutMs must be a positive safe integer/)
   })
 })

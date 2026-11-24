@@ -346,9 +346,15 @@ export function createFilesStore(): EngineStoreHandle<FilesState, FilesActions> 
         const previous = state.levels[path]
         if (previous?.kind === 'ready') {
           const directories = new Set(level.entries.filter(entry => entry.type === 'directory').map(entry => entry.name))
-          for (const entry of previous.level.entries) {
-            if (entry.type !== 'directory' || directories.has(entry.name)) continue
-            const removed = childPath(path, entry.name)
+          const listed = new Set(level.entries.map(entry => entry.name))
+          const prefix = childPath(path, '')
+          const known = new Set(previous.level.entries.filter(entry => entry.type === 'directory').map(entry => entry.name))
+          for (const key of previous.level.truncated ? [...Object.keys(state.levels), ...state.expanded] : []) {
+            if (key.startsWith(prefix)) known.add(key.slice(prefix.length).split('/')[0] ?? '')
+          }
+          for (const name of known) {
+            if (name === '' || directories.has(name) || (level.truncated && !listed.has(name))) continue
+            const removed = childPath(path, name)
             state.expanded = state.expanded.filter(value => value !== removed && !value.startsWith(`${removed}/`))
             state.levels = Object.fromEntries(Object.entries(state.levels)
               .filter(([key]) => key !== removed && !key.startsWith(`${removed}/`)))

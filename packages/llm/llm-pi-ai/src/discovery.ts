@@ -24,9 +24,9 @@
  */
 
 import { INVALID_CREDENTIAL_CODE, LlmError, normalizeApiKey } from '@deepseek-ai/dsh-llm'
-import type { LlmDiscoveredModel, LlmModelDiscoveryOperation } from '@deepseek-ai/dsh-llm'
+import type { LlmDiscoveredModel, LlmModelDiscoveryOperation, ModelModality } from '@deepseek-ai/dsh-llm'
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
-import { catalogModels } from './catalog.ts'
+import { catalogModels, catalogProvider } from './catalog.ts'
 
 /**
  * Protocols whose model listing this module can read. OpenAI protocols use
@@ -50,11 +50,11 @@ const LISTABLE_PROTOCOLS: ReadonlySet<string> = new Set([
 /** Stable API version required by Anthropic's model-listing endpoint. */
 const ANTHROPIC_VERSION = '2023-06-01'
 
-/** Largest model-list page accepted by Anthropic's public endpoint; discovery reads one page and does not follow `has_more`. */
 const ANTHROPIC_MODEL_LIMIT = 1000
 
-/** Largest model-list page accepted by the Gemini API; discovery reads one page and does not follow `nextPageToken`. */
 const GEMINI_MODEL_LIMIT = 1000
+
+const MAX_PAGES = 10
 
 /**
  * Endpoint replies larger than this are refused. The endpoint is whatever URL
@@ -93,6 +93,7 @@ interface ListingEntry {
   maxTokens?: unknown
   limit?: ListingLimit | null
   top_provider?: ListingTopProvider | null
+  architecture?: { input_modalities?: unknown } | null
 }
 
 /** A positive integer field of a listing entry, or `undefined` when absent or unusable. */
@@ -111,24 +112,45 @@ function label(...candidates: readonly unknown[]): string | undefined {
   return undefined
 }
 
-/**
- * Join the endpoint base with the protocol's listing path. The base is
- * treated as a prefix rather than a URL to resolve against, so a deployment
- * path such as `https://gateway.example/openai/v1` keeps its segments instead
- * of losing them to `URL` resolution. OpenAI protocols list at
- * `{baseURL}/models`, and Gemini at `{baseURL}/models` with a page size,
- * because its `baseURL` already carries the API version. Anthropic lists at
- * `{root}/v1/models`, where the root is the base without trailing slashes and
- * without one trailing `/v1` segment: gateway documentation publishes both
- * spellings of the same root. Only this listing URL normalizes that segment;
- * model requests receive the configured `baseURL` unchanged.
- */
-function listingUrl(baseURL: string, api: string): string {
-  const base = baseURL.replace(/\/+$/, '')
-  if (api === 'google-generative-ai') return `${base}/models?pageSize=${String(GEMINI_MODEL_LIMIT)}`
-  if (api !== 'anthropic-messages') return `${base}/models`
-  const root = base.endsWith('/v1') ? base.slice(0, -3) : base
-  return `${root}/v1/models?limit=${String(ANTHROPIC_MODEL_LIMIT)}`
+function listingUrl(baseURL: string, api: string, cursor?: string): string {
+  let url: URL
+  try {
+    url = new URL(baseURL)
+  } catch (error: unknown) {
+    throw new LlmError(`${baseURL} is not a valid endpoint URL`, 'DISCOVERY_FAILED', { cause: error })
+  }
+  url.hash = ''
+  const base = url.pathname.replace(/\/+$/, '')
+  if (api === 'google-generative-ai') {
+    url.pathname = `${base}/models`
+    url.searchParams.set('pageSize', String(GEMINI_MODEL_LIMIT))
+    if (cursor !== undefined) url.searchParams.set('pageToken', cursor)
+  } else if (api === 'anthropic-messages') {
+    url.pathname = `${base.endsWith('/v1') ? base.slice(0, -3) : base}/v1/models`
+    url.searchParams.set('limit', String(ANTHROPIC_MODEL_LIMIT))
+    if (cursor !== undefined) url.searchParams.set('after_id', cursor)
+  } else {
+    url.pathname = `${base}/models`
+  }
+  return url.toString()
+}
+
+function endpointOverridden(draft: string | undefined, bundled: string | undefined): boolean {
+  if (draft === undefined || draft.trim().length === 0 || bundled === undefined) return false
+  return draft.trim().replace(/\/+$/, '') !== bundled.replace(/\/+$/, '')
+}
+
+function nextCursor(body: unknown, api: string): string | undefined {
+  const reply = body as { has_more?: unknown; last_id?: unknown; nextPageToken?: unknown } | null
+  if (api === 'google-generative-ai') return label(reply?.nextPageToken)
+  if (api === 'anthropic-messages' && reply?.has_more === true) return label(reply.last_id)
+  return undefined
+}
+
+function modalities(value: unknown): readonly ModelModality[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const known = (['text', 'image'] as const).filter(modality => value.includes(modality))
+  return known.length === 0 ? undefined : known
 }
 
 /**
@@ -137,11 +159,11 @@ function listingUrl(baseURL: string, api: string): string {
  * anything; the accumulated total is what actually enforces the bound, because
  * a server that under-declares (or streams) tells us nothing up front.
  */
-async function readBounded(response: Response, url: string): Promise<string> {
+async function readBounded(response: Response, url: string, limit: number): Promise<string> {
   const oversized = (): LlmError =>
-    new LlmError(`${url} answered with more than ${MAX_RESPONSE_BYTES} bytes`, 'DISCOVERY_FAILED')
+    new LlmError(`${url} answered with more than ${limit} bytes`, 'DISCOVERY_FAILED')
   const declared = Number(response.headers.get('content-length') ?? Number.NaN)
-  if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
+  if (Number.isFinite(declared) && declared > limit) {
     await response.body?.cancel()
     throw oversized()
   }
@@ -155,7 +177,7 @@ async function readBounded(response: Response, url: string): Promise<string> {
       const { done, value } = await reader.read()
       if (done) break
       total += value.byteLength
-      if (total > MAX_RESPONSE_BYTES) throw oversized()
+      if (total > limit) throw oversized()
       chunks.push(value)
     }
   } finally {
@@ -229,11 +251,13 @@ function readListing(body: unknown): LlmDiscoveredModel[] {
       entry?.limit?.output,
       entry?.top_provider?.max_completion_tokens,
     )
+    const inputModalities = modalities(entry?.architecture?.input_modalities)
     models.push({
       id,
       name,
       ...contextWindow === undefined ? {} : { contextWindow },
       ...maxTokens === undefined ? {} : { maxTokens },
+      ...inputModalities === undefined ? {} : { inputModalities },
     })
   }
   return models
@@ -325,16 +349,20 @@ export async function discoverModels(
 ): Promise<readonly LlmDiscoveredModel[]> {
   // A catalog route already has its answer, and a better one: the installed
   // entries carry context windows and output caps no listing endpoint reports.
+  let catalogApi: string | undefined
   if (request.provider !== undefined) {
     const installed = catalogModels(request.provider)
     if (installed.size > 0) {
-      return [...installed.values()].map(model => ({
-        id: model.id,
-        name: model.name,
-        contextWindow: model.contextWindow,
-        maxTokens: model.maxTokens,
-        inputModalities: [...model.input],
-      }))
+      if (!endpointOverridden(request.baseURL, catalogProvider(request.provider)?.baseUrl)) {
+        return [...installed.values()].map(model => ({
+          id: model.id,
+          name: model.name,
+          contextWindow: model.contextWindow,
+          maxTokens: model.maxTokens,
+          inputModalities: [...model.input],
+        }))
+      }
+      catalogApi = installed.values().next().value?.api
     }
   }
   if (request.baseURL === undefined || request.baseURL.length === 0) {
@@ -350,14 +378,14 @@ export async function discoverModels(
   // the action from the case it exists for. The cost is a misdirected message
   // when the endpoint speaks something else (an Anthropic gateway answers 401,
   // which reads as a credential problem), and hand-entry remains the way out.
-  const api = request.api ?? 'openai-completions'
+  const api = request.api ?? catalogApi ?? 'openai-completions'
   if (!LISTABLE_PROTOCOLS.has(api)) {
     throw new LlmError(
       `pi-ai protocol "${api}" has no model listing this build can read; enter this provider's models by hand`,
       'DISCOVERY_UNSUPPORTED',
     )
   }
-  const url = listingUrl(request.baseURL, api)
+  const baseURL = request.baseURL
   // A key typed into the form wins: it may replace the stored key that is
   // failing. The stored profile is asked past the catalog and protocol checks,
   // and its credential resolver remains lazy so a typed key cannot fail over a
@@ -366,6 +394,35 @@ export async function discoverModels(
   const stored = storedProfile?.()
   const supplied = request.apiKey ?? await stored?.resolveApiKey()
   const apiKey = supplied === undefined ? undefined : usableProbeKey(supplied)
+  const models: LlmDiscoveredModel[] = []
+  const seen = new Set<string>()
+  let budget = MAX_RESPONSE_BYTES
+  let cursor: string | undefined
+  for (let page = 1; ; page += 1) {
+    const url = listingUrl(baseURL, api, cursor)
+    const reply = await fetchPage(request, stored, api, apiKey, url, budget)
+    budget -= reply.bytes
+    models.push(...api === 'google-generative-ai' ? readGeminiListing(reply.body) : readListing(reply.body))
+    cursor = nextCursor(reply.body, api)
+    if (cursor === undefined) return models
+    if (seen.has(cursor) || page >= MAX_PAGES) {
+      throw new LlmError(
+        `${url} lists more models than discovery will read; enter this provider's models by hand`,
+        'DISCOVERY_FAILED',
+      )
+    }
+    seen.add(cursor)
+  }
+}
+
+async function fetchPage(
+  request: LlmModelDiscoveryOperation,
+  stored: StoredModelDiscoveryProfile | undefined,
+  api: string,
+  apiKey: string | undefined,
+  url: string,
+  limit: number,
+): Promise<{ readonly body: unknown; readonly bytes: number }> {
   let response: Response
   try {
     const headers = new Headers(stored?.headers === undefined ? undefined : Object.entries(stored.headers))
@@ -382,6 +439,7 @@ export async function discoverModels(
     response = await fetch(url, {
       method: 'GET',
       headers,
+      redirect: 'manual',
       ...request.signal === undefined ? {} : { signal: request.signal },
     })
   } catch (error: unknown) {
@@ -390,7 +448,15 @@ export async function discoverModels(
     }
     throw new LlmError(`could not reach ${url}`, 'DISCOVERY_FAILED', { cause: error })
   }
+  if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+    await response.body?.cancel().catch(() => undefined)
+    throw new LlmError(
+      `${url} answered with a redirect, which discovery does not follow; set the endpoint's final URL`,
+      'DISCOVERY_FAILED',
+    )
+  }
   if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined)
     throw new LlmError(
       `${url} answered ${response.status}${response.status === 401 || response.status === 403 ? '; check the API key' : ''}`,
       'DISCOVERY_FAILED',
@@ -398,7 +464,7 @@ export async function discoverModels(
   }
   let text: string
   try {
-    text = await readBounded(response, url)
+    text = await readBounded(response, url, limit)
   } catch (error: unknown) {
     // Cancellation during the body read rejects with the abort reason, which
     // may be any value; the caller gets the same coded failure it would have
@@ -414,5 +480,5 @@ export async function discoverModels(
   } catch (error: unknown) {
     throw new LlmError(`${url} did not answer with JSON`, 'DISCOVERY_FAILED', { cause: error })
   }
-  return api === 'google-generative-ai' ? readGeminiListing(body) : readListing(body)
+  return { body, bytes: Buffer.byteLength(text) }
 }

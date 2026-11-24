@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
-import { catalogModels } from '../src/catalog.ts'
+import { catalogModels, catalogProvider } from '../src/catalog.ts'
 import { discoverModels } from '../src/discovery.ts'
 
 const servers: Server[] = []
@@ -25,6 +25,7 @@ interface ListingServer {
   url: string
   paths: string[]
   headers: IncomingMessage['headers'][]
+  closes: string[]
 }
 
 /**
@@ -34,14 +35,18 @@ interface ListingServer {
 async function listingServer(behavior: {
   status?: number
   body?: string
+  bodies?: string[]
   chunks?: string[]
   holdOpenMs?: number
+  headers?: Record<string, string>
 }): Promise<ListingServer> {
   const paths: string[] = []
   const headers: IncomingMessage['headers'][] = []
+  const closes: string[] = []
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     paths.push(request.url ?? '')
     headers.push(request.headers)
+    response.on('close', () => { closes.push(request.url ?? '') })
     if (behavior.chunks !== undefined) {
       // No declared length: the ceiling has to hold on what is read.
       response.writeHead(behavior.status ?? 200, { 'content-type': 'application/json' })
@@ -52,8 +57,9 @@ async function listingServer(behavior: {
       setTimeout(() => { response.end() }, behavior.holdOpenMs)
       return
     }
-    const body = behavior.body ?? '{}'
+    const body = behavior.bodies?.shift() ?? behavior.body ?? '{}'
     response.writeHead(behavior.status ?? 200, {
+      ...behavior.headers,
       'content-type': 'application/json',
       'content-length': String(Buffer.byteLength(body)),
     })
@@ -63,7 +69,7 @@ async function listingServer(behavior: {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (address === null || typeof address === 'string') throw new Error('no port')
-  return { url: `http://127.0.0.1:${address.port}`, paths, headers }
+  return { url: `http://127.0.0.1:${address.port}`, paths, headers, closes }
 }
 
 /** A bare dormant mount: discovery is offered whether or not a route exists. */
@@ -86,8 +92,9 @@ describe('catalog-route model discovery', () => {
   it('answers from the installed registry, with capacities and no network call', async () => {
     const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'from-the-endpoint' }] }) })
     const ctx = await harness()
+    const bundled = catalogProvider('deepseek')?.baseUrl
 
-    const models = await ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek', baseURL: server.url })
+    const models = await ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek', baseURL: `${bundled ?? ''}/` })
 
     // pi-ai's own registry is the authority for its own providers, and it
     // carries what a listing endpoint would not disclose.
@@ -223,7 +230,7 @@ describe('draft-provider model discovery', () => {
 
   it('uses the Gemini model-listing path, header, and fields', async () => {
     const server = await listingServer({
-      body: JSON.stringify({
+      bodies: [JSON.stringify({
         models: [
           {
             name: 'models/gemini-pro',
@@ -237,8 +244,8 @@ describe('draft-provider model discovery', () => {
           { name: 'models/' },
           { displayName: 'nameless' },
         ],
-        nextPageToken: 'ignored',
-      }),
+        nextPageToken: 'page-2',
+      }), JSON.stringify({ models: [{ name: 'models/gemini-late' }] })],
     })
     const ctx = await harness()
 
@@ -251,10 +258,133 @@ describe('draft-provider model discovery', () => {
     expect(models).toEqual([
       { id: 'gemini-pro', name: 'Gemini Pro', contextWindow: 1_048_576, maxTokens: 65_536 },
       { id: 'gateway-alias', name: 'gateway-alias' },
+      { id: 'gemini-late', name: 'gemini-late' },
     ])
-    expect(server.paths).toEqual(['/v1beta/models?pageSize=1000'])
+    expect(server.paths).toEqual(['/v1beta/models?pageSize=1000', '/v1beta/models?pageSize=1000&pageToken=page-2'])
     expect(server.headers[0]?.['x-goog-api-key']).toBe('gemini-key')
+    expect(server.headers[1]?.['x-goog-api-key']).toBe('gemini-key')
     expect(server.headers[0]?.authorization).toBeUndefined()
+  })
+
+  it('follows Anthropic has_more through after_id', async () => {
+    const server = await listingServer({
+      bodies: [
+        JSON.stringify({ data: [{ id: 'a' }], has_more: true, last_id: 'a' }),
+        JSON.stringify({ data: [{ id: 'b' }], has_more: false, last_id: 'b' }),
+      ],
+    })
+    const ctx = await harness()
+
+    const models = await ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url, api: 'anthropic-messages' })
+
+    expect(models.map(model => model.id)).toEqual(['a', 'b'])
+    expect(server.paths).toEqual(['/v1/models?limit=1000', '/v1/models?limit=1000&after_id=a'])
+  })
+
+  it('refuses a listing whose cursor repeats instead of returning it as complete', async () => {
+    const server = await listingServer({ body: JSON.stringify({ models: [{ name: 'models/x' }], nextPageToken: 'same' }) })
+    const ctx = await harness()
+
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url, api: 'google-generative-ai' }))
+      .rejects.toMatchObject({ code: 'DISCOVERY_FAILED' })
+    expect(server.paths.length).toBe(2)
+  })
+
+  it('refuses a listing that keeps continuing past the page cap', async () => {
+    let page = 0
+    const bodies = Array.from({ length: 30 }, () => JSON.stringify({ models: [{ name: 'models/x' }], nextPageToken: `t${String(page++)}` }))
+    const server = await listingServer({ bodies })
+    const ctx = await harness()
+
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url, api: 'google-generative-ai' }))
+      .rejects.toThrow(/more models than discovery will read/)
+    expect(server.paths.length).toBe(10)
+  })
+
+  it.each([
+    ['openai-completions', '?tenant=blue', '/v1/models?tenant=blue'],
+    ['openai-responses', '?tenant=blue#frag', '/v1/models?tenant=blue'],
+    ['anthropic-messages', '?tenant=blue', '/v1/models?tenant=blue&limit=1000'],
+    ['google-generative-ai', '?tenant=blue', '/v1/models?tenant=blue&pageSize=1000'],
+  ])('keeps the %s listing path ahead of a configured query or fragment', async (api, suffix, expected) => {
+    const server = await listingServer({ body: JSON.stringify({ data: [], models: [] }) })
+    const ctx = await harness()
+
+    await ctx.llm.discoverModels('llm-pi-ai', { baseURL: `${server.url}/v1${suffix}`, api })
+
+    expect(server.paths).toEqual([expected])
+  })
+
+  it('names an invalid endpoint URL instead of blaming the network', async () => {
+    const ctx = await harness()
+
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: 'not a url', api: 'openai-completions' }))
+      .rejects.toThrow(/not a valid endpoint URL/)
+  })
+
+  it('probes an overridden endpoint of a catalog provider instead of answering from the bundle', async () => {
+    const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'from-the-gateway' }] }) })
+    const ctx = await harness()
+
+    const models = await ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek', baseURL: server.url })
+
+    expect(models.map(model => model.id)).toEqual(['from-the-gateway'])
+    expect(server.paths).toEqual(['/models'])
+  })
+
+  it.each([
+    ['x-api-key', 'anthropic-messages'],
+    ['x-goog-api-key', 'google-generative-ai'],
+    ['authorization', 'openai-completions'],
+  ])('does not follow a redirect carrying %s to another origin', async (header, api) => {
+    const target = await listingServer({ body: JSON.stringify({ data: [], models: [] }) })
+    const origin = await listingServer({ status: 307, headers: { location: `${target.url}/stolen` } })
+    const ctx = await harness()
+
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: origin.url, api, apiKey: 'secret-key' }))
+      .rejects.toThrow(/redirect/)
+
+    expect(origin.headers[0]?.[header]).toBeDefined()
+    expect(target.paths).toEqual([])
+  })
+
+  it('does not forward configured custom headers on a redirect', async () => {
+    const target = await listingServer({ body: JSON.stringify({ data: [] }) })
+    const origin = await listingServer({ status: 302, headers: { location: `${target.url}/stolen` } })
+
+    await expect(discoverModels(
+      { baseURL: origin.url, api: 'openai-completions' },
+      () => ({ headers: { 'x-tenant-secret': 'hush' }, resolveApiKey: () => Promise.resolve(undefined) }),
+    )).rejects.toThrow(/redirect/)
+    expect(origin.headers[0]?.['x-tenant-secret']).toBe('hush')
+    expect(target.paths).toEqual([])
+  })
+
+  it('cancels the body of a failed listing so a never-ending error cannot hold the connection', async () => {
+    const server = await listingServer({ status: 500, chunks: ['partial'], holdOpenMs: 3000 })
+    const ctx = await harness()
+
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url }))
+      .rejects.toThrow(/answered 500/)
+    await vi.waitFor(() => { expect(server.closes).toHaveLength(1) }, { timeout: 1000 })
+  })
+
+  it('reads declared image input from an OpenRouter-style architecture field and leaves unknown alone', async () => {
+    const server = await listingServer({
+      body: JSON.stringify({
+        data: [
+          { id: 'vision', architecture: { input_modalities: ['text', 'image', 'audio'] } },
+          { id: 'plain', architecture: { input_modalities: ['text'] } },
+          { id: 'broken', architecture: { input_modalities: 'image' } },
+          { id: 'bare' },
+        ],
+      }),
+    })
+    const ctx = await harness()
+
+    const models = await ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url })
+
+    expect(models.map(model => model.inputModalities)).toEqual([['text', 'image'], ['text'], undefined, undefined])
   })
 
   it('leaves a Gemini probe with no key unauthenticated, and rejects a reply with no models array', async () => {
@@ -419,6 +549,16 @@ describe('draft-provider model discovery', () => {
       .rejects.toThrow(/answered with more than 4194304 bytes/)
   })
 
+  it('states the remaining byte budget when a later page exceeds it', async () => {
+    const ctx = await harness()
+    const first = JSON.stringify({ data: [{ id: 'a', pad: 'x'.repeat(3 * 1024 * 1024) }], has_more: true, last_id: 'a' })
+    const second = JSON.stringify({ data: [{ id: 'b', pad: 'x'.repeat(2 * 1024 * 1024) }], has_more: false, last_id: 'b' })
+    const server = await listingServer({ bodies: [first, second] })
+
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url, api: 'anthropic-messages' }))
+      .rejects.toThrow(`answered with more than ${String(4 * 1024 * 1024 - Buffer.byteLength(first))} bytes`)
+  })
+
   it('reports an unreachable endpoint instead of an empty catalog', async () => {
     const ctx = await harness()
     // Port 9 is the discard service: nothing accepts a connection there.
@@ -551,10 +691,10 @@ const RECORDED_LISTINGS = [
     file: 'openrouter-2026-09-02.json',
     api: 'openai-completions',
     models: [
-      { id: 'anthropic/claude-fable-5.1', name: 'Anthropic: Claude Fable 5.1', contextWindow: 1_000_000, maxTokens: 128_000 },
+      { id: 'anthropic/claude-fable-5.1', name: 'Anthropic: Claude Fable 5.1', contextWindow: 1_000_000, maxTokens: 128_000, inputModalities: ['text', 'image'] },
       // The router's own aggregate route reports no completion cap.
-      { id: 'openrouter/auto-beta', name: 'Auto Router (Beta)', contextWindow: 2_000_000 },
-      { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek: DeepSeek V4 Flash 0423', contextWindow: 1_048_576, maxTokens: 384_000 },
+      { id: 'openrouter/auto-beta', name: 'Auto Router (Beta)', contextWindow: 2_000_000, inputModalities: ['text', 'image'] },
+      { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek: DeepSeek V4 Flash 0423', contextWindow: 1_048_576, maxTokens: 384_000, inputModalities: ['text'] },
     ],
   },
   {
@@ -590,7 +730,7 @@ const RECORDED_LISTINGS = [
 describe('recorded provider listings', () => {
   it.each(RECORDED_LISTINGS)('reads $name as recorded', async ({ file, api, models }) => {
     const body = await readFile(new URL(`./fixtures/model-listings/${file}`, import.meta.url), 'utf8')
-    const server = await listingServer({ body })
+    const server = await listingServer({ bodies: [body, JSON.stringify({ data: [], has_more: false })] })
     const ctx = await harness()
 
     await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url, api })).resolves.toEqual(models)

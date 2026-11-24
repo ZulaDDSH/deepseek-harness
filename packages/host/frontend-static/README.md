@@ -63,6 +63,8 @@ The function plugin wraps `serveStatic`, which maps a Fetch `Request` to a `Resp
 
 ### The traversal fence
 
+Links inside the dist tree are followed only while they resolve to a place inside the real dist root; a link that leaves it is answered 403. The file is opened first, its real path checked, and the opened handle compared with the resolved path by device and inode, so a link swapped in during the request cannot redirect the read. The configured index path is read as before.
+
 `serveStatic` normalizes the requested pathname and joins it to the dist root, then requires the target to be the root itself or stay under it. The check uses `sep` rather than `/` because `resolve()` emits backslash paths on Windows, where a `/` suffix would reject every legitimate subpath as traversal.
 
 ### Source map

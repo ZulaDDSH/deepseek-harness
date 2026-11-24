@@ -1,6 +1,7 @@
 /** GitHub HTTP authentication, parsing, and fire-and-forget dispatch. */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { createHash } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Webhooks } from '@octokit/webhooks'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
@@ -21,7 +22,15 @@ export interface GitHubWebhookHandlerConfig {
   readonly source: string
   readonly secretEnv: CredentialRef
   readonly maxBodyBytes: number
+  readonly maxConcurrentRequests?: number
+  readonly bodyTimeoutMs?: number
+  readonly replayWindowMs?: number
 }
+
+export const DEFAULT_MAX_CONCURRENT_REQUESTS = 16
+export const DEFAULT_BODY_TIMEOUT_MS = 30_000
+export const DEFAULT_REPLAY_WINDOW_MS = 3_600_000
+const MAX_REPLAY_ENTRIES = 4096
 
 /** Require one unambiguous non-empty request header. */
 function requiredHeader(request: IncomingMessage, name: string): string {
@@ -81,7 +90,22 @@ export function createGitHubWebhookHandler(
   ctx: Context,
   config: GitHubWebhookHandlerConfig,
 ): WebRoute['handler'] {
+  const maxConcurrent = config.maxConcurrentRequests ?? DEFAULT_MAX_CONCURRENT_REQUESTS
+  const bodyTimeoutMs = config.bodyTimeoutMs ?? DEFAULT_BODY_TIMEOUT_MS
+  const replayWindowMs = config.replayWindowMs ?? DEFAULT_REPLAY_WINDOW_MS
+  const replays = new Map<string, number>()
+  let inflight = 0
+
+  function isReplay(digest: string, now: number): boolean {
+    for (const [key, expires] of replays) {
+      if (expires > now) break
+      replays.delete(key)
+    }
+    return replays.has(digest)
+  }
+
   return async (request, response) => {
+    let admitted = false
     try {
       if (request.method !== 'POST') {
         response.setHeader('allow', 'POST')
@@ -90,10 +114,13 @@ export function createGitHubWebhookHandler(
       if (!isJsonContentType(request.headers['content-type'])) {
         throw new WebhookHttpError(415, 'content type must be application/json')
       }
-      const body = await readBoundedUtf8Body(request, config.maxBodyBytes)
       const signature = requiredHeader(request, 'x-hub-signature-256')
       const deliveryId = requiredHeader(request, 'x-github-delivery')
       const eventName = requiredHeader(request, 'x-github-event')
+      if (inflight >= maxConcurrent) throw new WebhookHttpError(429, 'webhook ingress is busy')
+      inflight++
+      admitted = true
+      const body = await readBoundedUtf8Body(request, config.maxBodyBytes, bodyTimeoutMs)
       const credential = await ctx.credentials.resolve(config.secretEnv)
       if (credential === undefined || credential.value === '') {
         throw new WebhookHttpError(503, 'GitHub webhook secret is unavailable')
@@ -106,18 +133,28 @@ export function createGitHubWebhookHandler(
       }
       if (!verified) throw new WebhookHttpError(401, 'invalid webhook signature')
       const payload = parsePayload(body)
+      const digest = createHash('sha256').update(body).digest('hex')
+      const receivedAt = Date.now()
+      if (replayWindowMs > 0 && isReplay(digest, receivedAt)) {
+        respond(response, 202)
+        return
+      }
       const delivery: VerifiedWebhookDelivery<'github'> = {
         kind: 'github',
         source: brandString<WebhookSourceId>(config.source),
         deliveryId: brandString<WebhookDeliveryId>(deliveryId),
         event: { name: eventName, payload },
-        receivedAt: Date.now(),
+        receivedAt,
       }
       try {
         ctx.webhookRuntime.dispatch(delivery)
       } catch {
         ctx.logger.warn('webhook-github: dispatch unavailable')
         throw new WebhookHttpError(503, 'webhook runtime is unavailable')
+      }
+      if (replayWindowMs > 0) {
+        replays.set(digest, receivedAt + replayWindowMs)
+        if (replays.size > MAX_REPLAY_ENTRIES) replays.delete(replays.keys().next().value as string)
       }
       respond(response, 202)
     } catch (error: unknown) {
@@ -127,6 +164,8 @@ export function createGitHubWebhookHandler(
       }
       ctx.logger.warn('webhook-github: request failed')
       respond(response, 503, 'webhook ingress is unavailable')
+    } finally {
+      if (admitted) inflight--
     }
   }
 }

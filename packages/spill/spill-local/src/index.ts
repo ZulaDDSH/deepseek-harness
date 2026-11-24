@@ -27,6 +27,7 @@ export type { SavedText, SaveTextOptions } from './store.ts'
 
 /** Milliseconds in one day — converts the `cleanupPeriodDays` config to the sweep cutoff. */
 const MS_PER_DAY = 24 * 60 * 60 * 1000
+const SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000
 
 /** Plugin config (all optional — `static Config` supplies the defaults). */
 export interface Config {
@@ -94,11 +95,20 @@ export class LocalSpillStore extends SpillStore {
     // never delayed yet a fiber unload reaches quiescence (no sweep I/O outlives
     // the fiber). Disabled (`cleanupPeriodDays === 0`) yields a no-op disposer.
     ctx.effect(function* (this: LocalSpillStore) {
+      let timer: ReturnType<typeof setInterval> | undefined
       if (this.config.cleanupPeriodDays > 0) {
         const warn: WarnFn = (message) => { this.ctx.logger.warn(message) }
         this.cleanup = this.runCleanup(warn)
+        // Constraint: sweeps must be chained on this.cleanup so two never overlap.
+        timer = setInterval(() => {
+          this.cleanup = (this.cleanup ?? Promise.resolve()).then(() => this.runCleanup(warn))
+        }, this.sweepIntervalMs())
+        timer.unref()
       }
-      yield async () => { await this.cleanup }
+      yield async () => {
+        clearInterval(timer)
+        await this.cleanup
+      }
     }.bind(this), 'spill-local cleanup sweep')
   }
 
@@ -145,6 +155,11 @@ export class LocalSpillStore extends SpillStore {
    */
   protected defaultRootsBase(): string {
     return tmpdir()
+  }
+
+  /** Constraint: tests override this interval; it is not a deployment knob. */
+  protected sweepIntervalMs(): number {
+    return SWEEP_INTERVAL_MS
   }
 
   async saveText(input: SaveTextSpill): Promise<SpillRef> {

@@ -116,4 +116,26 @@ describe('FontFamilyRow', () => {
     act(() => { b.store.actions.sync({ text: 14, code: 11, terminal: 13 }, { text: '', code: '"Stale"', terminal: '' }, 1) })
     expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Code font' }).value).toBe('"Hack"')
   })
+
+  it('keeps a focused draft when the saved list changes elsewhere, then saves it on blur', () => {
+    const b = mount('code', '"Iosevka"')
+    b.field.focus()
+    fireEvent.change(b.field, { target: { value: 'Fira Code' } })
+    act(() => { b.store.actions.sync({ text: 14, code: 11, terminal: 13 }, { text: '', code: '"Hack"', terminal: '' }, 1) })
+    const field = screen.getByRole<HTMLInputElement>('textbox', { name: 'Code font' })
+    expect(field).toBe(b.field)
+    expect(field.value).toBe('Fira Code')
+    fireEvent.blur(field)
+    expect(b.setFontFamily).toHaveBeenCalledWith('"Fira Code"')
+  })
+
+  it('adopts a newer saved list on blur without writing when the field was not edited', () => {
+    const b = mount('code', '"Iosevka"')
+    b.field.focus()
+    act(() => { b.store.actions.sync({ text: 14, code: 11, terminal: 13 }, { text: '', code: '"Hack"', terminal: '' }, 1) })
+    expect(b.field.value).toBe('"Iosevka"')
+    fireEvent.blur(b.field)
+    expect(b.setFontFamily).not.toHaveBeenCalled()
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Code font' }).value).toBe('"Hack"')
+  })
 })

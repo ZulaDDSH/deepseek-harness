@@ -290,6 +290,44 @@ describe('directory-picker-native client half', () => {
     expect(late.onError).not.toHaveBeenCalled()
   })
 
+  it('drops the answer of a request the owner withdrew before it settled', async () => {
+    let resolve!: (path: string | null) => void
+    const pick = vi.fn(() => new Promise<string | null>((settle) => { resolve = settle }))
+    const props = owner()
+    const view = render(<NativeDirectoryFlow {...props} pick={pick} />)
+    view.rerender(<NativeDirectoryFlow {...props} open={false} pick={pick} />)
+    await act(async () => { resolve('/tmp/withdrawn') })
+    expect(props.onPicked).not.toHaveBeenCalled()
+    expect(props.onCancel).not.toHaveBeenCalled()
+    expect(props.onError).not.toHaveBeenCalled()
+  })
+
+  it.each(['stale-first', 'fresh-first'] as const)('keeps a withdrawn chooser answer away from the reopened request (%s)', async (order) => {
+    const settles: Array<(path: string | null) => void> = []
+    const pick = vi.fn(() => new Promise<string | null>((settle) => { settles.push(settle) }))
+    const stale = owner()
+    const view = render(<NativeDirectoryFlow {...stale} pick={pick} />)
+    view.rerender(<NativeDirectoryFlow {...stale} open={false} pick={pick} />)
+    const fresh = owner()
+    view.rerender(<NativeDirectoryFlow {...fresh} pick={pick} />)
+    expect(pick).toHaveBeenCalledTimes(2)
+    const [staleSettle, freshSettle] = settles as [(path: string | null) => void, (path: string | null) => void]
+    await act(async () => {
+      if (order === 'stale-first') {
+        staleSettle('/tmp/stale')
+        freshSettle('/tmp/fresh')
+      } else {
+        freshSettle('/tmp/fresh')
+        staleSettle('/tmp/stale')
+      }
+    })
+    expect(fresh.onPicked).toHaveBeenCalledOnce()
+    expect(fresh.onPicked).toHaveBeenCalledWith('/tmp/fresh')
+    expect(fresh.onCancel).not.toHaveBeenCalled()
+    expect(stale.onPicked).not.toHaveBeenCalled()
+    expect(stale.onCancel).not.toHaveBeenCalled()
+  })
+
   it('reports null as cancellation and re-arms after the owner withdraws open', async () => {
     const pick = vi.fn(async () => null as string | null)
     const props = owner()

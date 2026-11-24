@@ -883,6 +883,21 @@ describe('tool execution', () => {
   })
 
   it.each([
+    ['text', { content: [{ type: 'text', text: 'x'.repeat(9 * 1024 * 1024) }] }],
+    ['structured data', { content: [{ type: 'text', text: 'ok' }], structuredContent: { rows: Array.from({ length: 3 }, () => 'y'.repeat(3 * 1024 * 1024)) } }],
+    ['long array', { content: [{ type: 'text', text: 'ok' }], structuredContent: { rows: Array.from({ length: 500_000 }, () => 'y'.repeat(20)) } }],
+    ['an error result', { isError: true, content: [{ type: 'text', text: 'z'.repeat(9 * 1024 * 1024) }] }],
+  ])('rejects an oversized %s before conversion', async (_label, callResult) => {
+    const client = createMockClient([{ name: 'big', inputSchema: { type: 'object' } }], callResult as MockCallResult)
+    await syncTools(client as never, ctx, defaultOpts, new Map())
+    const result = await executeToolFixture(ctx, { signal: testToolSignal, callId: brandString<ToolCallId>('big'), name: 'mcp__srv__big', arguments: {} })
+    expect(result.error).toEqual({
+      message: 'Tool "big" returned an invalid MCP result: the result is over the 8388608 byte limit for one tool call',
+      info: { name: 'McpToolError', code: 'MCP_INVALID_RESULT' },
+    })
+  })
+
+  it.each([
     ['omits structuredContent', { name: 'structured', inputSchema: { type: 'object' }, outputSchema: { type: 'object' } },
       'the tool has an output schema but returned no structured content', 1],
     ['advertises an output schema that cannot be compiled', { name: 'structured', inputSchema: { type: 'object' }, outputSchema: { type: 'string', pattern: '(' } },
@@ -1253,39 +1268,38 @@ describe('createTransport', () => {
   })
 })
 
-describe('tool execution — non-object args fallback', () => {
+describe('tool execution — non-object args rejection', () => {
   let ctx: Context
 
   beforeEach(async () => {
     ctx = await mountRegistry()
   })
 
-  it('coerces null args to empty object for callTool', async () => {
+  it.each([[null], ['bad'], ['{"a":'], [7], [true], [[]], [[{ a: 1 }]]])('rejects %j before calling the server', async (arguments_) => {
     const client = createMockClient(
-      [{ name: 'coerce', inputSchema: { type: 'object' } }],
+      [{ name: 'noargs', inputSchema: { type: 'object' } }],
       { content: [{ type: 'text', text: 'ok' }] },
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    await executeToolFixture(ctx, { signal: testToolSignal, callId: brandString<ToolCallId>('c1'), name: 'mcp__srv__coerce', arguments: null })
+    const result = await executeToolFixture(ctx, { signal: testToolSignal, callId: brandString<ToolCallId>('c1'), name: 'mcp__srv__noargs', arguments: arguments_ })
 
-    expect(client.callTool).toHaveBeenCalledWith(
-      { name: 'coerce', arguments: {} },
-      expect.anything(),
-    )
+    expect(result.isError).toBe(true)
+    expect(result.error?.message).toContain('expected a JSON object')
+    expect(client.callTool).not.toHaveBeenCalled()
   })
 
-  it('coerces primitive string args to empty object for callTool', async () => {
+  it('still calls the server for a valid empty object', async () => {
     const client = createMockClient(
-      [{ name: 'coerce2', inputSchema: { type: 'object' } }],
+      [{ name: 'noargs2', inputSchema: { type: 'object' } }],
       { content: [{ type: 'text', text: 'ok' }] },
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    await executeToolFixture(ctx, { signal: testToolSignal, callId: brandString<ToolCallId>('c1'), name: 'mcp__srv__coerce2', arguments: 'bad' })
+    await executeToolFixture(ctx, { signal: testToolSignal, callId: brandString<ToolCallId>('c1'), name: 'mcp__srv__noargs2', arguments: {} })
 
     expect(client.callTool).toHaveBeenCalledWith(
-      { name: 'coerce2', arguments: {} },
+      { name: 'noargs2', arguments: {} },
       expect.anything(),
     )
   })

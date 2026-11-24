@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from 'vitest'
-import { mergeTurnRailItems } from '../src/client/chat/turn-rail-items.ts'
+import { absorbOutline, mergeTurnRailItems, oldestKnownSeq, type KnownOutline } from '../src/client/chat/turn-rail-items.ts'
 import type { TurnNavigationItem } from '../src/client/contract/snapshot.ts'
 
 function loadedItem(turn: number, prompt = `p${String(turn)}`, response = `r${String(turn)}`): TurnNavigationItem {
@@ -72,6 +72,28 @@ describe('mergeTurnRailItems', () => {
     expect(items).toEqual([
       { turn: 3, prompt: '', response: '', anchor: { kind: 'unloaded', seq: 4 } },
       { turn: 6, prompt: 'kept', response: '', anchor: { kind: 'unloaded', seq: 7 } },
+    ])
+  })
+})
+
+describe('known outline set', () => {
+  it('absorbs narrowed wire entries, overwrites a turn by later values, and reports the oldest seq', () => {
+    const known: KnownOutline = new Map()
+    expect(oldestKnownSeq(known)).toBeUndefined()
+    absorbOutline(known, [{ turn: 5, seq: 20, prompt: 'five', response: '' }, { turn: 4, seq: -1, prompt: 'damaged' }, null])
+    absorbOutline(known, [{ turn: 3, seq: 9, prompt: 'three', response: 'r' }, { turn: 5, seq: 20, prompt: 'five', response: 'done' }])
+    absorbOutline(known, 'not an array')
+    expect([...known.keys()].sort()).toEqual([3, 5])
+    expect(known.get(5)?.response).toBe('done')
+    expect(oldestKnownSeq(known)).toBe(9)
+  })
+
+  it('feeds the merge so entries older than the projection window keep their unloaded anchors', () => {
+    const known: KnownOutline = new Map()
+    absorbOutline(known, [{ turn: 2, seq: 6, prompt: 'two', response: '' }])
+    absorbOutline(known, [{ turn: 1, seq: 0, prompt: 'one', response: '' }])
+    expect(mergeTurnRailItems([], [...known.values()]).map(item => [item.turn, item.anchor])).toEqual([
+      [1, { kind: 'unloaded', seq: 0 }], [2, { kind: 'unloaded', seq: 6 }],
     ])
   })
 })

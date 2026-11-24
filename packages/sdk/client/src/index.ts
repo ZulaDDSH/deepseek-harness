@@ -13,6 +13,7 @@ export { DeepSeekHarness, HarnessSession, validatedSessionEvent } from './api.ts
 export type { RunOptions } from './api.ts'
 export {
   HarnessClient,
+  NotificationOverflowError,
   RequestTimeoutError,
   SdkProtocolError,
   TransportClosedError,

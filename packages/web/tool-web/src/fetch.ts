@@ -28,10 +28,61 @@ const turndown = new TurndownService({
   bulletListMarker: '-',
 })
 turndown.use(gfm)
+const HIDING_DECLARATION = /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse))\s*(?:!important\s*)?(?:;|$)/iu
+const MAX_STYLESHEET_CHARS = 20_000
+const MAX_HIDDEN_SELECTORS = 200
+const stylesheetHidden = new WeakMap<object, string[]>()
+
+type StylesheetFrame = { kind: 'skip' } | { kind: 'rule', selectorText: string, bodyStart: number, nested: boolean }
+
+function hidingSelectors(text: string): string[] {
+  const selectors: string[] = []
+  const stack: StylesheetFrame[] = []
+  let start = 0
+  for (const { 0: brace, index } of text.matchAll(/[{}]/gu)) {
+    if (brace === '{') {
+      const parent = stack.at(-1)
+      const prelude = text.slice(start, index).trim()
+      if (parent?.kind === 'rule') parent.nested = true
+      stack.push(parent !== undefined || prelude.startsWith('@')
+        ? { kind: 'skip' }
+        : { kind: 'rule', selectorText: prelude, bodyStart: index + 1, nested: false })
+    } else {
+      const frame = stack.pop()
+      if (frame?.kind === 'rule' && !frame.nested && HIDING_DECLARATION.test(text.slice(frame.bodyStart, index))) {
+        for (const selector of frame.selectorText.split(',')) {
+          if (/^[.#]?[\w-]+$/u.test(selector.trim())) selectors.push(selector.trim())
+        }
+      }
+    }
+    start = index + 1
+  }
+  return selectors
+}
+
+function stylesheetHiddenSelectors(document: Document): string[] {
+  const cached = stylesheetHidden.get(document)
+  if (cached !== undefined) return cached
+  const selectors: string[] = []
+  for (const style of Array.from(document.querySelectorAll('style')).slice(0, 20)) {
+    selectors.push(...hidingSelectors((style.textContent ?? '').slice(0, MAX_STYLESHEET_CHARS)))
+  }
+  const bounded = selectors.slice(0, MAX_HIDDEN_SELECTORS)
+  stylesheetHidden.set(document, bounded)
+  return bounded
+}
+
+function hiddenByStylesheet(node: HTMLElement): boolean {
+  return stylesheetHiddenSelectors(node.ownerDocument).some((selector) => {
+    try { return node.matches(selector) } catch { return false }
+  })
+}
+
 turndown.addRule('removeNonVisibleContent', {
   filter(node) {
     if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'IFRAME', 'OBJECT', 'EMBED'].includes(node.nodeName)) return true
     if (node.hasAttribute('hidden') || node.getAttribute('aria-hidden')?.toLowerCase() === 'true') return true
+    if (hiddenByStylesheet(node)) return true
     if (node.nodeName === 'INPUT' && node.getAttribute('type')?.toLowerCase() === 'hidden') return true
     const declarations = node.getAttribute('style')?.split(';') ?? []
     return declarations.some((declaration) => {
@@ -128,6 +179,12 @@ const VOID_ELEMENTS = new Set([
 /** Elements whose contents HTML parses as text until their matching end tag. */
 const RAW_TEXT_ELEMENTS = new Set(['script', 'style', 'noscript'])
 
+const HTML_BREAKOUT_ELEMENTS = new Set([
+  'b', 'big', 'blockquote', 'body', 'br', 'center', 'code', 'dd', 'div', 'dl', 'dt', 'em', 'embed', 'h1', 'h2', 'h3', 'h4',
+  'h5', 'h6', 'head', 'hr', 'i', 'img', 'li', 'listing', 'menu', 'meta', 'nobr', 'ol', 'p', 'pre', 'ruby', 's', 'small',
+  'span', 'strong', 'strike', 'sub', 'sup', 'table', 'tt', 'u', 'ul', 'var', 'font',
+])
+
 /** Whether a character can occur after a raw-text end-tag name. */
 function isTagBoundary(char: string | undefined): boolean {
   return char === undefined || char === '>' || char === '/' || /\s/.test(char)
@@ -206,7 +263,9 @@ function exceedsConversionDepth(html: string): boolean {
     } else {
       let last = cursor - 2
       while (/\s/.test(html.charAt(last))) last -= 1
-      if (!VOID_ELEMENTS.has(name) && html[last] !== '/') {
+      const foreign = name === 'svg' || name === 'math' || openElements.some(open => open === 'svg' || open === 'math')
+      const selfClosing = html[last] === '/' && foreign && !HTML_BREAKOUT_ELEMENTS.has(name)
+      if (!VOID_ELEMENTS.has(name) && !selfClosing) {
         openElements.push(name)
         if (openElements.length > MAX_CONVERSION_DEPTH) return true
         if (!inComment && RAW_TEXT_ELEMENTS.has(name)) {
@@ -317,6 +376,15 @@ function renderFetchOutput(result: WebFetchResult, maxOutputChars: number): Rend
  */
 const renderCache = new WeakMap<WebFetchResult, Map<number, RenderedFetch>>()
 
+function fetchStatusPhrase(statusCode: number | null, finalUrlReported: boolean): string {
+  if (statusCode === null) {
+    return finalUrlReported
+      ? 'HTTP status not reported by the fetch service'
+      : 'HTTP status and final URL not reported by the fetch service'
+  }
+  return finalUrlReported ? `HTTP ${statusCode}` : `HTTP ${statusCode}; final URL not reported by the fetch service`
+}
+
 /**
  * The uncached conversion behind {@link renderFetchOutput}. Separated so the
  * memo wraps exactly one call site and the conversion logic stays pure.
@@ -326,7 +394,8 @@ const renderCache = new WeakMap<WebFetchResult, Map<number, RenderedFetch>>()
  * @returns the bounded text and effective truncation.
  */
 function computeFetchOutput(result: WebFetchResult, maxOutputChars: number): RenderedFetch {
-  const header = `Fetched ${result.url} (HTTP ${result.statusCode})\n\n${EXTERNAL_WEB_CONTENT_NOTICE}\n\n`
+  const status = fetchStatusPhrase(result.statusCode, result.finalUrl !== null)
+  const header = `Fetched ${result.finalUrl ?? result.url} (${status})\n\n${EXTERNAL_WEB_CONTENT_NOTICE}\n\n`
   const rendered = renderBody(result.body, maxOutputChars)
   const prefix = `${header}${rendered.text}`
   const truncated = result.truncated || rendered.sourceTruncated || prefix.length > maxOutputChars
@@ -369,10 +438,9 @@ export function presentFetchCall(args: { url: string }): GenericCallView {
  * header line (see the web-result-card Agent Note).
  */
 export interface WebFetchMeta {
-  /** The final URL after allowed redirects. */
   url: string
-  /** HTTP status code of the fetched response. */
-  statusCode: number
+  finalUrl: string | null
+  statusCode: number | null
   /** True when the provider, a source cut, or the output cap trimmed the content. */
   truncated: boolean
 }
@@ -390,7 +458,12 @@ export interface WebFetchMeta {
  * @returns the URL, status code, and effective truncation flag.
  */
 export function fetchMetaFromValue(value: WebFetchResult, maxOutputChars: number): JsonValue {
-  return { url: value.url, statusCode: value.statusCode, truncated: renderFetchOutput(value, maxOutputChars).truncated }
+  return {
+    url: value.url,
+    finalUrl: value.finalUrl,
+    statusCode: value.statusCode,
+    truncated: renderFetchOutput(value, maxOutputChars).truncated,
+  }
 }
 
 /**
@@ -403,9 +476,16 @@ export function fetchMetaFromValue(value: WebFetchResult, maxOutputChars: number
  */
 export function fetchMetaFromResult(meta: unknown): WebFetchMeta | undefined {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined
-  const { url, statusCode, truncated } = meta as Record<string, unknown>
-  if (typeof url !== 'string' || typeof statusCode !== 'number' || typeof truncated !== 'boolean') return undefined
-  return { url, statusCode, truncated }
+  const { url, finalUrl, statusCode, truncated } = meta as Record<string, unknown>
+  if (typeof url !== 'string' || typeof truncated !== 'boolean') return undefined
+  if (finalUrl !== undefined && finalUrl !== null && typeof finalUrl !== 'string') return undefined
+  if (statusCode !== undefined && statusCode !== null && typeof statusCode !== 'number') return undefined
+  return {
+    url,
+    finalUrl: finalUrl === undefined ? url : finalUrl,
+    statusCode: typeof statusCode === 'number' ? statusCode : null,
+    truncated,
+  }
 }
 
 /**
@@ -428,8 +508,9 @@ export function presentFetchResult(args: { url: string }, result: ToolResult): W
     card: 'web',
     kind: 'fetch',
     title: args.url,
-    url: meta.url,
-    statusCode: meta.statusCode,
+    url: meta.finalUrl ?? meta.url,
+    ...meta.statusCode === null ? {} : { statusCode: meta.statusCode },
+    ...meta.finalUrl === null ? { finalUrlUnreported: true } : {},
     truncated: meta.truncated,
   }
 }
@@ -467,7 +548,8 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number, maxOutputChar
         additionalProperties: false,
         properties: {
           url: { type: 'string', required: true },
-          statusCode: { type: 'integer', required: true },
+          finalUrl: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+          statusCode: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
           body: {
             required: true,
             oneOf: [
@@ -506,6 +588,7 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number, maxOutputChar
       )
       return {
         url: result.url,
+        finalUrl: result.finalUrl,
         statusCode: result.statusCode,
         body: { kind: result.body.kind, content: result.body.content },
         truncated: result.truncated,

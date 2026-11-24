@@ -7,6 +7,7 @@ import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { modelInfo } from './model-info.ts'
 import type { DeepSeekAdapterOptions, DeepSeekConnectionOptions as Connection } from './types.ts'
 import { DeepSeekFileStore } from './file-store.ts'
+import { MAX_ERROR_BODY_BYTES, readBoundedText } from './bounded-body.ts'
 import { MESSAGES_FILES_BETA, MESSAGES_TOOL_CHANGES_BETA, messagesApiRoot } from './messages-api.ts'
 import { FileResolutionFailure, RequestFiles } from './request-files.ts'
 import { prepareRequestExtensions } from './request-extensions.ts'
@@ -153,7 +154,7 @@ export class DeepSeekAdapter<C extends Connection = Connection> extends LlmAdapt
           },
         })
         if (!response.ok) {
-          const text = await response.text()
+          const { text } = await readBoundedText(response, MAX_ERROR_BODY_BYTES)
           let raw: unknown
           try { raw = JSON.parse(text) } catch (_nonJsonGatewayError) {
             // HTTP status is authoritative when a gateway does not return JSON.

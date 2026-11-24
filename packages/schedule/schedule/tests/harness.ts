@@ -14,12 +14,15 @@ import { DomainFacility, type KvTable } from '@deepseek-ai/dsh-storage-domain'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { vi } from 'vitest'
+import type { z } from 'zod'
 import type { Mock } from 'vitest'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import ScheduleService, { type Config } from '../src/index.ts'
 import { scheduleDomain, scheduleTaskSchema, type ScheduleTask } from '../src/storage.ts'
 
 import type { ScheduleCatalogEntry, ScheduleId, ScheduleRecord, ScheduleTarget } from '../src/types.ts'
+
+export type ScheduleTaskFields = Partial<z.input<typeof scheduleTaskSchema>>
 
 /** Creation, change, and prompt-change time of seeded tasks, earlier than every test clock. */
 export const SEED_TIME = '2000-01-01T00:00:00.000Z'
@@ -188,7 +191,7 @@ export function agentFor(ctx: Context, id = 'original', meta?: CreateSessionOpti
  * @param fields - Stored fields that replace the seeded defaults.
  * @returns Validated task value.
  */
-export function boundTask(sessionId: SessionId, rule: ScheduleRecord, fields: Partial<ScheduleTask> = {}): ScheduleTask {
+export function boundTask(sessionId: SessionId, rule: ScheduleRecord, fields: ScheduleTaskFields = {}): ScheduleTask {
   return seededTask(rule, { kind: 'session', sessionId }, fields)
 }
 
@@ -199,7 +202,7 @@ export function boundTask(sessionId: SessionId, rule: ScheduleRecord, fields: Pa
  * @param fields - Stored fields that replace the seeded defaults.
  * @returns Validated task value.
  */
-export function seededTask(record: ScheduleRecord, target: ScheduleTarget, fields: Partial<ScheduleTask> = {}): ScheduleTask {
+export function seededTask(record: ScheduleRecord, target: ScheduleTarget, fields: ScheduleTaskFields = {}): ScheduleTask {
   return scheduleTaskSchema.parse({
     record, target, involvedSessionIds: target.kind === 'new' ? [] : [target.sessionId], status: 'active',
     createdAt: SEED_TIME, updatedAt: SEED_TIME,

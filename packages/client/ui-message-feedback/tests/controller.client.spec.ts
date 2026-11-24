@@ -93,6 +93,21 @@ describe('MessageFeedbackController', () => {
     expect(puts[1]).not.toHaveProperty('category')
   })
 
+  it('sends localOnly on a put and on a retraction only when requested', async () => {
+    const controller = new MessageFeedbackController(mock.remote.messageFeedback, SESSION)
+    await controller.rate(MSG, 'positive', { text: 'stay', localOnly: true })
+    await controller.rate(OTHER, 'positive', { text: 'share' })
+    const puts = mock.remote.messageFeedback.put.mock.calls.map(([request]) => request)
+    expect(puts[0]).toMatchObject({ note: 'stay', localOnly: true })
+    expect(puts[1]).not.toHaveProperty('localOnly')
+
+    expect(await controller.retract(MSG, 'positive', true)).toEqual({ ok: true })
+    expect(await controller.retract(OTHER, 'positive')).toEqual({ ok: true })
+    const deletes = mock.remote.messageFeedback.delete.mock.calls.map(([request]) => request)
+    expect(deletes[0]).toMatchObject({ messageId: MSG, localOnly: true })
+    expect(deletes[1]).not.toHaveProperty('localOnly')
+  })
+
   it('retract deletes a matching rating and ignores an opposite judgment', async () => {
     mock.remote.messageFeedback.list.mockResolvedValueOnce(ok({
       ok: true, value: { items: [item({ note: 'stored', category: 'other' })] },
@@ -508,5 +523,54 @@ describe('MessageFeedbackController', () => {
 
     expect(await controller.retract(MSG, 'positive')).toMatchObject({ ok: false, error: { code: 'gateway/internal' } })
     expect(controller.getSnapshot().items.has(MSG)).toBe(true)
+  })
+})
+
+describe('MessageFeedbackController watched and idle views', () => {
+  it('re-reads a view that went idle when a control mounts again', async () => {
+    mock.remote.messageFeedback.list
+      .mockResolvedValueOnce(ok({ ok: true, value: { items: [item()] } }))
+      .mockResolvedValueOnce(ok({ ok: true, value: { items: [] } }))
+    const controller = new MessageFeedbackController(mock.remote.messageFeedback, SESSION)
+    await controller.ensure()
+
+    const leave = controller.subscribe(() => {})
+    leave()
+    expect(mock.remote.messageFeedback.list).toHaveBeenCalledTimes(1)
+
+    controller.subscribe(() => {})
+    await vi.waitFor(() => { expect(mock.remote.messageFeedback.list).toHaveBeenCalledTimes(2) })
+    await vi.waitFor(() => { expect(controller.getSnapshot().items.has(MSG)).toBe(false) })
+  })
+
+  it('re-reads an idle view before the next ensure instead of serving it', async () => {
+    mock.remote.messageFeedback.list
+      .mockResolvedValueOnce(ok({ ok: true, value: { items: [item()] } }))
+      .mockResolvedValueOnce(ok({ ok: true, value: { items: [] } }))
+    const controller = new MessageFeedbackController(mock.remote.messageFeedback, SESSION)
+    await controller.ensure()
+    controller.subscribe(() => {})()
+
+    expect(await controller.ensure()).toEqual({ ok: true })
+    expect(mock.remote.messageFeedback.list).toHaveBeenCalledTimes(2)
+    expect(controller.getSnapshot().items.has(MSG)).toBe(false)
+  })
+
+  it('evicts only a view that no control watches', async () => {
+    mock.remote.messageFeedback.list.mockResolvedValue(ok({ ok: true, value: { items: [item()] } }))
+    const controller = new MessageFeedbackController(mock.remote.messageFeedback, SESSION)
+    await controller.ensure()
+    const leave = controller.subscribe(() => {})
+
+    controller.evict()
+    expect(controller.watched).toBe(true)
+    expect(controller.getSnapshot().status).toBe('ready')
+    expect(controller.getSnapshot().items.has(MSG)).toBe(true)
+
+    leave()
+    controller.evict()
+    expect(controller.watched).toBe(false)
+    expect(controller.getSnapshot().status).toBe('cold')
+    expect(controller.getSnapshot().items.size).toBe(0)
   })
 })

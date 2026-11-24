@@ -183,6 +183,7 @@ The first entry into plan mode adds the exit tool through the route’s tool-upd
 These limits describe when plan mode does not behave as you might expect or needs extra care. They are current package constraints, not a roadmap.
 
 - **Guidance, not enforcement** — plan mode restrains through text only; deployments that need enforced restrictions configure sandbox mode and approval policy independently.
+- **A failed mode append keeps the committed stance** — when the in-turn append of a selected mode fails, the warning is logged and the selection stays pending, but prompt guidance and tool admission follow the committed mode until a later accepted pre-step records the selection, so a request never runs with a stance a resumed or forked session would not recover.
 - **Pending selections are process-local** — a selection made after the turn's final accepted pre-step is lost if the process exits before another accepted in-turn pre-step; the UI must reapply it.
 - **No creation-time plan option** — forked agents inherit logged plan state, while newly spawned agents begin inactive.
 - **Subagents cannot open the review** — a Session with subagent origin fails the `exit_plan_mode` call and is told to include the unresolved decision in its final result; historical ordinary forks can open the review despite retained parent metadata.

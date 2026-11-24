@@ -56,7 +56,7 @@ afterEach(async () => {
 async function setup(options: Parameters<typeof harness>[0] = {}, meta?: Parameters<typeof agentFor>[2]) {
   const test = await harness(options); tests.push(test)
   const agent = agentFor(test.ctx, 'original', meta)
-  const scope = await mountToolSchedule(test.ctx, agent)
+  const scope = await mountToolSchedule(test.ctx, agent, { administrator: true })
   return { ...test, agent, scope }
 }
 type Setup = Awaited<ReturnType<typeof setup>>
@@ -125,6 +125,14 @@ async function createOther(test: Setup) {
     target: { kind: 'session', sessionId: brandString<SessionId>('other-session') },
   }, brandString<SessionId>('other-session')))
 }
+
+describe('Schedule tool config', () => {
+  it('defaults administrator to false and rejects a non-boolean value', () => {
+    expect(ToolSchedule.Config({})).toEqual({ administrator: false })
+    expect(ToolSchedule.Config({ administrator: true })).toEqual({ administrator: true })
+    expect(() => ToolSchedule.Config({ administrator: 'yes' } as never)).toThrow()
+  })
+})
 
 describe('Schedule model tools', () => {
   it('registers the four tools only in the mounting Agent scope', async () => {
@@ -350,7 +358,7 @@ describe('Schedule model tools', () => {
     const task = await createTask(test, { target: 'new_once' })
     if (task.target.kind !== 'new_once') throw new Error('expected a reserved Session target')
     const editor = agentFor(test.ctx, 'editor', { cwd: '/other' })
-    await mountToolSchedule(test.ctx, editor)
+    await mountToolSchedule(test.ctx, editor, { administrator: true })
     test.composedPreset.mockReturnValue('editor-preset')
     const renamed = await execute(test, 'schedule_edit', { id: task.id, action: 'update', title: 'Renamed' }, editor)
     expect(renamed.value).toMatchObject({ target: task.target })
@@ -628,5 +636,53 @@ describe('Schedule model tools', () => {
     await test.scope.dispose()
     for (const name of TOOL_NAMES) expect(test.ctx.tools.get(name, test.agent)).toBeUndefined()
     expect((await execute(test, 'schedule_list', {})).isError).toBe(true)
+  })
+})
+
+describe('Schedule task ownership', () => {
+  async function twoRoots(config?: { administrator: boolean }) {
+    const test = await harness(); tests.push(test)
+    const alice = agentFor(test.ctx, 'alice')
+    const bob = agentFor(test.ctx, 'bob')
+    await mountToolSchedule(test.ctx, alice, config)
+    await mountToolSchedule(test.ctx, bob, config)
+    const run = async (agent: Agent, name: string, args: unknown) => (await executeToolFixture(test.ctx, {
+      callId: brandString<ToolCallId>('schedule-call'), signal: new AbortController().signal, name, arguments: args, agent,
+    })).value as Record<string, unknown>
+    const aliceTask = await run(alice, 'schedule_create', { ...TASK, title: 'Alice task' })
+    const bobTask = await run(bob, 'schedule_create', { ...TASK, title: 'Bob task' })
+    return { test, alice, bob, run, aliceTask, bobTask }
+  }
+
+  it('limits list, view, and edit to tasks the calling Session is involved in', async () => {
+    const { test, alice, bob, run, aliceTask, bobTask } = await twoRoots()
+    const list = await run(alice, 'schedule_list', {})
+    expect(list).toMatchObject({ total: 1, shown: 1, items: [{ id: aliceTask['id'], title: 'Alice task' }] })
+    expect(JSON.stringify(list)).not.toContain('Bob task')
+    expect(await run(alice, 'schedule_list', { active: false })).toMatchObject({ total: 0, items: [] })
+    expect(await run(alice, 'schedule_view', { id: bobTask['id'] })).toEqual({ id: bobTask['id'], code: 'schedule_not_found' })
+    expect(await run(alice, 'schedule_edit', { id: bobTask['id'], action: 'update', title: 'Hijacked' }))
+      .toEqual({ id: bobTask['id'], code: 'schedule_not_found' })
+    expect(await run(alice, 'schedule_edit', { id: bobTask['id'], action: 'delete' }))
+      .toEqual({ id: bobTask['id'], code: 'schedule_not_found' })
+    expect(await run(bob, 'schedule_view', { id: bobTask['id'] })).toMatchObject({ title: 'Bob task' })
+    expect(await run(alice, 'schedule_edit', { id: aliceTask['id'], action: 'update', title: 'Renamed' })).toMatchObject({ title: 'Renamed' })
+    expect(await test.service.list({})).toMatchObject({ total: 2 })
+    expect(await run(bob, 'schedule_view', { id: aliceTask['id'] })).toEqual({ id: aliceTask['id'], code: 'schedule_not_found' })
+    expect(alice.session.id).not.toBe(bob.session.id)
+  })
+
+  it('pages only the tasks the caller can reach', async () => {
+    const { alice, run } = await twoRoots()
+    for (const title of ['A2', 'A3']) await run(alice, 'schedule_create', { ...TASK, title })
+    expect(await run(alice, 'schedule_list', { limit: 2, offset: 1 })).toMatchObject({ total: 3, shown: 2, limit: 2, offset: 1 })
+  })
+
+  it('lets an administrator mount reach every Host task', async () => {
+    const { alice, run, aliceTask, bobTask } = await twoRoots({ administrator: true })
+    expect(await run(alice, 'schedule_list', {})).toMatchObject({ total: 2 })
+    expect(await run(alice, 'schedule_view', { id: bobTask['id'] })).toMatchObject({ title: 'Bob task' })
+    expect(await run(alice, 'schedule_edit', { id: bobTask['id'], action: 'delete' })).toEqual({ id: bobTask['id'], deleted: true })
+    expect(aliceTask['id']).toBeDefined()
   })
 })

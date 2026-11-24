@@ -1127,11 +1127,34 @@ describe('registry-global session archive', () => {
 
     await result.registry.archiveSession(brandString<SessionId>('quiet'))
     expect(result.registry.archivedSessionIds).toEqual(['quiet'])
-    expect(asked).toEqual(['busy', 'quiet'])
+    expect(asked).toEqual(['busy', 'quiet', 'quiet'])
 
-    // The idempotent repeat resolves before any activity question is asked.
     await result.registry.archiveSession(brandString<SessionId>('quiet'))
-    expect(asked).toEqual(['busy', 'quiet'])
+    expect(asked).toEqual(['busy', 'quiet', 'quiet'])
+  })
+
+  it('rolls back an archive when a turn starts between the activity check and the write', async () => {
+    const dir = await makeDir('archive-race')
+    const result = await harness({ sessions: [header('racy', dir, 100)] })
+    await result.registry.pinSession(brandString<SessionId>('racy'))
+    const archivedWhenAsked: boolean[] = []
+    result.ctx.on('workspace/session-activity', async (_payload, next) => {
+      archivedWhenAsked.push(result.registry.archivedSessionIds.includes(brandString<SessionId>('racy')))
+      const rest = await next()
+      return archivedWhenAsked.length > 1 ? [{ kind: 'turn' }, ...rest] : rest
+    })
+    const archived = vi.fn()
+    result.ctx.on('workspace/session-archived', archived)
+
+    await expect(result.registry.archiveSession(brandString<SessionId>('racy'))).rejects.toMatchObject({
+      name: 'WorkspaceActiveSessionError', sessionId: 'racy', activity: [{ kind: 'turn' }],
+    })
+    expect(archivedWhenAsked).toEqual([false, true])
+    expect(result.registry.archivedSessionIds).toEqual([])
+    expect(result.registry.pinnedSessionIds).toEqual(['racy'])
+    expect(storedState(result.pool).archivedSessionIds).toEqual([])
+    expect(storedState(result.pool).pinnedSessionIds).toEqual(['racy'])
+    expect(archived).not.toHaveBeenCalled()
   })
 
   it('with stopActivity, writes the archive and then asks providers to stop, even when one of them fails', async () => {
@@ -1179,7 +1202,7 @@ describe('registry-global session archive', () => {
     expect(asked).toEqual([])
 
     await result.registry.archiveSession(brandString<SessionId>('known'))
-    expect(asked).toEqual(['known'])
+    expect(asked).toEqual(['known', 'known'])
     expect(result.registry.archivedSessionIds).toEqual(['known'])
   })
 

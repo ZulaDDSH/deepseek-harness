@@ -11,6 +11,26 @@ import type {} from '@deepseek-ai/dsh-compaction/types'
 import type { ProductEvent } from './events.ts'
 import { collectEnvironment, type EnvironmentAttributes } from './environment.ts'
 
+const IDENTITY_DEADLINE_MILLIS = 5000
+const MAX_PENDING_REPORTS = 256
+const MAX_IDENTITY_LOOKUPS = 64
+const MAX_STRING_ATTRIBUTE_BYTES = 256
+
+async function settleWithin<T>(work: Promise<T>, millis: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([work, new Promise<undefined>((resolve) => { timer = setTimeout(() => { resolve(undefined) }, millis) })])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function boundAttributes<T extends Record<string, unknown>>(attributes: T): T {
+  return Object.fromEntries(Object.entries(attributes).map(([key, value]) => [
+    key, typeof value === 'string' && Buffer.byteLength(value) > MAX_STRING_ATTRIBUTE_BYTES ? '[oversized]' : value,
+  ])) as T
+}
+
 /** Application-owned collection policy; no user settings surface. */
 export interface Config {
   /** Live application collection policy; ordinary Web does not mount this service. */
@@ -41,6 +61,9 @@ export default class ProductAnalytics extends TypertRemoteService {
   private readonly environmentLifetime = new AbortController()
   private environment: Promise<EnvironmentAttributes> | undefined
   private readonly listeners = new Set<() => void>()
+  private pending = 0
+  private policyGeneration = 0
+  private identityLookups = 0
 
   constructor(ctx: Context, private readonly config: Config) {
     super(ctx, 'productAnalytics')
@@ -50,7 +73,10 @@ export default class ProductAnalytics extends TypertRemoteService {
       this.environmentLifetime.abort()
       await this.environment
     })
-    ctx.on('loader/volatile-update', () => { for (const listener of this.listeners) listener() })
+    ctx.on('loader/volatile-update', () => {
+      if (!this.config.enabled.get()) this.policyGeneration += 1
+      for (const listener of this.listeners) listener()
+    })
     ctx.inject(['settings'], (child) => { child.effect(() => child.settings.configure({ auto: false }, ctx.fiber)) })
     ctx.on('session/event', (session, event) => {
       if (event.type !== 'compaction/start') return
@@ -98,7 +124,9 @@ export default class ProductAnalytics extends TypertRemoteService {
    */
   @Remote
   async report(event: ProductEvent): Promise<void> {
-    if (!this.enabled()) return
+    if (!this.enabled() || this.pending >= MAX_PENDING_REPORTS) return
+    const generation = this.policyGeneration
+    this.pending += 1
     try {
       this.environment ??= collectEnvironment({
         timeoutMillis: this.config.environmentQueryTimeoutMillis,
@@ -106,16 +134,17 @@ export default class ProductAnalytics extends TypertRemoteService {
         signal: this.environmentLifetime.signal,
       })
       const [environment, identity] = await Promise.all([
-        this.environment, this.ctx.deepseekAccount.getDeviceIdentity().catch(() => undefined),
+        this.environment,
+        settleWithin(this.identityLookups < MAX_IDENTITY_LOOKUPS ? this.trackIdentity() : Promise.resolve(undefined), IDENTITY_DEADLINE_MILLIS),
       ])
-      if (!this.enabled()) return
+      if (!this.enabled() || generation !== this.policyGeneration) return
       const { missing_fields: missingFields, ...metadata } = environment
       const missing = Object.entries(missingFields).sort(([a], [b]) => a.localeCompare(b))
         .map(([field, reason]) => `${field}=${reason}`).join(',')
       this.ctx.productTelemetry.emit({
         ...event, body: event.eventName,
         attributes: {
-          ...event.attributes,
+          ...boundAttributes(event.attributes ?? {}),
           ...metadata,
           ...missing === '' ? {} : { missing_fields: missing },
           ...identity?.deviceId === undefined ? {} : { device_id: identity.deviceId },
@@ -125,6 +154,15 @@ export default class ProductAnalytics extends TypertRemoteService {
       })
     } catch (error) {
       this.ctx.logger.warn('Product analytics submission failed', error)
+    } finally {
+      this.pending -= 1
     }
+  }
+
+  private trackIdentity() {
+    const lookup = this.ctx.deepseekAccount.getDeviceIdentity()
+    this.identityLookups += 1
+    void lookup.finally(() => { this.identityLookups -= 1 }).catch(() => undefined)
+    return lookup.catch(() => undefined)
   }
 }

@@ -70,8 +70,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** One session's catalog fetch: the shared promise plus its own abort handle. */
 interface CatalogFetch {
-  readonly promise: Promise<readonly SkillEntry[]>
+  readonly promise: Promise<{ readonly skills: readonly SkillEntry[]; readonly complete: boolean }>
   readonly abort: AbortController
+  readonly directory: string | null | undefined
   /** Settled catalog for synchronous lexicon reads (unset while in flight or on failure). */
   settled?: readonly SkillEntry[]
 }
@@ -98,6 +99,7 @@ export function apply(ctx: ClientContext): void {
   const fetches = new Map<SessionId, CatalogFetch>()
   // Per-session lexicon invalidation listeners (subscribeLexicon consumers).
   const lexiconListeners = new Map<SessionId, Set<() => void>>()
+  const released = new Set<SessionId>()
 
   const notifyLexicon = (sessionId: SessionId): void => {
     for (const listener of [...(lexiconListeners.get(sessionId) ?? [])]) {
@@ -112,11 +114,21 @@ export function apply(ctx: ClientContext): void {
     }
   }
 
+  const directoryOf = (sessionId: SessionId): string | null | undefined =>
+    (sessions.list.getSnapshot().projectionsBySession[sessionId]?.values as { readonly workingDirectory?: string | null } | undefined)?.workingDirectory
+
+  const releaseUnobserved = (sessionId: SessionId, entry: CatalogFetch): boolean => {
+    if (!released.has(sessionId) || lexiconListeners.has(sessionId)) return false
+    released.delete(sessionId)
+    if (fetches.get(sessionId) === entry) fetches.delete(sessionId)
+    return true
+  }
+
   const fetchCatalog = (sessionId: SessionId): CatalogFetch => {
     const existing = fetches.get(sessionId)
     if (existing !== undefined) return existing
     const abort = new AbortController()
-    const promise = (async () => {
+    const promise = (async (): Promise<{ readonly skills: readonly SkillEntry[]; readonly complete: boolean }> => {
       if (sessions.binding(sessionId) === undefined) {
         throw new Error(`skill catalog requires a retained session "${sessionId}"`)
       }
@@ -129,15 +141,20 @@ export function apply(ctx: ClientContext): void {
         const result = await skills.list({ sessionId }, abort.signal)
         abort.signal.throwIfAborted()
         if (!result.ok) throw new Error(`skills/list failed: ${result.error.code}: ${result.error.message}`)
-        return result.value.skills
+        return { skills: result.value.skills, complete: result.value.incomplete !== true }
       })
     })()
-    const entry: CatalogFetch = { promise, abort }
+    const entry: CatalogFetch = { promise, abort, directory: directoryOf(sessionId) }
     fetches.set(sessionId, entry)
     promise.then(
       // Settled snapshot backs the synchronous lexicon reads.
-      (skills) => {
-        entry.settled = skills
+      (result) => {
+        if (!result.complete) {
+          if (fetches.get(sessionId) === entry) fetches.delete(sessionId)
+          return
+        }
+        entry.settled = result.skills
+        if (releaseUnobserved(sessionId, entry)) return
         notifyLexicon(sessionId)
       },
       // A failed fetch must not poison the key: the next consumer retries.
@@ -160,6 +177,12 @@ export function apply(ctx: ClientContext): void {
     for (const key of [...fetches.keys()]) invalidate(key)
   }
 
+  const invalidateMovedDirectories = (): void => {
+    for (const [key, entry] of [...fetches]) {
+      if (directoryOf(key) !== entry.directory) invalidate(key)
+    }
+  }
+
   // The bound translate resolves against the registered dictionaries with the
   // locale service's own fallback ladder; candidate-time reads stay plain text.
   const t = ctx.locale.bind(NS)
@@ -170,7 +193,7 @@ export function apply(ctx: ClientContext): void {
     order: 2,
     async candidates(session, { query, signal }) {
       if (sessions.subagentAddress(session.sessionId) !== undefined) return []
-      const skills = await fetchCatalog(session.sessionId).promise
+      const { skills } = await fetchCatalog(session.sessionId).promise
       // Superseded keystroke: the shared fetch stays warm, this caller yields.
       if (signal.aborted) return []
       // The same filter as the command group of this menu, over names only.
@@ -196,9 +219,13 @@ export function apply(ctx: ClientContext): void {
       const listeners = lexiconListeners.get(key) ?? new Set()
       listeners.add(listener)
       lexiconListeners.set(key, listeners)
+      released.delete(key)
       return () => {
         listeners.delete(listener)
-        if (listeners.size === 0) lexiconListeners.delete(key)
+        if (listeners.size > 0) return
+        lexiconListeners.delete(key)
+        released.add(key)
+        if (fetches.get(key)?.settled !== undefined) fetches.delete(key)
       }
     },
     openReference(session, { ref }) {
@@ -213,8 +240,8 @@ export function apply(ctx: ClientContext): void {
       const settled = fetches.get(session.sessionId)?.settled
       if (settled !== undefined) return open(settled)
       const entry = fetchCatalog(session.sessionId)
-      void entry.promise.then((catalog) => {
-        if (!entry.abort.signal.aborted) open(catalog)
+      void entry.promise.then(({ skills }) => {
+        if (!entry.abort.signal.aborted) open(skills)
       }).catch((error: unknown) => {
         if (!entry.abort.signal.aborted) console.error('[ui-skill] reference preview failed:', error)
       })
@@ -255,7 +282,9 @@ export function apply(ctx: ClientContext): void {
   ctx.on('connection/reset', clearAll)
   ctx.effect(() => {
     const unregister = inputTriggers.registerSource(source)
+    const unobserveSessions = sessions.list.subscribe(invalidateMovedDirectories)
     return () => {
+      unobserveSessions()
       unregister()
       clearAll()
     }

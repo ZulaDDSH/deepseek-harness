@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { changeRequestUrls, commandEvidence, commandOf, ownChangeRequestUrls, pushedBranches, sameChangeRequestUrl } from '../src/commands.ts'
+import { changeRequestUrls, commandEvidence, commandOf, createdChangeRequestUrls, ownChangeRequestUrls, pushedBranches, sameChangeRequestUrl } from '../src/commands.ts'
 
 describe('commandOf', () => {
   it('reads the string command argument', () => {
@@ -38,6 +38,25 @@ describe('commandEvidence', () => {
     [`gh pr checkout ${url} && git push`, { urls: 'referenced', pushes: true, named: [url] }],
     [`gh pr view --json url ${url}`, { urls: 'referenced', pushes: false, named: [url] }],
     [`gh pr create --fill && gh pr view ${url}`, { ...created, named: [url] }],
+    ['cd repo\ngh pr create --fill', created],
+    ['(gh pr create --fill)', created],
+    ['FOO=1 env BAR=2 gh pr create --fill', created],
+    ['git status; gh pr new', created],
+    ["bash -c 'gh pr create --fill'", created],
+    ["bash -e -c 'gh pr create --fill'", created],
+    ["bash -o pipefail -c 'gh pr create --fill'", created],
+    ["bash -O extglob -c 'gh pr create --fill'", created],
+    ["bash --rcfile rc -c 'gh pr create --fill'", created],
+    ['sh -lc "cd repo && gh pr create"', created],
+    ['if git diff --quiet; then gh pr create --fill; fi', created],
+    ['{ gh pr create --fill; }', created],
+    ['time gh pr create --fill', created],
+    ["cat <<'EOF' > body.md\nnotes\nEOF\ngh pr create --body-file body.md", created],
+    ["bash <<'EOF'\ngh pr create --fill\nEOF", created],
+    ['ssh host <<EOF\ngh pr create\nEOF', created],
+    ['sudo python3 - <<EOF\nimport os\nEOF\ngh pr new', created],
+    ['cat <<EOF | bash\ngh pr create\nEOF', created],
+    ['echo ssh; cat <<EOF\nx\nEOF\ngh pr create', created],
   ])('classifies %j', (command, evidence) => {
     expect(commandEvidence(command)).toEqual(evidence)
   })
@@ -48,8 +67,26 @@ describe('commandEvidence', () => {
     'gh pr list --head feat',
     'gh pr status',
     'git-push origin',
+    'grep -rn "gh pr create" docs',
+    'echo gh pr create --fill',
+    'printf "%s" "gh pr new"',
+    "cat > notes.md <<'EOF'\ngh pr create\nEOF",
+    'cat <<EOF\ngh pr new --fill\nEOF',
+    'git commit -F - <<EOF\nmessage\ngh pr create\nEOF',
+    'cat <<EOF\ngit push\nEOF',
+    "bash -c 'echo gh pr create'",
+    'bash script.sh gh pr create',
+    "bash script.sh -c 'gh pr create'",
+    'cat <<A <<B\ngh pr create\nA\ngh pr new\nB',
+    'echo bash && cat <<EOF\ngh pr create\nEOF',
   ])('ignores %j', (command) => {
     expect(commandEvidence(command)).toBeUndefined()
+  })
+
+  it('classifies a long run of option letters in linear time', () => {
+    const started = performance.now()
+    expect(commandEvidence(`bash -${'c'.repeat(80_000)}! gh pr create`)).toBeUndefined()
+    expect(performance.now() - started).toBeLessThan(500)
   })
 })
 
@@ -65,9 +102,21 @@ describe('ownChangeRequestUrls', () => {
     expect(ownChangeRequestUrls(`{\n  "url": "${pull(4)}/"\n}`)).toEqual([pull(4)])
   })
 
+  it('reads no URL from a nested url member or from JSON after the description separator', () => {
+    expect(ownChangeRequestUrls(JSON.stringify({ number: 6, comments: [{ url: pull(6) }] }))).toEqual([])
+    expect(ownChangeRequestUrls(`title:\tAdd it\n--\n{"url": "${pull(8)}"}`)).toEqual([])
+  })
+
   it('finds nothing in output that names no change request of its own', () => {
     expect(ownChangeRequestUrls("Switched to branch 'feat'\n")).toEqual([])
     expect(ownChangeRequestUrls(`see ${pull(3)} for details`)).toEqual([])
+  })
+})
+
+describe('createdChangeRequestUrls', () => {
+  it('reads only the URLs alone on their lines', () => {
+    const text = ['Creating pull request for feat into main', 'https://github.com/octo/demo/pull/12', 'see https://github.com/octo/demo/pull/3 and', 'https://github.com/octo/demo/pull/4/files'].join('\n')
+    expect(createdChangeRequestUrls(text)).toEqual(['https://github.com/octo/demo/pull/12'])
   })
 })
 

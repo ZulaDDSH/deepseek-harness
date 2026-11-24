@@ -179,6 +179,7 @@ export interface RunOptions {
   env?: NodeJS.ProcessEnv
   /** The recorded session JSONL fixture path (replay reads it; record writes near it). */
   fixtureFile: string
+  shutdownTimeoutMs?: number
   /** Optional sidecar override path (replay). */
   overrideFile?: string
   /**
@@ -304,6 +305,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
       agent: opts.agent,
       cwd,
       ...opts.configPath !== undefined ? { configPath: opts.configPath } : {},
+      ...opts.shutdownTimeoutMs !== undefined ? { shutdownTimeoutMs: opts.shutdownTimeoutMs } : {},
       env,
       requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
         const answer = permissionQueue.shift()

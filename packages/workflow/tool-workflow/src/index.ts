@@ -17,9 +17,10 @@ import z from '@deepseek-ai/schemastery'
 import { defineTool, ToolArgsError, ToolContextUnavailableError } from '@deepseek-ai/dsh-tools'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { JobId, JobOutcome, JobToolCall } from '@deepseek-ai/dsh-jobs'
 import type { Session, SessionEventMap } from '@deepseek-ai/dsh-session'
+import type { SpillRef } from '@deepseek-ai/dsh-spill'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { WorkflowError } from '@deepseek-ai/dsh-workflow'
 import type {
@@ -94,6 +95,7 @@ function renderRecordingError(error: unknown): string {
  */
 function createWorkflowRecorder(ctx: Context): WorkflowRecorder {
   const active = new Map<WorkflowRunId, Session>()
+  const memberRecordingStopped = new Set<WorkflowRunId>()
   const append = <Type extends keyof ToolWorkflowRecordEventMap>(
     session: Session,
     type: Type,
@@ -116,7 +118,7 @@ function createWorkflowRecorder(ctx: Context): WorkflowRecorder {
 
   ctx.on('workflow/agent-start', (info, agent) => {
     const session = active.get(info.id)
-    if (session === undefined) return
+    if (session === undefined || memberRecordingStopped.has(info.id)) return
     const data: ToolWorkflowAgentStartData = {
       runId: info.id,
       seq: agent.seq,
@@ -124,17 +126,17 @@ function createWorkflowRecorder(ctx: Context): WorkflowRecorder {
       ...agent.phase === undefined ? {} : { phase: agent.phase },
       childId: agent.childId,
     }
-    if (!append(session, 'tool-workflow/agent-start', data)) active.delete(info.id)
+    if (!append(session, 'tool-workflow/agent-start', data)) memberRecordingStopped.add(info.id)
   })
   ctx.on('workflow/agent-end', (info, agent) => {
     const session = active.get(info.id)
-    if (session === undefined) return
+    if (session === undefined || memberRecordingStopped.has(info.id)) return
     const data: ToolWorkflowAgentEndData = {
       runId: info.id,
       seq: agent.seq,
       outcome: agent.outcome,
     }
-    if (!append(session, 'tool-workflow/agent-end', data)) active.delete(info.id)
+    if (!append(session, 'tool-workflow/agent-end', data)) memberRecordingStopped.add(info.id)
   })
 
   return {
@@ -147,8 +149,12 @@ function createWorkflowRecorder(ctx: Context): WorkflowRecorder {
       const session = active.get(runId)
       if (session !== undefined) append(session, 'tool-workflow/run-end', { runId, stopReason })
       active.delete(runId)
+      memberRecordingStopped.delete(runId)
     },
-    abandon: (runId) => { active.delete(runId) },
+    abandon: (runId) => {
+      active.delete(runId)
+      memberRecordingStopped.delete(runId)
+    },
   }
 }
 
@@ -218,14 +224,21 @@ function stopReasonError(result: WorkflowResult): WorkflowError | undefined {
  * cancel reason it forwarded is the same string); an errored run fails with
  * the script's failure message.
  */
-function jobOutcomeOf(result: WorkflowResult, name: string, maxChars: number): JobOutcome {
+async function jobOutcomeOf(
+  result: WorkflowResult,
+  name: string,
+  maxChars: number,
+  save: (content: string) => Promise<SpillRef | undefined>,
+): Promise<JobOutcome> {
   switch (result.stopReason) {
-    case 'completed':
+    case 'completed': {
+      const rendered = JSON.stringify(result.value as JsonValue, null, 2)
       return {
         status: 'completed',
-        detail: `${result.agentsStarted} agent${result.agentsStarted === 1 ? '' : 's'}`,
-        result: renderResult(name, result.agentsStarted, result.value as JsonValue, maxChars),
+        detail: `${result.agentsStarted} agent${result.agentsStarted === 1 ? '' : 's'}${cleanupNote(result.cleanupFailures)}`,
+        result: renderResult(name, result.agentsStarted, rendered, maxChars, rendered.length > maxChars ? await save(rendered) : undefined, result.cleanupFailures),
       }
+    }
     case 'cancelled':
       return { status: 'killed' }
     case 'error':
@@ -238,13 +251,42 @@ function jobOutcomeOf(result: WorkflowResult, name: string, maxChars: number): J
 }
 
 /** Render the run's outcome text: the meta name, agent count, and the JSON value (capped). */
-function renderResult(name: string, agentsStarted: number, value: JsonValue, maxChars: number): string {
-  // The engine returns JSON data (null for a valueless script), so stringify never yields undefined.
-  const rendered = JSON.stringify(value, null, 2)
+function renderResult(name: string, agentsStarted: number, rendered: string, maxChars: number, spill?: { locator: string; retrievalHint: string }, cleanupFailures?: readonly string[]): string {
+  const saved = spill === undefined ? '' : `\nFull result stored at: ${spill.locator}. ${spill.retrievalHint}`
   const clipped = rendered.length > maxChars
-    ? `${rendered.slice(0, maxChars)}\n… [truncated: ${rendered.length - maxChars} more characters]`
+    ? `${rendered.slice(0, maxChars)}\n… [truncated: ${rendered.length - maxChars} more characters]${saved}`
     : rendered
-  return `workflow "${name}" completed (${agentsStarted} agent${agentsStarted === 1 ? '' : 's'}).\nReturn value:\n${clipped}`
+  return `workflow "${name}" completed (${agentsStarted} agent${agentsStarted === 1 ? '' : 's'}${cleanupNote(cleanupFailures)}).\nReturn value:\n${clipped}`
+}
+
+function cleanupNote(failures: readonly string[] | undefined): string {
+  return failures === undefined || failures.length === 0 ? '' : `; child cleanup unconfirmed: ${failures.join('; ')}`
+}
+
+async function saveOversizedResult(
+  ctx: Context,
+  toolName: string,
+  callId: ToolCallId,
+  parent: Agent,
+  content: string,
+): Promise<SpillRef | undefined> {
+  const spillStore = ctx.get('spillStore')
+  if (spillStore === undefined) {
+    ctx.logger.warn(`tool-workflow: no ctx.spillStore backend loaded; complete ${toolName} result not saved`)
+    return undefined
+  }
+  try {
+    const { locator, bytes, retrievalHint } = await spillStore.saveText({
+      owner: { sessionId: parent.session.header.id },
+      source: { kind: 'tool', toolName, callId, label: 'result' },
+      suggestedName: 'workflow-result.json',
+      content,
+    })
+    return { locator, bytes, retrievalHint }
+  } catch (error: unknown) {
+    ctx.logger.warn(`tool-workflow: saveText failed for ${toolName}: ${String(error)}; complete result not saved`)
+    return undefined
+  }
 }
 
 /**
@@ -268,7 +310,7 @@ function startBackgroundRun(
   parent: Agent,
   toolCall: JobToolCall,
   recordsRun: boolean,
-  deps: { recorder: WorkflowRecorder; mirror: WorkflowRecordMirror; maxResultChars: number },
+  deps: { recorder: WorkflowRecorder; mirror: WorkflowRecordMirror; maxResultChars: number; toolName: string },
 ): { kind: 'background'; jobId: JobId; runId: WorkflowRunId } {
   const jobs = ctx.get('jobs')
   if (jobs === undefined) {
@@ -306,7 +348,12 @@ function startBackgroundRun(
           deps.recorder.finish(run.id, result.stopReason)
           deps.recorder.abandon(run.id)
         }
-        return jobOutcomeOf(result, args.meta.name, deps.maxResultChars)
+        return jobOutcomeOf(
+          result,
+          args.meta.name,
+          deps.maxResultChars,
+          content => saveOversizedResult(ctx, deps.toolName, toolCall.callId, parent, content),
+        )
       })
       return {
         cancel: (reason?: string) => { run.cancel(reason ?? 'background workflow job killed') },
@@ -397,6 +444,16 @@ export function apply(ctx: Context, config: Config): void {
               runId: { type: 'string', required: true },
               agentsStarted: { type: 'integer', required: true },
               result: { type: 'json', required: true },
+              cleanupFailures: { type: 'array', items: { type: 'string' } },
+              spill: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  locator: { type: 'string', required: true },
+                  bytes: { type: 'integer', required: true },
+                  retrievalHint: { type: 'string', required: true },
+                },
+              },
             },
           },
         ],
@@ -405,7 +462,7 @@ export function apply(ctx: Context, config: Config): void {
         type: 'text',
         text: value.kind === 'background'
           ? `workflow "${args.meta.name}" started in the background as job ${value.jobId}. Its return value arrives with the completion notice; check on it with job_output, stop it with job_kill.`
-          : renderResult(args.meta.name, value.agentsStarted, value.result, maxResultChars),
+          : renderResult(args.meta.name, value.agentsStarted, JSON.stringify(value.result, null, 2), maxResultChars, value.spill, value.cleanupFailures),
       }],
     },
     async execute(args, exec) {
@@ -430,6 +487,7 @@ export function apply(ctx: Context, config: Config): void {
           recorder,
           mirror,
           maxResultChars,
+          toolName,
         })
       }
 
@@ -464,11 +522,18 @@ export function apply(ctx: Context, config: Config): void {
           exec.signal.throwIfAborted()
           throw error
         }
+        const value = result.value as JsonValue
+        const rendered = JSON.stringify(value, null, 2)
+        const spill = rendered.length > maxResultChars
+          ? await saveOversizedResult(ctx, toolName, exec.callId, parent, rendered)
+          : undefined
         return {
           kind: 'foreground' as const,
           runId: run.id,
           agentsStarted: result.agentsStarted,
-          result: result.value as JsonValue,
+          result: value,
+          ...result.cleanupFailures === undefined ? {} : { cleanupFailures: result.cleanupFailures },
+          ...spill === undefined ? {} : { spill },
         }
       } finally {
         exec.signal.removeEventListener('abort', onAbort)

@@ -15,7 +15,7 @@ function remote(overrides: Record<string, unknown> = {}) {
 }
 
 describe('authorization operations', () => {
-  it('returns the available authorization entries and hides a refused listing', async () => {
+  it('returns the available authorization entries and rejects a refused listing', async () => {
     const entries = [{ key: 'provider/key', label: 'Provider', methods: [], configured: false, inFlight: false }]
     const available = createAuthorizationOperations(remote({
       list: vi.fn(() => Promise.resolve({ ok: true, value: entries })),
@@ -25,7 +25,7 @@ describe('authorization operations', () => {
     }))
 
     expect(await available.list()).toEqual(entries)
-    expect(await refused.list()).toEqual([])
+    await expect(refused.list()).rejects.toThrow('unavailable')
   })
 
   it('streams one attempt and reports authorized or cancelled settlement', async () => {
@@ -49,7 +49,7 @@ describe('authorization operations', () => {
     expect(await cancelled.begin('provider/key', undefined, () => {}, new AbortController().signal))
       .toEqual({ kind: 'cancelled' })
     expect(await noTerminal.begin('provider/key', undefined, () => {}, new AbortController().signal))
-      .toEqual({ kind: 'cancelled' })
+      .toEqual({ kind: 'interrupted' })
   })
 
   it('turns stream exceptions into failed outcomes without copying exception types', async () => {

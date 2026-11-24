@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { QuotaBilling, QuotaBillingSwitch, QuotaResult } from '@deepseek-ai/dsh-api-quota-controller/types'
-import { hardLimited, localUsagePromptStore, NEAR_LIMIT_PERCENT, OPEN_WINDOW_HOLD_MS, usagePrompt, withDismissed } from '../src/client/usage-prompt.ts'
+import { BACK_DISMISSAL_HOLD_MS, hardLimited, localUsagePromptStore, NEAR_LIMIT_PERCENT, OPEN_WINDOW_HOLD_MS, usagePrompt, withDismissed } from '../src/client/usage-prompt.ts'
 import type { UsageSwitch } from '../src/client/usage-prompt.ts'
 
 const NOW = Date.UTC(2026, 9, 15, 12, 0)
@@ -93,6 +93,13 @@ describe('usage prompt decisions', () => {
       .toMatchObject({ kind: 'near-limit', key: `limit|anthropic|5h|${nextReset}` })
   })
 
+  it('offers a hard limit on a window whose near-limit warning was dismissed', () => {
+    const dismissed = withDismissed([], `limit|anthropic|5h|${RESET}`, NOW)
+    expect(decide([claude({ '5h': { usedPercent: 95, resetAt: RESET } })], { dismissed })).toBeUndefined()
+    expect(decide([claude({ '5h': { usedPercent: 95, resetAt: RESET, status: 'rejected' } })], { dismissed }))
+      .toMatchObject({ kind: 'hard-limit', key: `hard|anthropic|5h|${RESET}` })
+  })
+
   it('keeps a dismissed window with no reset time quiet for a day, then prompts again', () => {
     const results = [claude({ monthly: { usedPercent: 95, resetAt: null } })]
     const prompt = decide(results)
@@ -103,16 +110,17 @@ describe('usage prompt decisions', () => {
     expect(decide(results, { dismissed, now: NOW + OPEN_WINDOW_HOLD_MS + 1 })).toMatchObject({ kind: 'near-limit' })
   })
 
-  it('suppresses other windows and refreshed reset times for the dismissed provider until reset', () => {
+  it('keeps other windows of the dismissed provider prompting, and holds the dismissed window through a moved reset until its reset', () => {
     const dismissed = withDismissed([], `limit|anthropic|weekly|${RESET}`, NOW)
     const results = [claude({
       weekly: { usedPercent: 100, resetAt: RESET + 1000 },
       'weekly-opus': { usedPercent: 100, resetAt: RESET },
       '5h': { usedPercent: 100, resetAt: NOW + 3_600_000 },
     })]
-    expect(decide(results, { dismissed })).toBeUndefined()
+    expect(decide(results, { dismissed })).toMatchObject({ kind: 'near-limit', windowId: 'weekly-opus' })
+    expect(decide([claude({ weekly: { usedPercent: 100, resetAt: RESET + 1000 } })], { dismissed })).toBeUndefined()
     expect(decide(results, { dismissed, now: RESET + 1 })).toMatchObject({ windowId: 'weekly' })
-    expect(decide([...results, { ...claude({ weekly: { usedPercent: 100, resetAt: RESET } }), providerId: 'another' }], { dismissed }))
+    expect(decide([claude({ weekly: { usedPercent: 100, resetAt: RESET } }), { ...claude({ weekly: { usedPercent: 100, resetAt: RESET } }), providerId: 'another' }], { dismissed }))
       .toMatchObject({ result: { providerId: 'another' } })
   })
 
@@ -139,6 +147,14 @@ describe('dismissed prompt memory', () => {
     expect(withDismissed([live], live, NOW)).toEqual([live])
   })
 
+  it('keeps a dismissed switch-back offer after its reset has passed, then forgets it after the hold', () => {
+    const back = `back|anthropic|${RESET}`
+    const next = `limit|anthropic|monthly|${RESET + 1000}`
+    expect(withDismissed([back], next, RESET + 1)).toEqual([back, next])
+    expect(withDismissed([back], next, RESET + BACK_DISMISSAL_HOLD_MS)).toEqual([back, next])
+    expect(withDismissed([back], next, RESET + BACK_DISMISSAL_HOLD_MS + 1)).toEqual([next])
+  })
+
   it('replaces an earlier dismissal of the same open-ended window instead of piling up', () => {
     const first = withDismissed([], 'limit|anthropic|5h|open', NOW)
     expect(withDismissed(first, 'limit|anthropic|5h|open', NOW + 1)).toEqual([`limit|anthropic|5h|open|${NOW + 1 + OPEN_WINDOW_HOLD_MS}`])
@@ -161,5 +177,27 @@ describe('dismissed prompt memory', () => {
     data.set('dsh.provider-quota.switched', '"anthropic"')
     expect(store.dismissed()).toEqual([])
     expect(store.switched()).toBeUndefined()
+  })
+
+  it('keeps working in memory when storage methods or the storage getter throw', () => {
+    const blocked = new Error('blocked')
+    const throwing: Partial<Storage> = {
+      getItem: () => { throw blocked },
+      setItem: () => { throw blocked },
+      removeItem: () => { throw blocked },
+    }
+    const store = localUsagePromptStore(throwing as Storage)
+    expect(store.dismissed()).toEqual([])
+    expect(store.switched()).toBeUndefined()
+    expect(() => { store.saveDismissed(['a']); store.saveSwitched({ providerId: 'p' }); store.saveSwitched(undefined) }).not.toThrow()
+    const saved = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, get: () => { throw blocked } })
+    try {
+      expect(() => localUsagePromptStore().saveDismissed(['a'])).not.toThrow()
+      expect(localUsagePromptStore().dismissed()).toEqual([])
+    } finally {
+      if (saved === undefined) Reflect.deleteProperty(globalThis, 'localStorage')
+      else Object.defineProperty(globalThis, 'localStorage', saved)
+    }
   })
 })

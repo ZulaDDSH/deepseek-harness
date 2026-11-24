@@ -403,6 +403,25 @@ describe('candidates', () => {
     await expect(source.candidates(session, request('bad'))).resolves.toEqual([])
   })
 
+  it('shows the Session matches when the file lookup never answers, after the bounded wait', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    onTestFinished(() => { vi.useRealTimers() })
+    let lookupSignal: AbortSignal | undefined
+    const files = vi.fn((_session: unknown, _query: unknown, signal?: AbortSignal) => {
+      lookupSignal = signal
+      return new Promise<never>(() => {})
+    })
+    const { source } = await bench(files as never)
+    let settled = false
+    const pending = source.candidates(session, request('res')).then((items) => { settled = true; return items })
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(settled).toBe(false)
+    expect(lookupSignal?.aborted).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(lookupSignal?.aborted).toBe(true)
+    expect(await pending).toEqual([expect.objectContaining({ name: 'Research', icon: 'session' })])
+  })
+
   it('labels a session without a cwd and still dates it', async () => {
     const files = vi.fn(() => Promise.resolve({ ok: true as const, value: [] }))
     const sessions = vi.fn(() => Promise.resolve({

@@ -1,15 +1,37 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const NOTES_PATH = 'docs/code-notes/deepseek-harness.md'
+const REPO_ROOT = resolve(import.meta.dirname, '..')
+const NOTES_FILE = 'deepseek-harness.md'
+
+export function codeNotesDir(scanRoot: string = REPO_ROOT): string {
+  if (resolve(scanRoot) !== REPO_ROOT) return resolve(scanRoot, 'docs/code-notes')
+  if (process.env.DSH_CODE_NOTES_DIR) return resolve(process.env.DSH_CODE_NOTES_DIR)
+  const sibling = resolve(REPO_ROOT, '..', 'CodeNotes', 'Deepseek Harness')
+  return existsSync(sibling) ? sibling : resolve(REPO_ROOT, 'docs/code-notes')
+}
+
+export function missingCodeNotesMessage(scanRoot: string = REPO_ROOT): string | undefined {
+  const dir = codeNotesDir(scanRoot)
+  if (existsSync(dir)) return undefined
+  return `code notes directory not found: ${dir}. Set DSH_CODE_NOTES_DIR to the "Deepseek Harness" folder of a ZulaDDSH/CodeNotes checkout.`
+}
+
+export function exitIfCodeNotesMissing(gate: string): void {
+  const message = missingCodeNotesMessage()
+  if (message === undefined) return
+  console.error(`${gate}: ${message}`)
+  process.exit(1)
+}
 
 export function loadAnchoredFieldNotes(
   scanRoot: string,
-  notesPaths: string | readonly string[] = NOTES_PATH,
+  notesPaths: string | readonly string[] = NOTES_FILE,
 ): Map<string, Map<string, string>> {
+  const dir = codeNotesDir(scanRoot)
   const notes = new Map<string, Map<string, string>>()
   for (const notesPath of typeof notesPaths === 'string' ? [notesPaths] : notesPaths) {
-    const path = resolve(scanRoot, notesPath)
+    const path = resolve(dir, notesPath)
     if (!existsSync(path)) continue
     for (const [anchor, fields] of parseAnchoredFieldNotes(readFileSync(path, 'utf8'))) {
       if (notes.has(anchor)) throw new Error(`duplicate code-note anchor '${anchor}' across files`)

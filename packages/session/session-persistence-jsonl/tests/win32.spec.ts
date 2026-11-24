@@ -5,7 +5,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -255,6 +255,18 @@ describe('Windows write-lock semaphore', () => {
     const upper = await importWithLock({ createSemaphoreW: (name) => { created.push({ name, initial: 1, maximum: 1 }); return 7 } })
     await upper.acquireLockHandleWin32('C:\\S\\SESSION.LOCK')
     expect(created[1]?.name).toBe(created[0]?.name)
+  })
+
+  it('names the semaphore from the real directory so a junction alias shares one lock', async () => {
+    const root = await tempRoot()
+    mkdirSync(join(root, 'real'))
+    symlinkSync(join(root, 'real'), join(root, 'alias'), 'junction')
+    const names: string[] = []
+    const { acquireLockHandleWin32 } = await importWithLock({ createSemaphoreW: (name) => { names.push(name); return 7 } })
+    await acquireLockHandleWin32(join(root, 'real', 'session.lock'))
+    await acquireLockHandleWin32(join(root, 'alias', 'session.lock'))
+    expect(names).toHaveLength(2)
+    expect(names[1]).toBe(names[0])
   })
 
   it('maps a held semaphore (wait timeout) to EBUSY and closes the probe handle', async () => {

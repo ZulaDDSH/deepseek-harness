@@ -2,16 +2,17 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { TeamError } from './error.ts'
 import { TeamJournal } from './journal.ts'
-import { teamProjectionDefinition, type TeamProjectionState } from './projection.ts'
+import { teamProjectionDefinition, type TeamProjectionState, type TeamState } from './projection.ts'
 import { TeamTaskBoard } from './task-board.ts'
-import type { TeamTaskId } from './types.ts'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { TeamId, TeamMessageId, TeamMessageSnapshot, TeamTaskId } from './types.ts'
 import type {
   Config,
   CreateTeamTaskRequest,
@@ -105,7 +106,7 @@ export class TeamService extends TypertRemoteService {
    * @param enabled - selected Team mode.
    * @param signal - cancellation checked before changing the selection.
    * @returns fulfillment after the selection flushes.
-   * @throws when called by a descendant or persistence fails. An appended selection remains active;
+   * @throws when called by a descendant, or TEAM_MODE_PERSISTENCE_UNCONFIRMED when the flush fails or no listener participates. An appended selection remains active;
    * retrying the same selection flushes without a duplicate event.
    */
   @Remote
@@ -114,7 +115,19 @@ export class TeamService extends TypertRemoteService {
     if (root !== agent) throw new TeamError('change Team mode from the root Session', 'TEAM_LEAD_REQUIRED')
     signal?.throwIfAborted()
     if (this.isEnabled(root) !== enabled) root.session.append('team/mode', { enabled })
-    await this.ctx.sessions.flush(root.session)
+    let cause: unknown
+    try {
+      if (await this.ctx.sessions.flush(root.session)) return
+      cause = new Error('No session durability listener participated')
+    } catch (error: unknown) {
+      cause = error
+    }
+    throw new RemoteError(
+      'TEAM_MODE_PERSISTENCE_UNCONFIRMED',
+      `Team mode is now ${enabled ? 'on' : 'off'} for this Session, but persistence was not confirmed; select ${enabled ? 'on' : 'off'} again to retry saving it`,
+      { enabled },
+      { cause },
+    )
   }
 
   /**
@@ -160,6 +173,56 @@ export class TeamService extends TypertRemoteService {
     return await this.tasks.update(caller, this.ctx.subagents.rootOf(caller), request, signal)
   }
 
+  pendingHistoricalMessages(caller: Agent): TeamMessageSnapshot[] {
+    const state = this.projection.stateOf(this.ctx.subagents.rootOf(caller).session)
+    return state.historicalMessages.filter(message => !isAcknowledged(state, message))
+  }
+
+  // Invariant: the acknowledgement is appended only after the replayed send was accepted.
+  async recoverHistoricalMessage(
+    caller: Agent,
+    messageId: TeamMessageId,
+    decision: 'replay' | 'discard',
+    signal: AbortSignal = new AbortController().signal,
+  ): Promise<'replayed' | 'discarded' | 'already-delivered' | 'already-resolved'> {
+    const root = this.ctx.subagents.rootOf(caller)
+    if (root !== caller) throw new TeamError('recover historical messages from the root Session', 'TEAM_LEAD_REQUIRED')
+    return await this.journal.transact(root.id, async () => {
+      const state = this.journal.state(root)
+      const message = state.historicalMessages.find(candidate => candidate.id === messageId)
+      if (message === undefined) throw new TeamError(`historical message "${messageId}" is not in this Lead log`, 'TEAM_MESSAGE_UNKNOWN')
+      if (isAcknowledged(state, message)) return 'already-resolved'
+      let result: 'replayed' | 'discarded' | 'already-delivered' = 'discarded'
+      if (decision === 'replay') {
+        signal.throwIfAborted()
+        if (this.targetHolds(message)) {
+          result = 'already-delivered'
+        } else {
+          const sender = `Historical Team message ${message.id} from ${message.senderName}:`
+          await this.ctx.subagents.sendMessage(
+            root, message.targetId, [{ type: 'text', text: sender }, ...message.content], { signal },
+          )
+          result = 'replayed'
+        }
+      }
+      root.session.append('team/message/delivered', {
+        version: 2, teamId: brandString<TeamId>(root.id), messageId: message.id, targetId: message.targetId,
+      })
+      await this.ctx.sessions.flush(root.session)
+      return result
+    })
+  }
+
+  private targetHolds(message: TeamMessageSnapshot): boolean {
+    const target = this.ctx.sessions.get(message.targetId)
+    return target?.snapshotEvents().some(event => event.type === 'user/message'
+      && event.data.source?.kind === 'team-message' && event.data.source.messageId === message.id) === true
+  }
+}
+
+function isAcknowledged(state: TeamState, message: TeamMessageSnapshot): boolean {
+  return state.historicalDelivered.some(delivery =>
+    delivery.messageId === message.id && delivery.targetId === message.targetId)
 }
 
 export default TeamService

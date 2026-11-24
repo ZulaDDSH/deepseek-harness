@@ -1095,6 +1095,13 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
  */
 @Remote events(request: SessionPageRequest, signal: AbortSignal): Promise<SessionEventsPage>
 
+/** Read one page of older turn-outline entries of a visible Session, newest first, bounded by `maxEntries`.
+ * @param request - The Session address, the exclusive `beforeSeq` cursor and the optional entry bound.
+ * @param signal - Cancels the read.
+ * @returns The outline entries of the page and the cursor for the next older page.
+ */
+@Remote outline(request: SessionOutlineRequest, signal: AbortSignal): Promise<SessionOutlinePage>
+
 /**
  * Subscribe to Session events without reading a snapshot.
  * @param request - Session address.

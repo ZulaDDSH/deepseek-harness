@@ -11,7 +11,7 @@ import { SessionResources } from '@deepseek-ai/dsh-experimental-browser-use-runt
 import { createMcpToolDefinition } from '@deepseek-ai/dsh-mcp-client'
 import { z } from 'zod'
 import { browserInputs, stagehandModelSchema } from './native.ts'
-import { StagehandDrainError } from './error.ts'
+import { StagehandDrainError, StagehandTimeoutError } from './error.ts'
 import type { BrowserMethod, NativeBrowserRuntime, StagehandModelConfig } from './native.ts'
 import { openBrowserWorker } from './worker-client.ts'
 import { launchChromium } from './launch.ts'
@@ -122,6 +122,9 @@ export function apply(ctx: Context, input: Config): void {
             const current = connection ??= await connect(operationSignal)
             try {
               return await current.execute(method, args, operationSignal)
+            } catch (error) {
+              if (error instanceof StagehandTimeoutError) connection = undefined
+              throw error
             } finally {
               if (operationSignal.aborted) {
                 await current.close()
@@ -196,9 +199,7 @@ function mountTools(ctx: Context, resources: SessionResources<BrowserResource>):
       throw new ToolContextUnavailableError('Stagehand browser tools require an exact live Agent')
     }
     // Arguments are checked before the browser is acquired, so an invalid first call launches nothing.
-    // A non-object value is read as `{}`, exactly as the MCP bridge passes it to the call.
-    const args = typeof exec.arguments === 'object' && exec.arguments !== null ? exec.arguments : {}
-    const parsed = browserInputs[exec.name.slice('stagehand_'.length) as BrowserMethod].safeParse(args)
+    const parsed = browserInputs[exec.name.slice('stagehand_'.length) as BrowserMethod].safeParse(exec.arguments)
     if (!parsed.success) {
       throw new ToolArgsError(parsed.error.issues.map(issue => `${['arguments', ...issue.path].join('.')}: ${issue.message}`))
     }

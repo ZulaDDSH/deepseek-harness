@@ -8,7 +8,7 @@
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { FeedbackRecord } from '@deepseek-ai/dsh-command-feedback/types'
+import type { FeedbackRecord, SessionFeedbackSharing } from '@deepseek-ai/dsh-command-feedback/types'
 import { MessageFeedbackController, describe, type MessageFeedbackActionResult } from './controller.ts'
 import { FeedbackDialogController } from './dialog.ts'
 
@@ -27,7 +27,12 @@ export class FeedbackSurface {
     this.feedback = new MessageFeedbackController(ctx.remote.messageFeedback, sessionId)
     this.dialog = new FeedbackDialogController((target, entry) => target.kind === 'message'
       ? this.feedback.rate(target.messageId, target.rating, entry)
-      : this.recordSession(entry))
+      : this.recordSession(entry), () => this.readSharing())
+  }
+
+  private async readSharing(): Promise<SessionFeedbackSharing | null> {
+    const carried = await this.ctx.remote.sessionFeedback.sharing()
+    return carried.ok ? carried.value : null
   }
 
   /** Record one Session-level remark through the sessionFeedback Remote. */

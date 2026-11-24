@@ -72,13 +72,13 @@ describe('safe worktree removal', () => {
   )
 
   it.each(['assume-unchanged', 'skip-worktree'] as const)(
-    'removes a checkout whose only edits are to %s files, which git status hides', async (flag) => {
+    'retains a checkout whose only edits are to %s files, which git status hides', async (flag) => {
       const { ctx, agent, worktree } = await fixture()
       await writeFile(join(worktree.path, 'tracked.txt'), 'hidden edit\n')
       await git(worktree.path, 'update-index', `--${flag}`, 'tracked.txt')
       expect(await git(worktree.path, 'status', '--porcelain')).toBe('')
-      expect(await remove(ctx, agent, worktree)).toBe(true)
-      await expect(access(worktree.path)).rejects.toMatchObject({ code: 'ENOENT' })
+      expect(await remove(ctx, agent, worktree)).toBe(false)
+      await access(join(worktree.path, 'tracked.txt'))
     },
   )
 
@@ -122,16 +122,16 @@ describe('safe worktree removal', () => {
     await access(join(worktree.path, 'nested', 'tracked.txt'))
   })
 
-  it('removes a checkout that holds only ignored files, as Git does without force', async () => {
+  it('retains a checkout that holds ignored files, which Git would delete without force', async () => {
     const { ctx, agent, worktree } = await fixture()
     await git(worktree.path, 'config', 'core.excludesFile', join(worktree.repositoryRoot, 'exclude'))
     await writeFile(join(worktree.repositoryRoot, 'exclude'), '.env\nnode_modules/\n')
     await writeFile(join(worktree.path, '.env'), 'private fixture')
     await mkdir(join(worktree.path, 'node_modules', 'dep'), { recursive: true })
     await writeFile(join(worktree.path, 'node_modules', 'dep', 'index.js'), 'module.exports = 1')
-    expect(await remove(ctx, agent, worktree)).toBe(true)
-    await expect(access(worktree.path)).rejects.toMatchObject({ code: 'ENOENT' })
-    expect(await git(worktree.repositoryRoot, 'rev-parse', worktree.branch)).toBe(worktree.baseCommit)
+    expect(await remove(ctx, agent, worktree)).toBe(false)
+    await access(join(worktree.path, '.env'))
+    await access(join(worktree.path, 'node_modules', 'dep', 'index.js'))
   })
 
   it.each(['locked', 'detached', 'branch-mismatch', 'outside-pool', 'missing', 'nested-repository'] as const)(

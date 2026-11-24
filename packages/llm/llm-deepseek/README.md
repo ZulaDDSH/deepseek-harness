@@ -68,7 +68,7 @@ A request selects the route with `provider: deepseek-official`; the model id pas
 | `filesApiTimeoutMs` | `20,000` | Per-image Files resolution deadline |
 | `fileExpiresAfterSeconds` | `604,800` | Requested uploaded-image lifetime and local reuse bound |
 | `fileRefreshMarginSeconds` | `3,600` | Remaining reuse lifetime below which an id is replaced |
-| `fileQuotaCleanupBatch` | `100` | Oldest harness-owned files removed before one quota retry |
+| `fileQuotaCleanupBatch` | `100` | Oldest ledger-recorded harness files removed before one quota retry |
 | `retryPolicy` | normal, 5 retries | Provider-owned retry policy executed by `dsh-llm-retry` |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-llm-deepseek-api-key) is the exhaustive source for every accepted field and its JSDoc.
@@ -99,7 +99,7 @@ The adapter normally uploads those exact request bytes through `/v1/files` and s
 
 After an upload times out, the next model request that needs a new upload uses inline images immediately. Each consecutive upload timeout doubles the number of such requests to skip (1, 2, 4, 8, …), regardless of elapsed time. The adapter counts each request once for its endpoint and credential. Text-only requests and requests served entirely by cached file ids do not count. A successful upload resets the count for that endpoint and credential, including timeouts from concurrent uploads. A timeout after that success starts a new count. The adapter tries a recovered endpoint again once the skip count reaches zero.
 
-Cached ids are scoped by endpoint and credential, refreshed before expiry, invalidated from provider stale-file errors, and resolved through singleflight with waiter-local cancellation. Uploads request expiry through `expires_after[anchor]=created_at` and `expires_after[seconds]`. Messages file metadata omits remote expiry, so its local reuse deadline uses the original upload time plus `fileExpiresAfterSeconds`; this does not guarantee remote deletion. Quota failure deletes one configured batch of the oldest harness-owned files before one upload retry.
+Cached ids are scoped by endpoint and credential, refreshed before expiry, invalidated from provider stale-file errors, and resolved through singleflight with waiter-local cancellation. Uploads request expiry through `expires_after[anchor]=created_at` and `expires_after[seconds]`. Messages file metadata omits remote expiry, so its local reuse deadline uses the original upload time plus `fileExpiresAfterSeconds`; this does not guarantee remote deletion. Quota failure deletes one configured batch of the oldest files recorded in the local upload ledger before one upload retry; a remote file is never treated as harness-owned because of its name, so files uploaded by earlier versions or lost from the ledger are left alone and expire on their own. Files and Messages error response bodies are read through a byte cap (64 KiB error excerpt, 8 MiB successful Files JSON) and cancelled on overflow.
 
 Files mode bounds retained request versions by `maxRequestFilesBytes` and `maxImagesPerRequest`; inline fallback has its own base64 budget. Both remove an oldest prefix in configured byte or count quanta. Each omitted image gets its own model-visible placeholder with its display name or attachment id and, when available, normalized dimensions, media type, and current read-only path. The stepped high-watermark policy avoids rewriting an old request prefix after every new image.
 

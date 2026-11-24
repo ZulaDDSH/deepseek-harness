@@ -5,6 +5,7 @@ import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { NS } from './locales.ts'
+import type { TeamSelectionFailure } from './TeamModeToggle.tsx'
 import css from './TeamDisableConfirmation.module.css'
 
 /** The originating Session remains the target while the dialog is open. */
@@ -16,7 +17,7 @@ export interface TeamDisableRequest {
 export interface TeamDisableConfirmationInjected {
   hooks: { disableRequest: HostObservable<TeamDisableRequest | null> }
   cancelDisable: (sessionId: SessionId) => void
-  disableTeam: (sessionId: SessionId) => Promise<string | null>
+  disableTeam: (sessionId: SessionId) => Promise<TeamSelectionFailure | null>
 }
 
 /** Root overlay props, independent of the model menu lifetime. */
@@ -41,7 +42,7 @@ function DisableConfirmationForm({ sessionId, cancelDisable, disableTeam, t }: {
   disableTeam: TeamDisableConfirmationInjected['disableTeam']
   t: TeamDisableConfirmationProps['t']
 }) {
-  const [state, setState] = useState<{ kind: 'ready' } | { kind: 'saving' } | { kind: 'failed'; message: string }>({ kind: 'ready' })
+  const [state, setState] = useState<{ kind: 'ready' } | { kind: 'saving' } | { kind: 'failed'; message: string; unconfirmed: boolean }>({ kind: 'ready' })
   const saving = state.kind === 'saving'
   const cancel = (): void => {
     if (!saving) cancelDisable(sessionId)
@@ -51,9 +52,9 @@ function DisableConfirmationForm({ sessionId, cancelDisable, disableTeam, t }: {
     setState({ kind: 'saving' })
     void disableTeam(sessionId).then((failure) => {
       if (failure === null) cancelDisable(sessionId)
-      else setState({ kind: 'failed', message: failure })
+      else setState({ kind: 'failed', message: failure.message, unconfirmed: failure.unconfirmed })
     }, (error: unknown) => {
-      setState({ kind: 'failed', message: error instanceof Error ? error.message : String(error) })
+      setState({ kind: 'failed', message: error instanceof Error ? error.message : String(error), unconfirmed: false })
     })
   }
   return (
@@ -70,7 +71,7 @@ function DisableConfirmationForm({ sessionId, cancelDisable, disableTeam, t }: {
         <p>{t('disable.description')}</p>
         <p>{t('disable.warning')}</p>
       </div>
-      {state.kind === 'failed' && <p role="alert" className={css.error}>{t('mode.failed', { message: state.message })}</p>}
+      {state.kind === 'failed' && <p role="alert" className={css.error}>{state.unconfirmed ? t('mode.unconfirmed') : t('mode.failed', { message: state.message })}</p>}
     </Modal>
   )
 }

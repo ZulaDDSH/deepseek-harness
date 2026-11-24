@@ -56,6 +56,7 @@ export function bindSubagentActivation(
     result,
     closing: undefined,
     accepted: false,
+    handleUndisposed: false,
   }
   resident.set(child.id, activation)
   child.ctx.effect(() => () => {

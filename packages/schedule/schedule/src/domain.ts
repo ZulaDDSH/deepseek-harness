@@ -1273,6 +1273,10 @@ export function resolveRRuleOccurrence(record: RRuleScheduleRecord, acceptedAt: 
   return readRecurrence(RRule.parse(record.rrule)).resolve(record.scheduledAt, decision)
 }
 
+function withoutNumericPadding(text: string): string {
+  return text.replace(/(?<!\d)[+0]+(?=\d)/g, '')
+}
+
 /**
  * Decode a current Host task record.
  * @param value - Untrusted durable JSON record.
@@ -1295,13 +1299,15 @@ export function decodeRRuleScheduleRecord(value: unknown): RRuleScheduleRecord {
   } catch (error: unknown) {
     throw new ScheduleLogError(`invalid schedule rrule: ${String(error)}`)
   }
-  if (normalized !== rrule) throw new ScheduleLogError('schedule rrule must be normalized')
+  if (normalized !== rrule && withoutNumericPadding(normalized) !== withoutNumericPadding(rrule)) {
+    throw new ScheduleLogError('schedule rrule must be normalized')
+  }
   return Object.freeze({
     id: decodeId(value['id']),
     kind: 'rrule',
     title,
     prompt,
-    rrule,
+    rrule: normalized,
     scheduledAt: decodeInstant(value['scheduledAt']),
   })
 }

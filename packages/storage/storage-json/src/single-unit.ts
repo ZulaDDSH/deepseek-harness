@@ -24,12 +24,14 @@ import type { UnitState } from './format.ts'
  * @param descriptor - Static identity and shape of the unit.
  * @param root - Absolute backend root directory.
  * @param onClose - Backend callback releasing the unit's open-slot.
+ * @param releaseLock - Releases the unit's host lock after close.
  * @returns the opened unit.
  */
 export async function openSingleUnit(
   descriptor: KvUnitDescriptor,
   root: string,
   onClose: () => void,
+  releaseLock: () => Promise<void>,
 ): Promise<KvUnit> {
   const path = join(root, `${descriptor.name}.json`)
   let text: string | undefined
@@ -49,11 +51,12 @@ export async function openSingleUnit(
       : parse(text, descriptor)
   // Opening leaves the file untouched; the next atomic publish uses the current stamp.
   state.version = descriptor.version
-  return new SingleJsonUnit(descriptor, path, state, onClose)
+  return new SingleJsonUnit(descriptor, path, state, onClose, releaseLock)
 }
 
 class SingleJsonUnit implements KvUnit {
   private closed = false
+  private unusable: StorageError | undefined
   /** In-flight publishes; close() drains them before releasing the unit. */
   private readonly inFlight = new Set<Promise<void>>()
 
@@ -62,6 +65,7 @@ class SingleJsonUnit implements KvUnit {
     private readonly path: string,
     private readonly state: UnitState,
     private readonly onClose: () => void,
+    private readonly releaseLock: () => Promise<void>,
   ) {}
 
   // oxlint-disable-next-line typescript/require-await -- async keeps the closed guard a rejection, not a synchronous throw
@@ -83,6 +87,7 @@ class SingleJsonUnit implements KvUnit {
     // Roll back on a failed publish: memory is authoritative, so a rejected
     // write must not survive in memory (or ride along with the next publish).
     await this.publish().catch((error: unknown) => {
+      if (this.poison(error)) throw error
       if (hadKey) records.set(key, previous)
       else records.delete(key)
       throw error
@@ -106,6 +111,7 @@ class SingleJsonUnit implements KvUnit {
     // One atomic publish applies the whole batch; a failed publish restores
     // every removed entry so memory and the medium stay together.
     await this.publish().catch((error: unknown) => {
+      if (this.poison(error)) throw error
       for (const [key, value] of removed) records.set(key, value)
       throw error
     })
@@ -119,6 +125,7 @@ class SingleJsonUnit implements KvUnit {
     const previous = this.state.global
     this.state.global = value
     await this.publish().catch((error: unknown) => {
+      if (this.poison(error)) throw error
       this.state.global = previous
       throw error
     })
@@ -132,6 +139,7 @@ class SingleJsonUnit implements KvUnit {
     }
     this.closed = true
     await Promise.allSettled(this.inFlight)
+    await this.releaseLock()
     this.onClose()
   }
 
@@ -139,8 +147,15 @@ class SingleJsonUnit implements KvUnit {
     if (this.closed) {
       throw new StorageError('closed', `unit '${this.descriptor.name}' is closed`)
     }
+    if (this.unusable !== undefined) throw this.unusable
   }
   /* jscpd:ignore-end */
+
+  private poison(error: unknown): boolean {
+    if (!(error instanceof StorageError) || error.code !== 'unknown-state') return false
+    this.unusable = error
+    return true
+  }
 
   private records(table: string): Map<string, unknown> {
     const records = this.state.tables.get(table)

@@ -5,6 +5,7 @@ import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { DeepSeekFileId as DeepSeekFileIdType } from './file-id.ts'
 import { messagesApiRoot, MESSAGES_FILES_BETA } from './messages-api.ts'
+import { MAX_ERROR_BODY_BYTES, MAX_FILES_RESPONSE_BYTES, readBoundedText } from './bounded-body.ts'
 
 /** Minimum provider-supported file lifetime. */
 export const MIN_FILE_EXPIRY_SECONDS = 3_600
@@ -81,8 +82,14 @@ function invalidResponse(operation: string): LlmError {
 
 /** Decode successful Files JSON with operation context; body transport and abort failures retain their identity. */
 async function responseJson(response: Response, operation: string): Promise<unknown> {
+  const { text, truncated } = await readBoundedText(response, MAX_FILES_RESPONSE_BYTES)
+  if (truncated) {
+    throw new LlmError(`DeepSeek Files API ${operation} response exceeds ${MAX_FILES_RESPONSE_BYTES} bytes.`, 'INVALID_RESPONSE', {
+      status: response.status,
+    })
+  }
   try {
-    return await response.json()
+    return JSON.parse(text)
   } catch (error: unknown) {
     if (!(error instanceof SyntaxError)) throw error
     throw new LlmError(`DeepSeek Files API returned invalid JSON for ${operation} (HTTP ${response.status}).`, 'INVALID_RESPONSE', {
@@ -162,7 +169,7 @@ export class DeepSeekFilesClient {
     if (response.ok) return response
     let parsed: unknown
     try {
-      parsed = await response.json()
+      parsed = JSON.parse((await readBoundedText(response, MAX_ERROR_BODY_BYTES)).text)
     } catch {
       // A status remains sufficient to report the provider failure.
     }

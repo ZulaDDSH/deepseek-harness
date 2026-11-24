@@ -3,3 +3,33 @@
   font: inherit;
   white-space: pre-wrap;
 }
+
+.arguments {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 8px 0 0;
+  font: inherit;
+}
+
+.arguments dt {
+  opacity: 0.7;
+}
+
+.arguments dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.full {
+  margin-top: 8px;
+}
+
+.full > summary {
+  cursor: pointer;
+}
+
+.full > .detail {
+  max-height: 40vh;
+  overflow: auto;
+}

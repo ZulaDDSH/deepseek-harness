@@ -14,6 +14,8 @@
 import { open, rename, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { StorageError } from '@deepseek-ai/dsh-storage'
+import { fsyncDirectory } from './dirsync.ts'
 
 /**
  * Durably replace `path` with `data`.
@@ -23,6 +25,7 @@ import { randomUUID } from 'node:crypto'
  */
 export async function writeAtomic(path: string, data: string): Promise<void> {
   const tmp = join(dirname(path), `.${randomUUID()}.tmp`)
+  let published = false
   try {
     const handle = await open(tmp, 'wx', 0o600)
     try {
@@ -32,26 +35,13 @@ export async function writeAtomic(path: string, data: string): Promise<void> {
       await handle.close()
     }
     await rename(tmp, path)
+    published = true
     await fsyncDirectory(dirname(path))
   } catch (error) {
+    if (published) {
+      throw new StorageError('unknown-state', `'${path}' was replaced but its directory sync failed; the new content is visible and its durability is unknown`, { cause: error })
+    }
     await rm(tmp, { force: true })
     throw error
   }
 }
-
-/**
- * Persist directory-entry changes on POSIX; skip this unsupported operation on Windows.
- * @param path - Absolute directory path.
- * @returns resolution after the directory is synced, or immediately on Windows.
- */
-/* v8 ignore start -- Windows rejects O_RDONLY directory opens; POSIX coverage exercises this. */
-export async function fsyncDirectory(path: string): Promise<void> {
-  if (process.platform === 'win32') return
-  const handle = await open(path, 'r')
-  try {
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-/* v8 ignore stop */

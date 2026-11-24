@@ -54,8 +54,9 @@ interface ForgeProvider {
    */
   readReview?(ref: ChangeRequestRef, headSha: string, signal: AbortSignal): Promise<ForgeReviewData | ForgeFailure>
   /**
-   * Write to the review threads or the pending review of a change request while its head is `write.headSha`; once the
-   * head is another commit, the write resolves to `stale` without writing. A write is never retried. Omission declares
+   * Write to the review threads or the pending review of a change request for head `write.headSha`. The provider checks
+   * the head before writing and resolves to `stale` when that check finds another commit; a push after the check can still
+   * receive the write. A write is never retried. Omission declares
    * that this provider cannot write reviews, and its `readReview` then reports no viewer permission.
    */
   writeReview?(ref: ChangeRequestRef, write: ForgeReviewWrite, signal: AbortSignal): Promise<ForgeReviewWriteResult>
@@ -115,8 +116,9 @@ interface ForgeProvider {
    */
   viewedFiles?(ref: ChangeRequestRef, headSha: string, signal: AbortSignal): Promise<ForgeViewedFiles | ForgeFailure>
   /**
-   * Set or clear the signed-in user's viewed mark on one file while the head is still `request.headSha`, resolving to
-   * undefined once the host saved it.
+   * Set or clear the signed-in user's viewed mark on one file after checking that the head is still `request.headSha`,
+   * resolving to undefined once the host saved it. The check and the write are separate host calls, so a push between them
+   * can leave the mark on the new head.
    */
   setViewed?(ref: ChangeRequestRef, request: ForgeViewedRequest, signal: AbortSignal): Promise<ForgeActionFailure | undefined>
   /**

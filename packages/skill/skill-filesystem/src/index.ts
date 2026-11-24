@@ -10,7 +10,7 @@
  * @module @deepseek-ai/dsh-skill-filesystem
  */
 
-import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises'
+import { lstat, open, readdir, realpath, stat } from 'node:fs/promises'
 import { unwatchFile, watchFile, type Stats } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -35,6 +35,7 @@ import {
 import { findProjectRoot, projectSkillRoots, resolveAgentHomes, userSkillRoots, type AgentHomes, type SkillRoot } from './roots.ts'
 
 const CUSTOM_RANK = 300
+const MAX_SKILL_FILE_BYTES = 1_048_576
 const DEFAULT_WATCH_STABILITY_THRESHOLD_MS = 200
 const DEFAULT_WATCH_POLL_INTERVAL_MS = 100
 const DEFAULT_WATCH_MAX_PROJECTS = 128
@@ -871,7 +872,9 @@ async function readSkillText(ctx: Context, path: string, signal?: AbortSignal, t
   }
   try {
     const resolvedPath = await realpath(path)
-    return { path: resolvedPath, content: await readFile(resolvedPath, { encoding: 'utf8', signal }) }
+    const content = await readBoundedHostText(resolvedPath, signal)
+    if (content === undefined) return skipOversizedSkill(ctx, path)
+    return { path: resolvedPath, content }
   } catch (error) {
     signal?.throwIfAborted()
     if (isAbsentSkillPathError(error)) return undefined
@@ -901,6 +904,7 @@ async function readSkillTextFromFileSystem(
     throw error
   }
   if (info === undefined || info.type !== 'file') return undefined
+  if (info.size !== undefined && info.size > MAX_SKILL_FILE_BYTES) return skipOversizedSkill(ctx, path)
   try {
     return { path: fs.processPath(target), content: await fs.readText(target, signal) }
   } catch (error) {
@@ -909,6 +913,28 @@ async function readSkillTextFromFileSystem(
     if (!hasErrorCode(error, 'FS_NOT_TEXT')) throw error
     ctx.logger.warn(`skill file ${path} ignored: ${fsReadErrorMessage(target, error)}`)
     return undefined
+  }
+}
+
+function skipOversizedSkill(ctx: Context, path: string): undefined {
+  ctx.logger.warn(`skill file ${path} ignored: larger than ${MAX_SKILL_FILE_BYTES} bytes`)
+  return undefined
+}
+
+async function readBoundedHostText(path: string, signal?: AbortSignal): Promise<string | undefined> {
+  const handle = await open(path, 'r')
+  try {
+    const buffer = Buffer.allocUnsafe(MAX_SKILL_FILE_BYTES + 1)
+    let length = 0
+    while (length < buffer.length) {
+      signal?.throwIfAborted()
+      const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length)
+      if (bytesRead === 0) break
+      length += bytesRead
+    }
+    return length > MAX_SKILL_FILE_BYTES ? undefined : buffer.toString('utf8', 0, length)
+  } finally {
+    await handle.close()
   }
 }
 

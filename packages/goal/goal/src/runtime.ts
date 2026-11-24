@@ -6,6 +6,7 @@ import type { GoalErrorCode } from './domain.ts'
 
 /** Version of the goal change embedded in a round-zero message source. */
 export const GOAL_CHANGE_VERSION = 1
+export const GOAL_REFUND_CHANGE_VERSION = 2
 
 /**
  * Brand a string as a goal id.

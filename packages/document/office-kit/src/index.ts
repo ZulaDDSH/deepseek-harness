@@ -20,7 +20,7 @@ import type {
   OfficeKitPriority, OfficeOutputTarget, OfficeRecalculationRequest, RenderedDocumentBytes,
 } from './types.ts'
 import { readOutput, readPdf, readPng } from './output.ts'
-import { OutputStore } from './outputs.ts'
+import { OutputStore, type OutputReservation } from './outputs.ts'
 import { ConversionQueue, type OfficeOperation, type OfficeOperationOutput, type QueueRequest } from './queue.ts'
 
 export * from './errors.ts'
@@ -221,8 +221,11 @@ export class OfficeKit extends TypertRemoteService {
    */
   async convertTo(request: OfficeConversionRequest, signal?: AbortSignal): Promise<OfficeFileResult> {
     const { extension, source, format, sheet, output } = request
-    return this.saveFile(output, await this.queue.read({ extension, priority: 'foreground', source,
-      operation: { kind: 'convert', format, ...(sheet === undefined ? {} : { sheet }) } }, signal), signal)
+    const reservation = this.outputs.reserve(output.owner)
+    try {
+      return await this.saveFile(output, await this.queue.read({ extension, priority: 'foreground', source,
+        operation: { kind: 'convert', format, ...(sheet === undefined ? {} : { sheet }) } }, signal), signal, reservation)
+    } finally { reservation.finish() }
   }
 
   /**
@@ -236,15 +239,18 @@ export class OfficeKit extends TypertRemoteService {
    */
   async recalculate(request: OfficeRecalculationRequest, signal?: AbortSignal): Promise<OfficeFileResult> {
     const { extension, source, format, output } = request
-    return this.saveFile(output, await this.queue.read({ extension, priority: 'foreground', source, operation: { kind: 'recalculate', format } }, signal), signal)
+    const reservation = this.outputs.reserve(output.owner)
+    try {
+      return await this.saveFile(output, await this.queue.read({ extension, priority: 'foreground', source, operation: { kind: 'recalculate', format } }, signal), signal, reservation)
+    } finally { reservation.finish() }
   }
 
   private async saveFile(
     output: OfficeOutputTarget, result: Extract<OfficeOperationOutput, { kind: 'file' }>,
-    signal: AbortSignal | undefined,
+    signal: AbortSignal | undefined, reservation: OutputReservation,
   ): Promise<OfficeFileResult> {
     signal?.throwIfAborted()
-    const path = await this.outputs.save(output.owner, output.name, result.data)
+    const path = await this.outputs.save(output.owner, output.name, result.data, signal, reservation)
     return { path, bytes: result.data.byteLength, ...(result.pageCount === undefined ? {} : { pageCount: result.pageCount }),
       missingFonts: result.missingFonts }
   }

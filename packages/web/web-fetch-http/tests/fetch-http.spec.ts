@@ -304,7 +304,8 @@ describe('HttpFetchProvider redirects', () => {
     }
     const result = await provider().fetch({ url: `${base}/start` })
     expect(result.body.content).toBe('arrived')
-    expect(result.url).toBe(`${base}/end`)
+    expect(result.url).toBe(`${base}/start`)
+    expect(result.finalUrl).toBe(`${base}/end`)
   })
 
   it('blocks a cross-origin redirect with WEB_REDIRECT_BLOCKED', async () => {
@@ -491,6 +492,13 @@ describe('HttpFetchProvider body cancellation on error paths', () => {
     const closed = respondWithOpenBody(200, { 'content-type': `text/plain; charset=${charset}` })
     await expect(provider().fetch({ url: base }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_UNSUPPORTED_CONTENT_TYPE' }))
+    await closed
+  })
+
+  it('cancels the body when the redirect Location cannot be parsed', async () => {
+    const closed = respondWithOpenBody(302, { location: 'http://[' })
+    await expect(provider().fetch({ url: base }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: 'invalid redirect Location "http://["' }))
     await closed
   })
 

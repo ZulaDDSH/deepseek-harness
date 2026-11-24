@@ -97,6 +97,18 @@ describe('ripgrep-backed workspace discovery', () => {
     expect((await search('target', undefined, { excludedPaths: ['a*', 'a?', 'a\\b'] })).matches.map(m => m.path)).toEqual(['ax/target', 'new\nline/target'])
   })
 
+  it('reports listed names that are not valid UTF-8 instead of hiding the replacement', async () => {
+    vi.spyOn(harness.ctx.subprocess, 'spawn').mockImplementation(() => {
+      const stdout = new PassThrough()
+      stdout.end(Buffer.concat([Buffer.from('ok.txt\0caf'), Buffer.from([0xe9]), Buffer.from('.txt\0')]))
+      return { stdout, stdin: undefined, stderr: undefined, control: undefined, collected: {},
+        done: Promise.resolve({ exitCode: 0, signal: null }), terminate: () => {}, waitForExit: async () => true } satisfies SubprocessHandle
+    })
+    expect(await search('txt')).toEqual({ matches: [
+      { path: 'caf�.txt', type: 'file' }, { path: 'ok.txt', type: 'file' },
+    ], truncated: false, incomplete: false, undecodable: 1 })
+  })
+
   it('does not return empty directories or directory links inside/outside the root', async () => {
     await files('real/target')
     await mkdir(join(harness.workspace, 'empty'))
@@ -248,6 +260,8 @@ it('fills every search default when the search group is omitted', () => {
     maxFileBytes: 32 * 1024 * 1024,
     maxLines: 5000,
     maxEntries: 7,
+    confineReads: true,
+    readRoots: [],
     search: { maxResults: 512, maxEntries: 100000, graceMs: 3000, timeoutMs: 30000, stderrMaxBytes: 65536 },
   })
 })

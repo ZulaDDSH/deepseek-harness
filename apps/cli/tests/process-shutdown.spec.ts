@@ -42,6 +42,34 @@ describe('process shutdown', () => {
     expect(rejectedComplete).not.toHaveBeenCalled()
   })
 
+  it('reports failed or timed-out cleanup and never exits 0 for it', async () => {
+    const report = vi.fn()
+    const failedExit = vi.fn()
+    const failed = createProcessShutdown(() => Promise.reject(new Error('flush failed')), failedExit, vi.fn(), 25, report)
+    await failed.shutdown(0)
+    expect(failedExit).toHaveBeenCalledWith(1)
+    expect(report).toHaveBeenCalledWith('dsh: shutdown cleanup incomplete: flush failed')
+
+    const signalExit = vi.fn()
+    const signalled = createProcessShutdown(() => Promise.reject(new Error('child stuck')), signalExit, vi.fn(), 25, vi.fn())
+    signalled.interrupt(0)
+    await signalled.shutdown(0)
+    expect(signalExit).toHaveBeenCalledWith(1)
+
+    vi.useFakeTimers()
+    const disposal = deferred()
+    const timedExit = vi.fn()
+    const timedReport = vi.fn()
+    const timed = createProcessShutdown(() => disposal.promise, timedExit, vi.fn(), 25, timedReport)
+    const pending = timed.shutdown(0)
+    await vi.advanceTimersByTimeAsync(25)
+    expect(timedExit).toHaveBeenCalledOnce()
+    expect(timedExit).toHaveBeenCalledWith(1)
+    expect(timedReport).toHaveBeenCalledWith('dsh: shutdown cleanup incomplete: not finished after 25 ms')
+    disposal.resolve()
+    await pending
+  })
+
   it('uses process.exitCode for default normal completion', async () => {
     const exit = vi.spyOn(process, 'exit').mockImplementation(_code => undefined as never)
     const originalExitCode = process.exitCode
@@ -70,7 +98,7 @@ describe('process shutdown', () => {
     expect(exit).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(1)
     expect(exit).toHaveBeenCalledOnce()
-    expect(exit).toHaveBeenCalledWith(0)
+    expect(exit).toHaveBeenCalledWith(1)
 
     disposal.resolve()
     await pending

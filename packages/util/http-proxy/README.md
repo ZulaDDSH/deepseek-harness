@@ -52,7 +52,7 @@ Loopback is always bypassed — `localhost`, the whole `127.0.0.0/8` range, `::1
 
 ### Failures
 
-A proxy value the package cannot use — a SOCKS or PAC URL, an unparseable string, an unsupported scheme — is reported and skipped, and that scheme connects directly. The variable may have been exported for other tools, so it must not stop the agent from starting.
+A proxy value the package cannot use — a SOCKS or PAC URL, an unparseable string, an unsupported scheme — is reported and skipped, and that scheme connects directly. The variable may have been exported for other tools, so it must not stop the agent from starting. To treat the proxy as an egress boundary, set `DSH_PROXY_FAIL_CLOSED=1` (or `true`) in the launch environment: startup then fails with every rejection message instead of connecting directly.
 
 -----
 
@@ -77,7 +77,7 @@ A proxy value the package cannot use — a SOCKS or PAC URL, an unparseable stri
 
 ### Bypass matching
 
-An entry names a host and matches it together with every subdomain under it: `NO_PROXY=example.com` also bypasses `api.example.com`. A leading `.` or `*.` is accepted and means the same thing. An entry may carry a `:port`, and `*` bypasses everything. A bracketed or bare IPv6 literal matches either way — a bare `::1` is *not* read as host `:` port `1`, which is how undici's own matcher fails and why the resolved list carries both `::1` and `[::1]`. CIDR is not matched: an operating system's bypass list often carries `10.0.0.0/8`, which has to be rewritten as suffixes.
+An entry names a host and matches it together with every subdomain under it: `NO_PROXY=example.com` also bypasses `api.example.com`. A leading `.` or `*.` is accepted and means the same thing. An entry may carry a `:port`, and `*` bypasses everything. A bracketed or bare IPv6 literal matches either way — a bare `::1` is *not* read as host `:` port `1`, which is how undici's own matcher fails and why the resolved list carries both `::1` and `[::1]`. An IPv4 or IPv6 CIDR entry such as `10.0.0.0/8` or `fd00::/8` matches a destination that is an IP literal in that block; it never matches a host name, a malformed entry matches nothing, and a spawned Node child applies Node's own matcher, which has no CIDR support.
 
 -----
 

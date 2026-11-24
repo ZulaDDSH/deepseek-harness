@@ -82,6 +82,16 @@ describe('mapStopReason / mapUsage', () => {
       stopReason: 'error',
       errorMessage: 'OpenAI API error (429): You exceeded your current quota, please check your plan and billing details.',
     }))).toMatchObject({ kind: 'error', failure: { code: 'QUOTA' } })
+    for (const errorMessage of [
+      '500 {"error":{"type":"upstream_error","upstream":{"error":{"type":"invalid_request_error"}}}}',
+      '502 upstream said: insufficient_quota, you exceeded your current quota',
+      '503 {"error":"rate limit reached upstream"}',
+    ]) {
+      expect(mapStopReason(assistant({ stopReason: 'error', errorMessage })))
+        .toMatchObject({ kind: 'error', failure: { code: 'SERVER' } })
+    }
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: '429 insufficient_quota: you exceeded your current quota' })))
+      .toMatchObject({ kind: 'error', failure: { code: 'QUOTA' } })
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 500: backend down' })))
       .toMatchObject({ kind: 'error', failure: { code: 'SERVER' } })
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'provider timed out' })))

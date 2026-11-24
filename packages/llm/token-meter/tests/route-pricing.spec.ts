@@ -1,4 +1,4 @@
-import { imageOffloadProjection } from '@deepseek-ai/dsh-compaction-image-offload/projection'
+import { imageOffloadProjection, imageRestoreProjection } from '@deepseek-ai/dsh-compaction-image-offload/projection'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import {
@@ -89,7 +89,7 @@ async function harness(pricing: (model: string) => LlmImageRequestPricing | unde
   llm.registerAdapter(['mock'], new PricingAdapter(pricing))
   await ctx.plugin(TokenMeter)
   const meter = ctx.tokenMeter
-  return { ctx, meter, session: Session.create(brandString<SessionId>('route-priced'), undefined, undefined, undefined, [imageOffloadProjection]) }
+  return { ctx, meter, session: Session.create(brandString<SessionId>('route-priced'), undefined, undefined, undefined, [imageOffloadProjection, imageRestoreProjection]) }
 }
 
 /** Route price of one image-bearing message under the fixed pricing double. */
@@ -233,8 +233,30 @@ describe('request projection pricing', () => {
     expect(after.nodes.map(node => node.heuristicTokens)).toEqual(before.nodes.map(node => node.heuristicTokens))
     const breakdown = ctx.sessionProjections.snapshot(session).values.contextBreakdown
     expect(breakdown?.messageTokens).toBe(after.nodes.reduce((total, node) => total + node.heuristicTokens, 0))
-    const restored = Session.create(brandString<SessionId>('offloaded-restored'), session.snapshotEvents(), undefined, undefined, [imageOffloadProjection])
+    const restored = Session.create(brandString<SessionId>('offloaded-restored'), session.snapshotEvents(), undefined, undefined, [imageOffloadProjection, imageRestoreProjection])
     expect(meter.measure(restored).surfaceTokens).toBe(after.surfaceTokens)
+  })
+
+  it('prices restored images as images again and replays the same prices', async () => {
+    const markedPricing: LlmImageRequestPricing = {
+      priceImages: images => images.map(block => (block.offloaded === true
+        ? { visualTokens: 0, text: '[offloaded]' }
+        : { visualTokens: VISUAL_TOKENS, text: HANDLE_TEXT })),
+    }
+    const { meter, session } = await harness(() => markedPricing)
+    session.append('turn/start', { turn: 1 })
+    const message = imageMessage('photo')
+    const seq = session.append('user/message', message, { surfaceOp: 'append' }).seq
+    session.append('request/header', { header: header('vision'), reason: 'initial' })
+    const before = meter.measure(session)
+    session.append('image/offload', { targets: [{ seq, imageIndexes: [0] }] })
+    expect(meter.measure(session).totalTokens).toBeLessThan(before.totalTokens)
+    session.append('image/restore', { targets: [{ seq, imageIndexes: [0] }] })
+    const after = meter.measure(session)
+    expect(after.nodes[0]!.tokens).toBe(routedMessageTokens(message))
+    expect(after.totalTokens).toBe(before.totalTokens)
+    const replayed = Session.create(brandString<SessionId>('restored-replay'), session.snapshotEvents(), undefined, undefined, [imageOffloadProjection, imageRestoreProjection])
+    expect(meter.measure(replayed).surfaceTokens).toBe(after.surfaceTokens)
   })
 
   it('fails loud when a route answers a mismatched occurrence count', async () => {

@@ -48,7 +48,7 @@ describe('pre-merge check', () => {
     expect(steps.map(step => step.name)).toEqual(['versions', 'install', 'upgrade guides', 'host contracts', 'client'])
     expect(steps[0]).toEqual({ name: 'versions', command: process.execPath, args: [join('/repo', 'scripts', 'verify-version-sync.ts'), '/repo'] })
     expect(steps[1]).toEqual({ name: 'install', command: 'pnpm', args: ['install', '--frozen-lockfile'] })
-    expect(steps[2]?.args).toEqual(['run', 'verify-upgrade-guides', '--base', 'b'.repeat(40)])
+    expect(steps[2]?.args).toEqual(['exec', 'tsx', 'scripts/verify-upgrade-guides.ts', '--base', 'b'.repeat(40)])
     expect(steps[4]?.args).toEqual(['exec', 'tsx', 'scripts/compile-referenced-projects.ts', 'client'])
   })
 

@@ -8,7 +8,7 @@
  */
 
 import type { ViewerPluginAccess } from '../share-api-types.ts'
-import { sharedToolNames } from './shared-tools.ts'
+import { RUN_CODE_NAME, sharedToolNames } from './shared-tools.ts'
 import type { ViewerPluginPolicy } from './viewer-capability-types.ts'
 
 
@@ -144,6 +144,7 @@ export const READ_ONLY_FORK_CEILING: ForkCeiling = {
   deniedCapabilities: [
     'bash',
     'pwsh',
+    RUN_CODE_NAME,
     'cua',
     'plugin_manager',
     'schedule_create',

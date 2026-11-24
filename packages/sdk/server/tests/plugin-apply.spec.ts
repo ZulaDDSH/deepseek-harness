@@ -14,6 +14,7 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import { MAX_FRAME_CHARS } from '@deepseek-ai/dsh-sdk-protocol'
 import * as jsonrpc from '../src/index.ts'
 
 /**
@@ -373,6 +374,24 @@ describe('dsh-sdk-jsonrpc-server plugin apply', () => {
       expect(harness.frames().length).toBe(before)
       expect(harness.exits()).toEqual([])
     } finally {
+      await harness.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('disposes the root and exits 1 when the peer sends a frame above the limit', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-apply-frame-limit-'))
+    const harness = await mountPlugin(storageDir)
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      harness.sendRaw('x'.repeat(MAX_FRAME_CHARS + 1))
+
+      await waitFor(() => harness.exits().length === 0 ? undefined : true, 'exit after the oversized frame')
+      expect(harness.exits()).toEqual([1])
+      expect(harness.events.some(event => event.kind === 'root-disposed')).toBe(true)
+      expect(errors).toHaveBeenCalledWith(expect.stringContaining('JSON-RPC frame exceeds'))
+    } finally {
+      errors.mockRestore()
       await harness.dispose()
       await rm(storageDir, { recursive: true, force: true })
     }

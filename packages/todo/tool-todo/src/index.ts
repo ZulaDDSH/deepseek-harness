@@ -146,10 +146,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => {
     const downstream = await next()
     if (!exec.agent) return downstream
-    if (exec.name === 'todo_write') {
-      callsSinceWrite.delete(exec.agent)
-      return downstream
-    }
+    if (exec.name === 'todo_write') return downstream
     const calls = (callsSinceWrite.get(exec.agent) ?? 0) + 1
     callsSinceWrite.set(exec.agent, calls)
     const todos = ctx.sessionProjections.snapshot(exec.agent.session, ['todos']).values.todos
@@ -241,6 +238,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         throw new ToolContextUnavailableError('todo_write requires an owning agent session')
       }
       exec.agent.session.append('todo/write', { todos })
+      callsSinceWrite.delete(exec.agent)
       const count = (status: TodoItem['status']): number => todos.filter(t => t.status === status).length
       return Promise.resolve({
         todos: todos.map(todo => ({ content: todo.content, status: todo.status })),

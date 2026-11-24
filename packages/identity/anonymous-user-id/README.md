@@ -79,7 +79,7 @@ The package exposes one function that returns the installation's anonymous id, m
 
 ### Storage contract
 
-The file is a bare UUID line named by `ANONYMOUS_USER_ID_FILE_NAME`, validated against a UUID pattern on read. A first writer uses exclusive creation (`wx`); a concurrent loser rereads and adopts the winner's value. A corrupt or unreadable file falls through to mint-and-overwrite. Memoization is keyed by resolved file path, so distinct homes never share an id.
+The file is a bare UUID line named by `ANONYMOUS_USER_ID_FILE_NAME`, validated against a UUID pattern on read. Minting and repairing the file happen under an exclusive-create `.anonymous-user-id.lock` file next to it: the process rereads under the lock, adopts a valid id another process published, and otherwise writes a temp file and renames it over the id file, so readers never see a partial id. A corrupt or empty file is repaired the same way. The wait for the lock is bounded (2 seconds by default, `lockTimeoutMs`), and a lock older than 10 seconds is treated as stale and removed. On a timeout the process adopts a valid persisted id or uses a fresh id in memory without writing; an unwritable home also yields an in-memory id. Memoization is keyed by resolved file path, so distinct homes never share an id.
 
 </details>
 
@@ -116,7 +116,7 @@ None; the transport header changes neither tokens nor the model-visible prefix.
 These limits describe when the id is a poor fit or needs special attention. They are current package constraints, not a general comparison of anonymity approaches or a task backlog.
 
 - **No recovery after deletion** — losing the file mints a new anonymous identity by design; recovery would require stable derivation material that weakens anonymity.
-- **Best-effort concurrency** — a reader landing in the narrow interval between a concurrent process's exclusive create and completed write can use a different in-memory UUID for that run; later launches converge on the persisted value.
+- **Best-effort concurrency** — creation and repair are serialized by a lock file, so concurrent launches converge on one persisted id. A process that cannot get the lock within the timeout, an unwritable home, or two processes removing the same stale lock at once can leave a process with a different in-memory id for that run; later launches converge on the persisted value.
 - **No cross-home identity** — different `$DSH_HOME` values cannot be correlated.
 - **Configured DeepSeek gateways receive the id** — `dsh-llm-deepseek` sends the stable header to its resolved `baseURL`, including deployment overrides, independently of telemetry sharing mode.
 - **Deleting the file does not reset the current process** — memoization keeps the run's id until the next launch.

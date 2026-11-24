@@ -14,6 +14,7 @@ import { HarnessError } from '@deepseek-ai/dsh-error'
  * - `MCP_CREDENTIAL_NOT_FOUND`: a referenced credential has no configured value.
  * - `MCP_INSTRUCTIONS_TOO_LARGE`: server instructions exceed `maxInstructionBytes`.
  * - `MCP_TOOL_REGISTRATION_FAILED`: a foreign registration occupies the server's tool namespace.
+ * - `MCP_RESOURCE_TOO_LARGE`: one resource read returned more data than the bridge forwards.
  */
 export const MCP_LOCAL_ERROR_CODES = [
   'MCP_CONNECTION_CLOSED',
@@ -22,6 +23,7 @@ export const MCP_LOCAL_ERROR_CODES = [
   'MCP_CREDENTIAL_NOT_FOUND',
   'MCP_INSTRUCTIONS_TOO_LARGE',
   'MCP_TOOL_REGISTRATION_FAILED',
+  'MCP_RESOURCE_TOO_LARGE',
 ] as const
 
 /** One {@link McpLocalError} code. */

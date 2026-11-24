@@ -46,8 +46,8 @@ jobs:
         with:
           client-id: ${{ vars.DSH_APPROVAL_APP_CLIENT_ID }}
           private-key: ${{ secrets.DSH_APPROVAL_APP_PRIVATE_KEY }}
-          owner: deepseek-harness
-          repositories: deepseek-harness
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
           permission-checks: write
 
       - uses: deepseek-harness/deepseek-harness-check@master

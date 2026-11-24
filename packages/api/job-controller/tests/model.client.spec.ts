@@ -337,6 +337,49 @@ describe('ClientJobs roster streams', () => {
     expect(S1 in model.getSnapshot().rows).toBe(false)
   })
 
+  it('reopens a failed roster stream with backoff while watched and repopulates the rows', async () => {
+    vi.useFakeTimers()
+    try {
+      const { model, jobs, streams } = bench()
+      const stop = jobs.watchRows(S1)
+      streams[0]!.stream.push({ type: 'rows', jobs: [view()] })
+      await vi.advanceTimersByTimeAsync(0)
+      streams[0]!.stream.poison(new Error('ended before its first frame'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(S1 in model.getSnapshot().rows).toBe(false)
+      expect(streams).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(streams).toHaveLength(2)
+      streams[1]!.stream.push({ type: 'rows', jobs: [view({ label: 'later job' })] })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(model.getSnapshot().rows[S1]?.[0]?.label).toBe('later job')
+      stop()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(streams[1]!.stream.disposed).toBe(true)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('stops retrying a failed roster after the last delay and when released while waiting', async () => {
+    vi.useFakeTimers()
+    try {
+      const { jobs, streams } = bench()
+      const stop = jobs.watchRows(S1)
+      streams[0]!.stream.poison(new Error('boom'))
+      await vi.advanceTimersByTimeAsync(0)
+      stop()
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(streams).toHaveLength(1)
+
+      const again = bench()
+      again.jobs.watchRows(S1)
+      for (let attempt = 0; attempt < 8; attempt++) {
+        again.streams.at(-1)!.stream.poison(new Error('boom'))
+        await vi.advanceTimersByTimeAsync(30_000)
+      }
+      expect(again.streams).toHaveLength(7)
+    } finally { vi.useRealTimers() }
+  })
+
   it('stays silent when the carrier teardown itself throws after the last release', async () => {
     const { model, jobs, streams } = bench()
     const stop = jobs.watchRows(S1)

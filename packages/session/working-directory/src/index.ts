@@ -25,7 +25,7 @@ declare module '@deepseek-ai/cordis' {
      * wait awaits that operation, then calls `next()`; every other listener
      * calls `next()` at once. A rejection fails this access and leaves the
      * recorded directory unchanged; it is not a fallback.
-     * @param request - owner, requested path (null validates the current directory), and the access's cancellation.
+     * @param request - owner, canonical absolute requested path (null validates the current directory), and the access's cancellation.
      * @param next - perform validation and commit.
      * @mode waterfall
      */
@@ -186,16 +186,25 @@ export class WorkingDirectoryService extends Service {
    *   `working-directory/access` listener.
    */
   set(agent: Agent, path: string, signal?: AbortSignal): Promise<string> {
-    return this.serialize(agent, signal, control => this.ctx.waterfall('working-directory/access', { agent, path, signal: control }, async () => {
-      if (path.length === 0) throw new WorkingDirectoryError('working-directory: cd must not be empty', 'WORKING_DIRECTORY_INVALID')
-      const directory = await this.directory(path, this.get(agent.session), control)
-      this.commit(agent, directory, false, control)
-      return directory
-    }))
+    return this.serialize(agent, signal, async control => {
+      const cwd = this.get(agent.session)
+      const target = path.length === 0 ? path : await this.canonical(path, cwd, control)
+      return await this.ctx.waterfall('working-directory/access', { agent, path: target, signal: control }, async () => {
+        if (path.length === 0) throw new WorkingDirectoryError('working-directory: cd must not be empty', 'WORKING_DIRECTORY_INVALID')
+        const directory = await this.directory(target, cwd, control)
+        this.commit(agent, directory, false, control)
+        return directory
+      })
+    })
   }
 
   private contextText(session: Session): string {
     return `Current working directory: ${JSON.stringify(this.get(session))}.`
+  }
+
+  private async canonical(path: string, cwd: string, signal: AbortSignal): Promise<string> {
+    const target = await this.ctx.fs.resolve(path, { cwd, signal })
+    return this.ctx.fs.processPath(target)
   }
 
   private async directory(

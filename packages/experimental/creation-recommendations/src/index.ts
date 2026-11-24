@@ -1,6 +1,6 @@
 /** Explicit interface needs become independently installed plugins after a click on a `create_personalized_page` card. */
 import { randomUUID } from 'node:crypto'
-import { cp, mkdir } from 'node:fs/promises'
+import { cp, mkdir, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
@@ -31,6 +31,8 @@ const ACTION = 'create_personalized_page'
 
 /** Generated page packages take this name prefix; the remainder names their copy in the profile's `created-plugins` directory. */
 const RESERVED_PREFIX = '@dsh-local/view-'
+
+const CREATOR_TIMEOUT_MS = 60 * 60_000
 
 const slotSchema = z.enum(['sidebar-right', 'page', 'sidebar-left'])
 /** Human-authored placement is a short instruction, not a package or path. */
@@ -252,7 +254,7 @@ class PersonalizedPages {
     this.record(agent, card)
     const abort = new AbortController()
     const childId = brandString<SessionId>(randomUUID())
-    const done = this.generate(agent, childId, proposal, card, sourceDirectory, directory, bundleName, abort.signal)
+    const done = this.generate(agent, childId, proposal, card, sourceDirectory, directory, bundleName, abort)
       .finally(() => { this.jobs.delete(key) })
     this.jobs.set(key, { parent: agent, childId, card, abort, done })
     return { status: 'accepted' }
@@ -260,8 +262,10 @@ class PersonalizedPages {
 
   private async generate(
     agent: Agent, childId: SessionId, proposal: PageProposal, card: PageCard,
-    sourceDirectory: string, directory: string, bundleName: string, signal: AbortSignal,
+    sourceDirectory: string, directory: string, bundleName: string, abort: AbortController,
   ): Promise<void> {
+    const { signal } = abort
+    const deadline = setTimeout(() => { abort.abort('timeout') }, CREATOR_TIMEOUT_MS)
     try {
       signal.throwIfAborted()
       await mkdir(sourceDirectory, { recursive: true, mode: 0o700 })
@@ -310,16 +314,26 @@ class PersonalizedPages {
         signal.removeEventListener('abort', stop)
         await (disposing ?? activation.dispose())
       }
+      clearTimeout(deadline)
       await validateGeneratedBundle(sourceDirectory, bundleName)
       if ((await this.ctx.pluginManager.listBundles()).some(bundle => bundle.name === bundleName)) {
         throw new CreationRecommendationError('The reserved package name is already in use.', 'CREATION_EXISTS')
       }
       signal.throwIfAborted()
-      await cp(sourceDirectory, directory, { recursive: true, force: false, errorOnExist: true, verbatimSymlinks: true })
-      await validateGeneratedBundle(directory, bundleName)
+      const staging = directory + '.staging'
+      try {
+        await cp(sourceDirectory, staging, { recursive: true, force: false, errorOnExist: true, verbatimSymlinks: true })
+        await validateGeneratedBundle(staging, bundleName)
+        signal.throwIfAborted()
+        await rename(staging, directory)
+      } catch (error) {
+        await rm(staging, { recursive: true, force: true })
+        throw error
+      }
       signal.throwIfAborted()
       await this.installProfileCopy(agent, card, directory)
     } catch (error) {
+      clearTimeout(deadline)
       this.ctx.logger.warn('Interface creation failed: %s', String(error))
       const current = this.currentRoot(agent.id)
       const phase = signal.aborted ? signal.reason === 'cancelled' ? 'cancelled' : 'interrupted' : 'failed'

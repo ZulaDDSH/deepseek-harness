@@ -1,5 +1,5 @@
 /** Per-Session turn recorder: snapshots, captures around file-tool edits, the turn-end diff, and the records kept until disposal. */
-import { mkdir, readFile, realpath } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join, relative, resolve } from 'node:path'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
@@ -9,7 +9,7 @@ import {
   blobText, diffTrees, gitlinkPaths, ignoredPaths, locateGitWorkspace, snapshotTree, treeBlob, type GitRunner, type GitWorkspace,
 } from './git.ts'
 import { canonicalPath, compareDisplay, displayPathOf, durablePathOf, isInside, isTemporaryPath, temporaryRoots, toPosix } from './paths.ts'
-import { STORE_VERSION, writeRecord, type StoredRecord, type StoredSide, type StoredSources } from './store.ts'
+import { STORE_VERSION, ensurePrivateDirectory, removeRecord, writeRecord, type StoredRecord, type StoredSide, type StoredSources } from './store.ts'
 import type { WorkspaceChangedFile, WorkspaceChangesSummary, WorkspaceFileDiff } from './types.ts'
 
 /** Facts shared by every recorder of one plugin instance. */
@@ -43,7 +43,7 @@ export interface Repository {
 }
 
 /** The turn-start snapshot of a located repository. */
-interface Baseline extends Repository { tree: string }
+interface Baseline extends Repository { tree: string; incomplete: boolean; skipped: string[] }
 
 /** Where one readable side of a listed file's content lives. */
 type ContentSource =
@@ -81,6 +81,9 @@ interface TurnState {
   /** Sequence of the latest appended event, or -1. */
   recordedAfterSeq: number
 }
+
+const RECORD_ATTEMPTS = 3
+const INCOMPLETE_PATH_LIMIT = 20
 
 function freshState(turn: number): TurnState {
   return { turn, baseline: null, captures: new Map(), lastToolResultSeq: -1, attemptedAfterSeq: -1, recordedAfterSeq: -1 }
@@ -122,7 +125,8 @@ export class TurnRecorder {
     private readonly cwd: string,
     private readonly env: RecorderEnvironment,
     /** This Session's durable directory, holding its records, captures, and snapshot objects. */
-    private readonly directory: string,
+    readonly directory: string,
+    private readonly prepare: () => Promise<void> = () => Promise.resolve(),
   ) {}
 
   /**
@@ -137,8 +141,7 @@ export class TurnRecorder {
         this.paths ??= { cwd: await realpath(this.cwd), home: await canonicalPath(homedir()), temporaryRoots: await temporaryRoots() }
         const repository = await this.locate(this.paths.cwd, signal)
         if (repository === null) return
-        const tree = await snapshotTree(repository.git, repository.workspace, signal)
-        state.baseline = { ...repository, tree }
+        state.baseline = { ...repository, ...await snapshotTree(repository.git, repository.workspace, signal) }
       } catch (error: unknown) {
         // A repository whose snapshot failed must not be summarized as if it had none.
         state.baseline = 'failed'
@@ -266,7 +269,7 @@ export class TurnRecorder {
    * Host process serves its earlier turns from the same content.
    */
   private scratchDir(): Promise<string> {
-    this.scratch ??= mkdir(this.directory, { recursive: true }).then(() => this.directory)
+    this.scratch ??= this.prepare().then(() => ensurePrivateDirectory(this.directory)).then(() => this.directory)
     return this.scratch
   }
 
@@ -290,9 +293,14 @@ export class TurnRecorder {
     const root = baseline?.workspace.root ?? paths.cwd
     const listed = new Map<string, Listed>()
     let snapshot: WorkspaceChangesSummary['snapshot']
+    let incomplete: WorkspaceChangesSummary['incomplete']
     if (baseline !== null) {
-      const after = await snapshotTree(baseline.git, baseline.workspace, signal)
+      const taken = await snapshotTree(baseline.git, baseline.workspace, signal)
+      const after = taken.tree
       snapshot = { before: baseline.tree, after }
+      if (baseline.incomplete || taken.incomplete) {
+        incomplete = { paths: [...new Set([...baseline.skipped, ...taken.skipped])].slice(0, INCOMPLETE_PATH_LIMIT) }
+      }
       const repository: Repository = { git: baseline.git, workspace: baseline.workspace }
       for (const entry of await diffTrees(baseline.git, baseline.workspace, baseline.tree, after, signal)) {
         const absolute = resolve(root, entry.path)
@@ -331,8 +339,7 @@ export class TurnRecorder {
     }
     const sorted = [...listed.values()].sort((a, b) => compareDisplay(a.file, b.file))
     // An empty list after an earlier in-turn record supersedes that record.
-    if (sorted.length === 0 && state.recordedAfterSeq < 0) return
-    const event = this.session.append('workspace/changes', { turn: state.turn })
+    if (sorted.length === 0 && state.recordedAfterSeq < 0 && incomplete === undefined) return
     const kept = sorted.slice(0, this.env.maxFiles)
     const record: TurnRecord = {
       summary: {
@@ -343,14 +350,24 @@ export class TurnRecorder {
         added: sorted.reduce((sum, entry) => sum + entry.file.added, 0),
         deleted: sorted.reduce((sum, entry) => sum + entry.file.deleted, 0),
         ...snapshot === undefined ? {} : { snapshot },
+        ...incomplete === undefined ? {} : { incomplete },
       },
       sources: kept.map(entry => entry.sources),
     }
-    this.records.set(event.seq, record)
-    state.recordedAfterSeq = event.seq
-    // Durable before the summary is served, so a restart cannot lose a card the
-    // Client has already been told about.
-    await writeRecord(this.directory, event.seq, storedRecordOf(record))
+    const stored = storedRecordOf(record)
+    for (let attempt = 0; attempt < RECORD_ATTEMPTS; attempt++) {
+      const seq = this.session.seq
+      await writeRecord(this.directory, seq, stored)
+      if (this.lifetime.signal.aborted) return
+      if (this.session.seq === seq) {
+        const event = this.session.append('workspace/changes', { turn: state.turn })
+        this.records.set(event.seq, record)
+        state.recordedAfterSeq = event.seq
+        return
+      }
+      await removeRecord(this.directory, seq)
+    }
+    throw new Error(`the Session log kept moving while the record of turn ${String(state.turn)} was written`)
   }
 
   /**

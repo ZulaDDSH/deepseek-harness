@@ -74,6 +74,7 @@ import type { SubagentDescendantListEntry } from './list-children.ts'
 import { subagentActivityProjectionDefinition } from './activity-projection.ts'
 import { subagentIdentityProjectionDefinition, subagentTimingProjectionDefinition } from './projection.ts'
 import { subagentCatalogProjectionDefinition } from './catalog.ts'
+import { iterateChunkedList } from '@deepseek-ai/dsh-chunked-list'
 import { ROOT_AGENT_NAME } from './names.ts'
 
 export type {} from './catalog.ts'
@@ -229,7 +230,13 @@ export class SubagentRuntime extends TypertRemoteService {
     ctx.inject(['agents'], (childCtx: Context) => {
       const manager = new SubagentManager(childCtx, {
         identityOf: session => identityProjection.stateOf(session).identity,
-        catalogOf: session => subagentCatalogProjectionDefinition.wire.view(catalogProjection.stateOf(session)),
+        catalogChildrenOf: session => {
+          const children = new Map<SessionId, string | undefined>()
+          for (const data of iterateChunkedList(catalogProjection.stateOf(session).head)) {
+            children.set(data.childId, 'name' in data ? data.name : undefined)
+          }
+          return children
+        },
         emitLifecycle: this.emitLifecycle,
       }, () => this.config.maxActiveSubagents.get())
       this.manager = manager

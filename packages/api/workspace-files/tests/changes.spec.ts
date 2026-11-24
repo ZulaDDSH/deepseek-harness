@@ -78,6 +78,8 @@ async function ownedEndpoint() {
       maxFileBytes: 1024,
       maxLines: 10,
       maxEntries: 10,
+      confineReads: false,
+      readRoots: [],
       search: { maxResults: 100, maxEntries: 1000, graceMs: 3000, timeoutMs: 30000, stderrMaxBytes: 65536 },
     })
   }, { inject: ['fs', 'sandboxPolicy'] }))
@@ -117,12 +119,10 @@ describe('workspaceFiles.changes — target frames', () => {
       expect(watch).not.toHaveBeenCalled()
       release.resolve(undefined)
       await expect(first).resolves.toEqual({ done: false, value: { kind: 'ready' } })
-      for (let index = 0; index < 2; index++) {
-        await expect(stream.next()).resolves.toEqual({
-          done: false,
-          value: { kind: 'change', change: { absolutePath: current.absolutePath, version: current.version } },
-        })
-      }
+      await expect(stream.next()).resolves.toEqual({
+        done: false,
+        value: { kind: 'change', change: { absolutePath: current.absolutePath, version: current.version } },
+      })
     } finally {
       release.resolve(undefined)
     }
@@ -156,6 +156,30 @@ describe('workspaceFiles.changes — target frames', () => {
     } finally {
       release.resolve(undefined)
     }
+  })
+
+  it('coalesces a burst of target observations into one metadata frame and drops unrelated ones', async () => {
+    const path = join(harness.workspace, 'burst.txt')
+    await writeFile(path, 'burst')
+    const service = harness.endpoint()
+    const current = await service.stat(harness.scope, path, new AbortController().signal)
+    const stream = open(service, path)
+    await ready(stream)
+    const stat = vi.spyOn(harness.ctx.fs, 'stat')
+    for (let index = 0; index < 200; index++) await observe(join(harness.workspace, `other-${index}.txt`), present(`o${index}`))
+    for (let index = 0; index < 5; index++) await observe(path, present(`v${index}`))
+    await expect(stream.next()).resolves.toEqual({
+      done: false,
+      value: { kind: 'change', change: { absolutePath: current.absolutePath, version: current.version } },
+    })
+    expect(stat).toHaveBeenCalledTimes(1)
+    const next = vi.fn()
+    const pending = stream.next().then(next)
+    await new Promise<void>(resolve => setTimeout(resolve, 20))
+    expect(next).not.toHaveBeenCalled()
+    await observe(path, present('after'))
+    await pending
+    expect(next).toHaveBeenCalledTimes(1)
   })
 
   it('filters unrelated target keys, including matching display paths, before stat', async () => {
@@ -236,6 +260,7 @@ describe('workspaceFiles.changes — target frames', () => {
     await writeFile(path, 'a longer second version')
     const second = await service.stat(harness.scope, path, stream.controller.signal)
     expect(second.version).not.toBe(first.version)
+    await observe(path, present('queued-three'))
     await expect(stream.next()).resolves.toEqual({
       done: false,
       value: { kind: 'change', change: { absolutePath: second.absolutePath, version: second.version } },

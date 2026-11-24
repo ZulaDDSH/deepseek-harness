@@ -197,6 +197,57 @@ it('retains unread after acknowledgement failure and retries on a new view entry
   expect(b.mark).toHaveBeenCalledTimes(2)
 })
 
+const refocus = async (b: ReturnType<typeof harness>) => {
+  b.focus.mockReturnValue(false)
+  window.dispatchEvent(new Event('blur'))
+  b.focus.mockReturnValue(true)
+  window.dispatchEvent(new Event('focus'))
+  await b.paint()
+}
+
+it('retries a failed entry read on the next focus, even for an already-read completion', async () => {
+  const b = harness({ manual: true })
+  b.record({ readTurn: 1, manualUnread: true })
+  const report = vi.spyOn(console, 'error').mockImplementation(() => {})
+  b.mark.mockRejectedValueOnce(new Error('offline'))
+  await b.paint()
+  await b.paint()
+  expect(b.mark).toHaveBeenCalledExactlyOnceWith(b.id, 1, true)
+  expect(report).toHaveBeenCalled()
+  await refocus(b)
+  expect(b.mark.mock.calls).toEqual([[b.id, 1, true], [b.id, 1, true]])
+  b.record({ readTurn: 1, manualUnread: false })
+  await refocus(b)
+  expect(b.mark).toHaveBeenCalledTimes(2)
+})
+
+it('does not retry the entry read over a manual mark made while it was in flight', async () => {
+  const b = harness({ manual: true })
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  const outcome = Promise.withResolvers<void>()
+  b.mark.mockReturnValueOnce(outcome.promise)
+  await b.paint()
+  expect(b.mark).toHaveBeenCalledExactlyOnceWith(b.id, 1, true)
+  b.record({ manualUnread: true })
+  outcome.reject(new Error('uncertain'))
+  await b.paint()
+  await refocus(b)
+  expect(b.mark.mock.calls).toEqual([[b.id, 1, true], [b.id, 1, false]])
+})
+
+it('does not restore the entry intent after the main view moved to another Session', async () => {
+  const b = harness({ manual: true })
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  const outcome = Promise.withResolvers<void>()
+  b.mark.mockReturnValueOnce(outcome.promise)
+  await b.paint()
+  b.select(false)
+  outcome.reject(new Error('offline'))
+  await b.paint()
+  await refocus(b)
+  expect(b.mark.mock.calls).toEqual([[b.id, 1, true]])
+})
+
 it('does not acknowledge an unselected or unknown record and tolerates unrelated list updates', async () => {
   const b = harness()
   const selected = b.list.getSnapshot()

@@ -3,7 +3,7 @@
 import { MessageChannel, MessagePort } from 'node:worker_threads'
 import type { Worker } from 'node:worker_threads'
 import { z } from 'zod'
-import { isStagehandErrorCode, StagehandError } from './error.ts'
+import { isStagehandErrorCode, StagehandError, StagehandTimeoutError } from './error.ts'
 
 const responseSchema = z.discriminatedUnion('ok', [
   z.object({ ok: z.literal(true), value: z.unknown() }).strict(),
@@ -41,10 +41,13 @@ export const requestSchema = z.object({
  * @returns the receiver's value. Malformed responses and peer shutdown reject with `STAGEHAND_WORKER_FAILED`;
  * a receiver failure rejects as rebuilt by its `StagehandError` code.
  */
-export async function request(target: MessagePort | Worker, method: string, args?: unknown, signal?: AbortSignal): Promise<unknown> {
+export async function request(target: MessagePort | Worker, method: string, args?: unknown, signal?: AbortSignal, timeoutMs?: number): Promise<unknown> {
   signal?.throwIfAborted()
   const { port1, port2 } = new MessageChannel()
   const result = Promise.withResolvers<unknown>()
+  const timer = timeoutMs === undefined ? undefined : setTimeout(() => {
+    result.reject(new StagehandTimeoutError(`Stagehand Worker request "${method}" timed out after ${timeoutMs}ms`))
+  }, timeoutMs)
   const abort = () => {
     result.reject(signal?.reason instanceof Error ? signal.reason : workerFailure('Stagehand Worker request canceled', signal?.reason))
   }
@@ -67,6 +70,7 @@ export async function request(target: MessagePort | Worker, method: string, args
     }
     return await result.promise
   } finally {
+    clearTimeout(timer)
     signal?.removeEventListener('abort', abort)
     port1.close()
     port2.close()

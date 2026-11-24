@@ -55,7 +55,7 @@ export interface DeepseekChatImportLimits {
 /** Final outcome of one upload. */
 export type DeepseekChatImportResponse =
   | { ok: true; value: DeepseekChatImportResult }
-  | { ok: false; error: { reason: DeepseekChatImportFailureReason; message: string } }
+  | { ok: false; error: { reason: DeepseekChatImportFailureReason; message: string; sessionIds?: string[] } }
 
 /**
  * One line of the upload route's `application/x-ndjson` answer: progress

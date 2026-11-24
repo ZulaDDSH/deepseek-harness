@@ -107,10 +107,10 @@ it('routes file actions through an explicit host, the line, native association a
     { destination: 'float', params: { line: 24 } })
   const opened = await h.choose(file, 'open-in-app.file/open')
   expect(opened?.icon).toEqual({ key: 'open-in-app.application', src: 'data:image/png;base64,a' })
-  expect(h.remote.session.openWorkspacePath).toHaveBeenCalledWith({ path: '/workspace/file.svg', application: 'preview' })
+  expect(h.remote.session.openWorkspacePath).toHaveBeenCalledWith({ path: '/workspace/file.svg', application: 'preview' }, expect.any(AbortSignal))
   await vi.waitFor(() => { expect(h.report).toHaveBeenLastCalledWith({ kind: 'opened' }) })
   await h.choose(file, 'open-in-app.file/reveal')
-  expect(h.remote.session.openWorkspacePath).toHaveBeenCalledWith({ path: '/workspace/file.svg', action: 'reveal' })
+  expect(h.remote.session.openWorkspacePath).toHaveBeenCalledWith({ path: '/workspace/file.svg', action: 'reveal' }, expect.any(AbortSignal))
   await vi.waitFor(() => { expect(h.report).toHaveBeenLastCalledWith({ kind: 'revealed' }) })
   await h.choose(file, 'file-actions.file/copyImage')
   await vi.waitFor(() => { expect(h.notify).toHaveBeenCalledWith('menu.copied', true) })
@@ -200,7 +200,7 @@ it('opens file menus after the first-answer wait and changes only the applicatio
   expect(published.every(count => count === 5)).toBe(true)
   menu.select('open-in-app.file/open')
   await vi.waitFor(() => {
-    expect(h.remote.session.openWorkspacePath).toHaveBeenLastCalledWith({ path: '/workspace/notes.txt', application: '/Applications/Sublime Text.app' })
+    expect(h.remote.session.openWorkspacePath).toHaveBeenLastCalledWith({ path: '/workspace/notes.txt', application: '/Applications/Sublime Text.app' }, expect.any(AbortSignal))
   })
   // Another file of the same type shows the recorded answer at once and asks the Host again.
   const other = await h.resolve({ kind: 'file', value: { sessionId, path: 'todo.txt' } })
@@ -227,7 +227,7 @@ it('opens through the OS association until the Host first answers, including aft
   expect(h.paths.cachedApplications('/workspace/notes.md')).toBeUndefined()
   expect(application()).toMatchObject({ label: 'menu.defaultApp', disabled: false })
   menu.select('open-in-app.file/open')
-  await vi.waitFor(() => { expect(h.remote.session.openWorkspacePath).toHaveBeenLastCalledWith({ path: '/workspace/notes.md' }) })
+  await vi.waitFor(() => { expect(h.remote.session.openWorkspacePath).toHaveBeenLastCalledWith({ path: '/workspace/notes.md' }, expect.any(AbortSignal)) })
   await vi.waitFor(() => { expect(h.report).toHaveBeenLastCalledWith({ kind: 'opened' }) })
 })
 
@@ -354,14 +354,14 @@ it('uses original image reads and keeps menu reveal on the original after saving
   h.remote.workspaceFiles.readBytes.mockResolvedValueOnce({ ok: false } as never)
   await expect(source.read!(new AbortController().signal)).rejects.toThrow('Original image unavailable')
   await h.choose(local, 'open-in-app.image/reveal')
-  expect(h.remote.session.openWorkspacePath).toHaveBeenCalledWith({ path: '/workspace/file.svg', action: 'reveal' })
+  expect(h.remote.session.openWorkspacePath).toHaveBeenCalledWith({ path: '/workspace/file.svg', action: 'reveal' }, expect.any(AbortSignal))
   await h.choose(local, 'file-actions.image/saveAs')
   const menu = await h.resolve(local)
   expect(menu.source.getSnapshot().filter(item => item.id.endsWith('/reveal'))).toMatchObject([
     { id: 'open-in-app.image/reveal', disabled: false },
   ])
   menu.select('open-in-app.image/reveal')
-  await vi.waitFor(() => { expect(h.remote.session.openWorkspacePath).toHaveBeenLastCalledWith({ path: '/workspace/file.svg', action: 'reveal' }) })
+  await vi.waitFor(() => { expect(h.remote.session.openWorkspacePath).toHaveBeenLastCalledWith({ path: '/workspace/file.svg', action: 'reveal' }, expect.any(AbortSignal)) })
   const unknown = { kind: 'image', value: { sessionId, path: 'file.unknown', url: 'data:image/png;base64,eA==' } } as const
   await h.choose(unknown, 'file-actions.image/saveAs')
   expect((await h.fileActions.save.mock.calls.at(-1)![0].read!(new AbortController().signal)).type).toBe('')
@@ -408,7 +408,7 @@ it('offers only folder reveal and path copy, retaining the captured directory', 
   expect(h.remote.workspaceFiles.stat).not.toHaveBeenCalled()
   h.sessions.set({ byId: { [sessionId]: { cwd: '/changed' } } })
   menu.select('open-in-app.directory/reveal')
-  await vi.waitFor(() => { expect(h.remote.session.openWorkspacePath).toHaveBeenCalledWith({ path: '/workspace/src', action: 'reveal' }) })
+  await vi.waitFor(() => { expect(h.remote.session.openWorkspacePath).toHaveBeenCalledWith({ path: '/workspace/src', action: 'reveal' }, expect.any(AbortSignal)) })
   h.sessions.set({ byId: { [sessionId]: { cwd: '/workspace' } } })
   await h.choose(target, 'open-in-app.directory/copyPath')
   expect(h.writeText).toHaveBeenLastCalledWith('/workspace/src')

@@ -107,6 +107,11 @@
   background: var(--dsw-alias-bg-layer-2);
 }
 
+.addressRequested {
+  top: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
 .addressBox:focus-within .addressChanged {
   visibility: hidden;
   opacity: 0;

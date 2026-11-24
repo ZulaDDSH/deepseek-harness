@@ -29,6 +29,7 @@ it('creates a patch removed between validation and reading the document', async 
   const { ctx, profile } = await configurationFixture({ hmr: false })
   const entry = ctx.configEditor.entries().find(row => row.options.id === 'first')!
   vi.mocked(fs.readFile).mockRejectedValueOnce(Object.assign(new Error('removed'), { code: 'ENOENT' }))
+  vi.mocked(fs.readFile).mockRejectedValueOnce(Object.assign(new Error('removed'), { code: 'ENOENT' }))
   await ctx.configEditor.edit(entry, raw => ({ ...raw, count: 6 }))
   expect(readFileSync(profile.patchPath, 'utf8')).toContain('count: 6')
 })

@@ -69,12 +69,12 @@ A protocol has exactly one provider; a second registration throws. Registering a
 <a id="lifecycle"></a>
 ### Lifecycle
 
-One record per address holds a snapshot store, a holder count (hook subscribers plus pins), and the running stream's `AbortController`. The first holder opens the provider's stream; every later holder shares it; the last holder's release aborts the stream and resets the snapshot to idle (`loading` with a provider, `none` without). Records are kept for the page lifetime so `source()` stays reference-stable across React's render-then-subscribe window and a StrictMode remount.
+One record per address holds a snapshot store, a holder count (hook subscribers plus pins), and the running stream's `AbortController`. The first holder opens the provider's stream; every later holder shares it; the last holder's release aborts the stream and resets the snapshot to idle (`loading` with a provider, `none` without). A record with no holder stays in the registry so `source()` stays reference-stable across React's render-then-subscribe window and a StrictMode remount, but only the 256 most recently used idle records are kept: the oldest idle one is dropped, and held records never are.
 
 <a id="failures"></a>
 ### Failures
 
-A failure is a frame, not a throw: a provider yields `{ ok: false, error }` and the resource turns `failed` with that error beside the last value; the next `ok` frame clears it. A stream that ends on its own keeps its last state. Frames that arrive after the release that aborted the stream are dropped, and the iterator is returned. A throw inside a provider's stream is a programming error and is not caught.
+A failure is a frame, not a throw: a provider yields `{ ok: false, error }` and the resource turns `failed` with that error beside the last value; the next `ok` frame clears it. A stream that ends on its own keeps its last state. Frames that arrive after the release that aborted the stream are dropped, and the iterator is returned. A throw inside a provider's stream is caught and reported as a `failed` snapshot with a `gateway/internal` failure carrying the message, so the resource never stays `loading` and nothing is left unhandled. A stream that ended while `failed` is reopened when another holder arrives, for example a remounted tab body while the Sidebar pin keeps the record open; a running stream or one that ended `live` is not restarted, and no reopening happens on reconnect by itself.
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -89,7 +89,7 @@ None; resource streams do not assemble model requests.
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **Records live for the page lifetime** — an address's record stays in the registry after its last holder leaves; only its state is discarded. Memory grows with the number of distinct addresses ever read, not with reads.
+- **Idle records are bounded, not removed at release** — up to 256 idle records are kept so source identity survives remounts. An address evicted from that window gets a new source object when it is requested again, which costs one resubscribe; a source rendered long before its subscribe, after 256 other addresses were used, is re-registered when it subscribes. If a new source for the same address was created in between, the old one is not found by later provider changes.
 - **Providers own abort compliance** — the registry drops what a released stream still yields, but a provider that ignores `signal` keeps working until its next frame.
 
 <a id="dev-note"></a>

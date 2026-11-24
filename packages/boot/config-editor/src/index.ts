@@ -17,6 +17,14 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+async function readPatchText(path: string): Promise<string> {
+  try { return await readFile(path, 'utf8') }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    return '[]\n'
+  }
+}
+
 function flatten(rows: EntryOptions[]): EntryOptions[] {
   return rows.flatMap(row => [row, ...row.group && Array.isArray(row.config) ? flatten(row.config as EntryOptions[]) : []])
 }
@@ -100,12 +108,7 @@ export class ConfigEditor extends Service {
         const fiber = entry.fiber
         if (fiber.state !== FiberState.ACTIVE) throw new Error('Configuration plugin is no longer active')
         fiber.resolveConfig(next)
-        let before: string
-        try { before = await readFile(path, 'utf8') }
-        catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-          before = '[]\n'
-        }
+        const before = await readPatchText(path)
         const document = parseDocument(before, {
           customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => value }],
         })
@@ -137,10 +140,16 @@ export class ConfigEditor extends Service {
         if (!isDeepStrictEqual(effective?.config ?? {}, next)) {
           throw new Error(`Configuration for "${entry.options.id}" is overridden by a home patch or command-line overlay`)
         }
-        await writeFileAtomic(path, String(document), { mode: 0o600 })
+        if (await readPatchText(path) !== before) throw new Error(`Profile patch ${path} was edited while the change was prepared; nothing was written, retry`)
+        const written = String(document)
+        await writeFileAtomic(path, written, { mode: 0o600 })
         try {
           await reconcileProfilePatches(this.ownerContext[Context.root], patches, 'dsh', [entry.options.id])
         } catch (error) {
+          if (await readPatchText(path) !== written) {
+            await reconcileProfilePatches(this.ownerContext[Context.root], readProfilePatches('dsh', profile), 'dsh').catch(() => {})
+            throw new Error(`Profile patch ${path} was edited during reconciliation; the edit was kept and the failed change was not rolled back`, { cause: error })
+          }
           await writeFileAtomic(path, before, { mode: 0o600 })
           await reconcileProfilePatches(this.ownerContext[Context.root], beforePatches, 'dsh')
           throw error

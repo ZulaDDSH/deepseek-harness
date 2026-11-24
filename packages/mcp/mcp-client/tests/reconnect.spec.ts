@@ -260,6 +260,30 @@ describe('reconnect supervisor', () => {
     }
   })
 
+  it.each([true, false])('redacts resolved values from host-operation MCP error results for expandTemplates=%s', async (expandTemplates) => {
+    await ctx.plugin(TestCredentials)
+    ;(ctx.credentials as TestCredentials).values.set('MCP_TOKEN', 'test-secret')
+    const config = { ...stdioConfig({ enabled: false }), env: { TOKEN: '${credential:MCP_TOKEN}' }, expandTemplates }
+    const handle = startConnection(ctx, config, resolveReconnectPolicy(config.reconnect, 'test'), new McpStatusCell(() => {}))
+    try {
+      await handle.ready
+      const operations = await ctx.waterfall('mcp/human-operations', 'srv', async () => undefined)
+      if (operations === undefined) throw new Error('expected human operations')
+      const failure = { isError: true, content: [{ type: 'text', text: 'upstream rejected Bearer test-secret' }], structuredContent: { echo: 'test-secret' } }
+      mockCallTool.mockResolvedValue(failure)
+      const result = await operations.call('remote', {}, new AbortController().signal)
+      expect(result).toEqual(expandTemplates
+        ? { isError: true, content: [{ type: 'text', text: 'upstream rejected Bearer [redacted]' }] }
+        : failure)
+      expect(operations.redact?.('a test-secret b')).toBe(expandTemplates ? 'a [redacted] b' : 'a test-secret b')
+      const success = { content: [{ type: 'text', text: 'test-secret' }] }
+      mockCallTool.mockResolvedValue(success)
+      expect(await operations.call('remote', {}, new AbortController().signal)).toEqual(success)
+    } finally {
+      await handle.dispose()
+    }
+  })
+
   it.each([
     [new ProtocolError(-32602, 'unknown window'), 'JSON-RPC error -32602: unknown window', 'MCP_REQUEST_FAILED'],
     [new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed'), 'CONNECTION_CLOSED: Connection closed', 'MCP_CONNECTION_CLOSED'],
@@ -687,7 +711,7 @@ describe('reconnect supervisor', () => {
 
       expect(mockListTools).toHaveBeenCalledTimes(phase === 'connect' ? 0 : 1)
       expect(ctx.tools.get('mcp__srv__late')).toBeUndefined()
-      expect(errors.some(line => line.includes('cleanup incomplete'))).toBe(true)
+      expect(errors.some(line => line.includes('transport closure could not be confirmed'))).toBe(true)
     } finally {
       vi.useRealTimers()
     }

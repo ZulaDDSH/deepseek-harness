@@ -100,27 +100,37 @@ jobs:
           node-version: '24'
           package-manager-cache: false
 
-      - name: Run the tree's pre-merge check
+      # SECURITY: the driver and its direct scripts are restored from the base commit before they run (see CodeNotes ci-workflows).
+      - name: Run the base branch's pre-merge check
         if: steps.merge.outputs.merged == 'true'
         env:
           CHECK_MODE: ${{ vars.MERGE_POLICY_PRE_MERGE }}
           BASE_SHA: ${{ needs.master.outputs.base_sha }}
         run: |
-          # The check names one file and knows nothing else about how the merged tree builds itself.
-          if [ ! -f scripts/pre-merge-check.ts ]; then
+          stop() {
             if [ "$CHECK_MODE" = block ]; then
-              echo "::error title=Pre-Merge Check::this tree has no scripts/pre-merge-check.ts, so nothing was installed, compiled, or checked"
+              echo "::error title=Pre-Merge Check::$1"
               exit 1
             fi
-            echo "::warning title=Pre-Merge Check::this tree has no scripts/pre-merge-check.ts, so nothing was installed, compiled, or checked"
+            echo "::warning title=Pre-Merge Check::$1"
             exit 0
-          fi
+          }
+          trusted=(
+            scripts/pre-merge-check.ts
+            scripts/verify-version-sync.ts
+            scripts/verify-upgrade-guides.ts
+            scripts/compile-referenced-projects.ts
+            scripts/release/process.ts
+          )
+          for file in "${trusted[@]}"; do
+            if [ -z "$(git ls-tree --name-only "$BASE_SHA" -- "$file")" ]; then
+              stop "the base commit $BASE_SHA has no $file, so nothing was installed, compiled, or checked"
+            fi
+          done
+          git checkout "$BASE_SHA" -- "${trusted[@]}" ||
+            stop "the base branch's pre-merge check could not be restored from $BASE_SHA, so nothing was installed, compiled, or checked"
           if node scripts/pre-merge-check.ts; then
             exit 0
           fi
           # A check that crashes reports nothing, so the step reports its exit the way the mode asks.
-          if [ "$CHECK_MODE" = block ]; then
-            echo "::error title=Pre-Merge Check::scripts/pre-merge-check.ts exited without reporting, so the merged tree is unchecked"
-            exit 1
-          fi
-          echo "::warning title=Pre-Merge Check::scripts/pre-merge-check.ts exited without reporting, so the merged tree is unchecked"
+          stop "scripts/pre-merge-check.ts exited without reporting, so the merged tree is unchecked"

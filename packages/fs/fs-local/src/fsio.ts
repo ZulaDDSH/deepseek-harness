@@ -608,7 +608,7 @@ export async function writeFileAtomic(
   mode: number | undefined,
   signal: AbortSignal | undefined,
   internals: FsIoInternals = {},
-  options: { displayPath?: string; createIfAbsent?: boolean; existingDestination?: boolean } = {},
+  options: { displayPath?: string; createIfAbsent?: boolean; existingDestination?: boolean; expectedVersion?: FsVersion } = {},
 ): Promise<void> {
   const displayPath = options.displayPath ?? absolutePath
   const existingDestination = options.existingDestination ?? mode !== undefined
@@ -649,6 +649,7 @@ export async function writeFileAtomic(
     handle = undefined
 
     throwIfAborted(signal, 'write')
+    if (options.expectedVersion !== undefined) await assertVersion(absolutePath, displayPath, options.expectedVersion, 'write')
     if (options.createIfAbsent) {
       try {
         await linkFile(tempPath, absolutePath)
@@ -693,14 +694,25 @@ export async function writeFileAtomic(
  * @param absolutePath - resolved file identity; a concurrently substituted directory is refused.
  * @param displayPath - caller-facing source path for diagnostics.
  * @param internals - optional source-removal fault injection; omission uses non-recursive rm.
+ * @param expectedVersion - rejects FS_STALE_VERSION when the file drifted before removal.
  * @returns once removal completes; permission and other failures use filesystem error codes.
  */
-export async function removeFile(absolutePath: string, displayPath: string, internals: FsIoInternals = {}): Promise<void> {
+export async function removeFile(
+  absolutePath: string, displayPath: string, internals: FsIoInternals = {}, expectedVersion?: FsVersion,
+): Promise<void> {
+  if (expectedVersion !== undefined) await assertVersion(absolutePath, displayPath, expectedVersion, 'delete')
   try {
     await (internals.removeFile ?? rm)(absolutePath)
   } catch (error: unknown) {
     throw new FsError(`cannot delete "${displayPath}": ${errorMessage(error)}`,
       isPermissionError(error) ? 'FS_PERMISSION_DENIED' : 'FS_IO_ERROR', { cause: error })
+  }
+}
+
+export async function assertVersion(absolutePath: string, displayPath: string, version: FsVersion, verb: string): Promise<void> {
+  const current = await probe(absolutePath)
+  if (!current || current.version !== version) {
+    throw new FsError(`cannot ${verb} "${displayPath}": file changed since it was read`, 'FS_STALE_VERSION')
   }
 }
 
@@ -720,10 +732,29 @@ function normalizeLineEndings(content: string): string {
 }
 
 function detectLineEndings(raw: string): LineEndings {
-  const sample = raw.slice(0, 4096)
-  const crlfCount = sample.split('\r\n').length - 1
-  const lfCount = sample.split('\n').length - 1 - crlfCount
+  const crlfCount = raw.split('\r\n').length - 1
+  const lfCount = raw.split('\n').length - 1 - crlfCount
   return crlfCount > lfCount ? 'CRLF' : 'LF'
+}
+
+function rawOffset(raw: string, normalizedOffset: number): number {
+  let index = 0
+  for (let seen = 0; seen < normalizedOffset; seen++) index += raw.startsWith('\r\n', index) ? 2 : 1
+  return index
+}
+
+function restoreEditedText(original: { raw: string; content: string; lineEndings: LineEndings }, after: string): string {
+  const { raw, content, lineEndings } = original
+  if (after === content) return raw
+  if (raw === content) return restoreLineEndings(after, lineEndings)
+  const limit = Math.min(content.length, after.length)
+  let prefix = 0
+  while (prefix < limit && content.charCodeAt(prefix) === after.charCodeAt(prefix)) prefix++
+  let suffix = 0
+  while (suffix < limit - prefix && content.charCodeAt(content.length - 1 - suffix) === after.charCodeAt(after.length - 1 - suffix)) suffix++
+  return raw.slice(0, rawOffset(raw, prefix))
+    + restoreLineEndings(after.slice(prefix, after.length - suffix), lineEndings)
+    + raw.slice(rawOffset(raw, content.length - suffix))
 }
 
 /**
@@ -738,14 +769,14 @@ function restoreLineEndings(content: string, lineEndings: LineEndings): string {
   return lineEndings === 'LF' ? content : normalizeLineEndings(content).split('\n').join('\r\n')
 }
 
-function countOccurrences(content: string, needle: string): number {
+function countOccurrences(content: string, needle: string, overlapping: boolean): number {
   let count = 0
   let index = 0
   while (true) {
     const found = content.indexOf(needle, index)
     if (found === -1) return count
     count += 1
-    index = found + needle.length
+    index = found + (overlapping ? 1 : needle.length)
   }
 }
 
@@ -761,13 +792,13 @@ export async function readForEdit(
   absolutePath: string,
   displayPath: string,
   signal?: AbortSignal,
-): Promise<{ content: string; lineEndings: LineEndings }> {
+): Promise<{ content: string; lineEndings: LineEndings; raw: string }> {
   throwIfAborted(signal, 'edit')
   const buffer = await readFileAbortable(absolutePath, displayPath, 'edit', signal)
   throwIfAborted(signal, 'edit')
   if (buffer.includes(0)) throw new FsError(`cannot edit "${displayPath}": binary file`, 'FS_NOT_TEXT')
   const raw = decodeUtf8(buffer, 'edit', displayPath)
-  return { content: normalizeLineEndings(raw), lineEndings: detectLineEndings(raw) }
+  return { content: normalizeLineEndings(raw), lineEndings: detectLineEndings(raw), raw }
 }
 
 /**
@@ -844,6 +875,7 @@ export async function readTextForDiff(
  * @param newString - literal replacement text, normalized the same way.
  * @param replaceAll - replace every match instead of requiring exactly one.
  * @param displayPath - the caller-facing path used in error messages.
+ * @param append - append `newString` to the end instead of replacing; requires an empty `oldString`.
  * @returns the edited LF-normalized content plus how many occurrences were replaced.
  */
 export function applyLiteralEdit(
@@ -852,13 +884,18 @@ export function applyLiteralEdit(
   newString: string,
   replaceAll: boolean,
   displayPath: string,
+  append = false,
 ): { content: string; replacements: number } {
   const oldNorm = normalizeLineEndings(oldString)
+  if (append) {
+    if (oldNorm.length !== 0) throw new FsError('old_string must be empty when appending', 'FS_EDIT_NOT_FOUND')
+    return { content: content + normalizeLineEndings(newString), replacements: 1 }
+  }
   if (oldNorm.length === 0) {
     throw new FsError('old_string must be a non-empty string', 'FS_EDIT_NOT_FOUND')
   }
   const newNorm = normalizeLineEndings(newString)
-  const replacements = countOccurrences(content, oldNorm)
+  const replacements = countOccurrences(content, oldNorm, !replaceAll)
   if (replacements === 0) {
     throw new FsError(`old_string was not found in "${displayPath}"`, 'FS_EDIT_NOT_FOUND')
   }
@@ -868,4 +905,4 @@ export function applyLiteralEdit(
   return { content: content.split(oldNorm).join(newNorm), replacements }
 }
 
-export { normalizeLineEndings, restoreLineEndings }
+export { normalizeLineEndings, restoreEditedText, restoreLineEndings }

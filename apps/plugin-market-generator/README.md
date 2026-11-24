@@ -27,7 +27,7 @@ pnpm --filter @deepseek-ai/dsh-plugin-market-generator start \
 | Option | Default | Meaning |
 |---|---|---|
 | `--input <file>` | required | Source list. |
-| `--output <file>` | required | Index file. Icons too large to inline are written to `icons/` next to it; generated icon files the index no longer uses are removed from there. |
+| `--output <file>` | required | Index file. Icons too large to inline are written to `icons/` next to it; after the new index is written, generated icon files that neither it nor another `.json` file in the same directory references are removed from there. |
 | `--title <text>` | required | Market title. |
 | `--description <text>` | none | Market description. |
 | `--cache <dir>` | `.plugin-market-cache` next to the input list | Result cache. It stays out of the output directory, which is published. |

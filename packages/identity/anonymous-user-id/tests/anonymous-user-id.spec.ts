@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -66,6 +66,46 @@ describe('getOrCreateAnonymousUserId', () => {
       },
     })
     expect(id).toBe(winner)
+  })
+
+  it('does not overwrite a corrupt file while another process holds the creation lock', () => {
+    const home = tempHome()
+    const file = join(home, ANONYMOUS_USER_ID_FILE_NAME)
+    writeFileSync(file, '', 'utf8')
+    writeFileSync(`${file}.lock`, '1\n', 'utf8')
+    const id = getOrCreateAnonymousUserId({ env: { DSH_HOME: home }, lockTimeoutMs: 30 })
+    expect(id).toMatch(UUID)
+    expect(readFileSync(file, 'utf8')).toBe('')
+    expect(existsSync(`${file}.lock`)).toBe(true)
+  })
+
+  it('adopts the id the lock holder published while this process waited', () => {
+    const home = tempHome()
+    const file = join(home, ANONYMOUS_USER_ID_FILE_NAME)
+    const winner = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    writeFileSync(file, 'garbage\n', 'utf8')
+    writeFileSync(`${file}.lock`, '1\n', 'utf8')
+    const id = getOrCreateAnonymousUserId({
+      env: { DSH_HOME: home },
+      lockTimeoutMs: 30,
+      randomUUID: () => {
+        writeFileSync(file, `${winner}\n`, 'utf8')
+        return 'ffffffff-0000-4000-8000-000000000000'
+      },
+    })
+    expect(id).toBe(winner)
+    expect(readFileSync(file, 'utf8')).toBe(`${winner}\n`)
+  })
+
+  it('removes a stale lock and publishes without leaving lock or temp files', () => {
+    const home = tempHome()
+    const file = join(home, ANONYMOUS_USER_ID_FILE_NAME)
+    writeFileSync(`${file}.lock`, '1\n', 'utf8')
+    const old = new Date(Date.now() - 60_000)
+    utimesSync(`${file}.lock`, old, old)
+    const id = getOrCreateAnonymousUserId({ env: { DSH_HOME: home }, lockTimeoutMs: 30 })
+    expect(readFileSync(file, 'utf8')).toBe(`${id}\n`)
+    expect(readdirSync(home)).toEqual([ANONYMOUS_USER_ID_FILE_NAME])
   })
 
   it('returns a usable id when the home cannot contain files, without persisting', () => {

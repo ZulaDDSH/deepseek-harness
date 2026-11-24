@@ -30,7 +30,8 @@ interface SearchMeta {
 
 interface FetchMeta {
   url: string
-  statusCode: number
+  finalUrl?: string | null
+  statusCode?: number | null
   truncated: boolean
 }
 
@@ -106,6 +107,19 @@ describe('webCardModel', () => {
     })
     expect(webCardModel(settledFetch({ meta: fetchMeta({ statusCode: 404, truncated: true }) })))
       .toEqual({ kind: 'fetch', url: 'https://example.com/page', statusCode: 404, truncated: true })
+  })
+
+  it('derives a fetch card when the fetch service reported no status code', () => {
+    const { statusCode: _omit, ...meta } = fetchMeta()
+    expect(webCardModel(settledFetch({ meta }))).toEqual({ kind: 'fetch', url: 'https://example.com/page', truncated: false })
+    expect(webCardModel(settledFetch({ meta: { ...meta, statusCode: 'x' } }))).toBeNull()
+  })
+
+  it('marks an unreported final URL and status, and falls back to the requested URL', () => {
+    expect(webCardModel(settledFetch({ meta: fetchMeta({ finalUrl: null, statusCode: null }) })))
+      .toEqual({ kind: 'fetch', url: 'https://example.com/page', finalUrlUnreported: true, truncated: false })
+    expect(webCardModel(settledFetch({ meta: fetchMeta({ finalUrl: 'https://example.com/final' }) })))
+      .toEqual({ kind: 'fetch', url: 'https://example.com/final', statusCode: 200, truncated: false })
   })
 
   it('returns null for a running call, since the web card is result-only', () => {

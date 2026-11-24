@@ -10,6 +10,7 @@
 import type { Dispatcher, Pool } from 'undici'
 import {
   isSupportedProxyUrl,
+  PROXY_FAIL_CLOSED_ENV,
   POLICY_ENV_NAMES,
   PROXY_ENV_NAMES,
   proxyForUrl,
@@ -196,7 +197,7 @@ async function createPolicyDispatcher(policy: ProxyPolicy, options: DispatcherOp
  * @param options - optional dispatcher overrides; `allowH2` unset keeps undici's own default.
  * @returns a disposer restoring the previous dispatcher, policy, and environment, then closing the agent.
  */
-async function installGlobalProxy(policy: ProxyPolicy, options: DispatcherOptions = {}): Promise<() => Promise<void>> {
+async function installLayer(policy: ProxyPolicy, options: DispatcherOptions = {}): Promise<() => Promise<void>> {
   const previousPolicy = active
   if (policy.source === 'none') {
     // A direct policy mounted over an installed one must actually stop proxying. Recording the policy
@@ -249,6 +250,43 @@ async function installGlobalProxy(policy: ProxyPolicy, options: DispatcherOption
 
 
 
+
+const layers: object[] = []
+
+let lifecycle: Promise<unknown> = Promise.resolve()
+
+function serialized<T>(work: () => Promise<T>): Promise<T> {
+  const run = lifecycle.then(work, work)
+  lifecycle = run.catch(() => undefined)
+  return run
+}
+
+async function installGlobalProxy(policy: ProxyPolicy, options: DispatcherOptions = {}): Promise<() => Promise<void>> {
+  return await serialized(async () => {
+    const release = await installLayer(policy, options)
+    const layer = {}
+    layers.push(layer)
+    let disposed = false
+    return () => serialized(async () => {
+      if (disposed) return
+      if (layers.at(-1) !== layer) {
+        throw new Error('http-proxy: installations must be disposed in the reverse order they were installed')
+      }
+      disposed = true
+      layers.pop()
+      await release()
+    })
+  })
+}
+
+function resolveStrictProxyPolicy(env: EnvLookup): ReturnType<typeof resolveProxyPolicy> {
+  const resolution = resolveProxyPolicy(env)
+  const failClosed = env.get(PROXY_FAIL_CLOSED_ENV)?.value.trim().toLowerCase()
+  if ((failClosed === '1' || failClosed === 'true') && resolution.diagnostics.length > 0) {
+    throw new Error(`${PROXY_FAIL_CLOSED_ENV} is set and a proxy value cannot be used: ${resolution.diagnostics.map(diagnostic => diagnostic.message).join('; ')}`)
+  }
+  return resolution
+}
 
 /**
  * The proxy environment a spawned child needs.
@@ -332,7 +370,7 @@ export async function installProxyFromEnvironment(
   report: (message: string) => void,
   options: DispatcherOptions = {},
 ): Promise<() => Promise<void>> {
-  const { policy, diagnostics } = resolveProxyPolicy(env)
+  const { policy, diagnostics } = resolveStrictProxyPolicy(env)
   for (const diagnostic of diagnostics) report(diagnostic.message)
   return await installGlobalProxy(policy, options)
 }
@@ -353,7 +391,7 @@ export async function createRouteDispatcher(
   env: EnvLookup,
   options: DispatcherOptions = {},
 ): Promise<Dispatcher> {
-  const { policy } = resolveProxyPolicy(env)
+  const { policy } = resolveStrictProxyPolicy(env)
   const dispatcher = policy.source === 'none'
     ? await (async () => {
       const { Agent } = await import('undici')

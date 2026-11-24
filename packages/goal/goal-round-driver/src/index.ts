@@ -41,6 +41,7 @@ interface DriverState {
   readonly agent: Agent
   attempt: RoundAttempt | undefined
   competingQueued: boolean
+  abandoned: MessageId | undefined
   needsCheckpoint: boolean
   requested: boolean
   run: Promise<void> | undefined
@@ -88,6 +89,7 @@ export function apply(ctx: Context): void {
       agent,
       attempt: undefined,
       competingQueued: false,
+      abandoned: undefined,
       needsCheckpoint: false,
       requested: false,
       run: undefined,
@@ -159,6 +161,28 @@ export function apply(ctx: Context): void {
       if (agent.inbox.nextStep.some(candidate => candidate.id === message.id)
         || agent.inbox.nextTurn.some(candidate => candidate.id === message.id)) continue
       agent.inbox.prepend('next-step', message)
+    }
+  }
+
+  function refundInterrupted(state: DriverState, attempt: RoundAttempt): GoalView | undefined {
+    const goal = currentGoal(state)
+    if (goal === undefined || goal.id !== attempt.goalId || goal.phase === 'complete' || goal.roundsStarted !== attempt.round) return undefined
+    return ctx.goals.refundRound(state.agent, goalRef(goal))
+  }
+
+  function turnAborted(agent: Agent): boolean {
+    const end = agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')
+    return end?.type === 'turn/end' && end.data.reason.kind === 'aborted' && end.data.reason.reason.kind !== 'disposed'
+  }
+
+  function settleUnloaded(state: DriverState): void {
+    const attempt = state.attempt
+    if (attempt?.phase !== 'admitted' || !turnAborted(state.agent)) return
+    state.attempt = undefined
+    try {
+      refundInterrupted(state, attempt)
+    } catch (error: unknown) {
+      ctx.logger.warn(`goal-round-driver: could not refund the interrupted round of agent "${state.agent.id}": ${renderThrown(error)}`)
     }
   }
 
@@ -305,13 +329,16 @@ export function apply(ctx: Context): void {
           && (attempt.phase === 'queued' || attempt.phase === 'claimed' || attempt.cancelled)
           && goal !== undefined && goal.phase === 'active' && goal.activation === 'armed'
           && attempt.goalId === goal.id && attempt.revision === goal.revision
+        const interrupted = attempt?.phase === 'admitted' && attempt.cancelled
         // A reservation still queued when the agent reaches idle cannot run:
         // withdraw it so human input queued behind it is not stranded.
-        if (pause || attempt?.phase === 'queued') {
+        if (pause || interrupted || attempt?.phase === 'queued') {
           state.attempt = undefined
           try {
             if (attempt.phase === 'queued') agent.inbox.remove(attempt.messageId)
-            if (pause) ctx.goals.pause(agent, goalRef(goal))
+            let latest = goal
+            if (interrupted) latest = refundInterrupted(state, attempt) ?? goal
+            if (pause && latest !== undefined) ctx.goals.pause(agent, goalRef(latest))
           } catch (error: unknown) {
             ctx.logger.warn(`goal-round-driver: could not settle cancelled goal round for agent "${agent.id}": ${renderThrown(error)}`)
             disarm(state)
@@ -336,6 +363,11 @@ export function apply(ctx: Context): void {
     ctx.on('agent/inbox/inserted', ({ agent, message }) => {
       if (!agent.inbox.nextTurn.some(candidate => candidate.id === message.id)) return
       const state = stateFor(agent)
+      if (state.abandoned === message.id) {
+        state.abandoned = undefined
+        agent.inbox.remove(message.id)
+        return
+      }
       const attempt = state.attempt
       if (attempt !== undefined && sameQueued(message.content, message.source, attempt)) return
       state.competingQueued = true
@@ -437,6 +469,7 @@ export function apply(ctx: Context): void {
         // reservation before the balanced no-step turn returns to idle so the
         // next drive pass can reschedule the round.
         state.attempt = undefined
+        state.abandoned = submitted.id
         requestDrive(state)
         throw error
       }
@@ -499,6 +532,7 @@ export function apply(ctx: Context): void {
         if (state.run !== undefined) waits.push(state.run)
       }
       await Promise.allSettled(waits)
+      for (const state of states.values()) settleUnloaded(state)
       states.clear()
     }
   }, 'goal-round-driver lifecycle')

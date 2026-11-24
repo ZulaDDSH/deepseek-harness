@@ -781,11 +781,39 @@ describe('byte-bounded DeepSeek session-log upload', () => {
       .toEqual(full.events)
   })
 
-  it('omits the field and keeps the watermark while the next pending event alone exceeds maxBytes', async () => {
-    const { ctx, session, full } = await unbounded('bounded-oversized', ['x'.repeat(1000)])
+  it('uploads an oversized first event with its data elided and then continues with later events', async () => {
+    const { ctx, session, full } = await unbounded('bounded-oversized', ['x'.repeat(1000), 'tail'])
     const warnings: unknown[][] = []
     ctx.logger.exporter({ levels: { default: LoggerLevel.WARN }, export: (message) => { if (message.type === 'warn') warnings.push(message.args) } })
     const limit = bytes(prefix(full, 1)) - 1
+    const batches = await withMaxBytes(ctx, limit, async () => {
+      const first = await ctx.deepseekLlmApiExtensions.prepare({ body: body(), signal: SIGNAL, sessionId: session.id })
+      await first.accept()
+      session.append('turn/start', { turn: 1 })
+      const second = await prepareField(ctx, session)
+      return [first.fields.dsh_session_log, second]
+    })
+    const [first, second] = batches
+    expect(first?.events.map(event => event.seq)).toEqual(full.events.map(event => event.seq))
+    expect(first?.events.slice(1)).toEqual(full.events.slice(1))
+    expect(first?.events[0]).toEqual({
+      ...full.events[0],
+      data: { elided: true, reason: 'exceeds-max-bytes', bytes: limit + 1 },
+    })
+    expect(bytes(first!)).toBeLessThanOrEqual(limit)
+    expect(second?.afterSeq).toBe(full.throughSeq)
+    expect(second?.events.map(event => event.type)).toEqual(['session-log-deepseek/delivery-accepted', 'turn/start'])
+    expect(SessionLogDeepSeek.acceptedThrough(session)).toBe(full.throughSeq)
+    const warning = `session-log-deepseek: event 0 of session "bounded-oversized" needs a ${String(limit + 1)}-byte dsh_session_log field,`
+      + ` above maxBytes ${String(limit)}; uploading it with its data elided`
+    expect(warnings).toEqual([[warning]])
+  })
+
+  it('omits the field and keeps the watermark while even the elided first event exceeds maxBytes', async () => {
+    const { ctx, session, full } = await unbounded('bounded-blocked', ['x'.repeat(1000)])
+    const warnings: unknown[][] = []
+    ctx.logger.exporter({ levels: { default: LoggerLevel.WARN }, export: (message) => { if (message.type === 'warn') warnings.push(message.args) } })
+    const limit = bytes({ ...full, events: [] }) + 10
     await withMaxBytes(ctx, limit, async () => {
       const prepared = await ctx.deepseekLlmApiExtensions.prepare({ body: body(), signal: SIGNAL, sessionId: session.id })
       expect(prepared.fields).not.toHaveProperty('dsh_session_log')
@@ -794,41 +822,43 @@ describe('byte-bounded DeepSeek session-log upload', () => {
       expect(await prepareField(ctx, session)).toBeUndefined()
     })
     expect(SessionLogDeepSeek.acceptedThrough(session)).toBe(-1)
-    const warning = `session-log-deepseek: event 0 of session "bounded-oversized" needs a ${String(limit + 1)}-byte dsh_session_log field,`
+    const warning = `session-log-deepseek: event 0 of session "bounded-blocked" needs a ${String(bytes(prefix(full, 1)))}-byte dsh_session_log field,`
       + ` above maxBytes ${String(limit)}; this session's upload stays at event 0 until maxBytes admits it`
     expect(warnings).toEqual([[warning]])
   })
 
-  it('omits the field without failing the request when the next pending event exceeds the string limit', async () => {
-    const { ctx, session } = await harness('bounded-string-limit', userMessages(['x'.repeat(100)]))
+  it('uploads an event too large to serialize with its data elided instead of failing the request', async () => {
+    const { ctx, session } = await harness('bounded-string-limit', userMessages(['x'.repeat(100), 'tail']))
     const warnings: unknown[][] = []
     ctx.logger.exporter({ levels: { default: LoggerLevel.WARN }, export: (message) => { if (message.type === 'warn') warnings.push(message.args) } })
     const isBlocked = (value: unknown): boolean => typeof value === 'object' && value !== null
       && 'type' in value && value.type === 'user/message' && 'seq' in value && value.seq === 0
-    let overflows = 0
+      && 'data' in value && typeof value.data === 'object' && value.data !== null && !('elided' in value.data)
     const stringify = JSON.stringify.bind(JSON)
     const spy = vi.spyOn(JSON, 'stringify').mockImplementation((value: unknown, replacer?: (number | string)[] | null, space?: string | number) => {
       if (isBlocked(value) || (typeof value === 'object' && value !== null && 'events' in value
         && Array.isArray(value.events) && value.events.some(isBlocked))) {
-        overflows++
         throw new RangeError('Invalid string length')
       }
       return stringify(value, replacer, space)
     })
+    let first: DeepSeekSessionLogExtension | undefined
+    let second: DeepSeekSessionLogExtension | undefined
     try {
-      for (let request = 0; request < 2; request++) {
-        const prepared = await ctx.deepseekLlmApiExtensions.prepare({ body: body(), signal: SIGNAL, sessionId: session.id })
-        expect(prepared.fields).not.toHaveProperty('dsh_session_log')
-        await prepared.accept()
-      }
+      const prepared = await ctx.deepseekLlmApiExtensions.prepare({ body: body(), signal: SIGNAL, sessionId: session.id })
+      first = prepared.fields.dsh_session_log
+      await prepared.accept()
+      second = await prepareField(ctx, session)
     } finally {
       spy.mockRestore()
     }
-    // One serialization attempt per request: the warning reuses the measured size.
-    expect(overflows).toBe(2)
-    expect(SessionLogDeepSeek.acceptedThrough(session)).toBe(-1)
+    expect(first?.events.map(event => event.seq)).toEqual([0, 1, 2])
+    expect(first?.events[0]?.data).toEqual({ elided: true, reason: 'unserializable' })
+    expect(first?.events[1]?.data).toBeDefined()
+    expect(second?.events.map(event => event.type)).toEqual(['session-log-deepseek/delivery-accepted'])
+    expect(SessionLogDeepSeek.acceptedThrough(session)).toBe(2)
     const warning = 'session-log-deepseek: event 0 of session "bounded-string-limit" is too large to serialize into a dsh_session_log field;'
-      + " this session's upload stays at event 0"
+      + ' uploading it with its data elided'
     expect(warnings).toEqual([[warning]])
   })
 })

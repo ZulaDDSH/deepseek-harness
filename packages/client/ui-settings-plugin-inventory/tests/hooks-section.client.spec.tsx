@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HooksSettingsSection, hookName } from '../src/client/HooksSettingsSection.tsx'
 import type { HooksSettingsSectionProps } from '../src/client/HooksSettingsSection.tsx'
@@ -12,8 +12,8 @@ type Snapshot = Awaited<ReturnType<List>>
 
 const t = ((key: PluginInventoryLocaleKey) => en[key]) as HooksSettingsSectionProps['t']
 
-function sectionProps(list: List, setEnabledHooks = vi.fn(async () => {})): HooksSettingsSectionProps {
-  return { t, list, setEnabledHooks, setHookDescriptions: vi.fn(async () => {}), close: () => {} } as HooksSettingsSectionProps
+function sectionProps(list: List, updateEnabledHooks = vi.fn(async () => {}), setHookDescriptions = vi.fn(async () => {})): HooksSettingsSectionProps {
+  return { t, list, updateEnabledHooks, setHookDescriptions, close: () => {} } as HooksSettingsSectionProps
 }
 
 const loaded: Snapshot = {
@@ -56,10 +56,48 @@ describe('HooksSettingsSection failures', () => {
   })
 
   it('reports a write rejected with a non-Error value', async () => {
-    const setEnabledHooks = vi.fn().mockRejectedValue('quota exceeded')
-    render(<HooksSettingsSection {...sectionProps(async () => loaded, setEnabledHooks)} />)
+    const updateEnabledHooks = vi.fn().mockRejectedValue('quota exceeded')
+    render(<HooksSettingsSection {...sectionProps(async () => loaded, updateEnabledHooks)} />)
     fireEvent.click(await screen.findByRole('button', { name: en.hooksDisableAll }))
     expect(await screen.findByText(`${en.hooksWriteFailed}: quota exceeded`)).toBeTruthy()
+  })
+
+  it('keeps switches disabled until the post-save inventory read has returned', async () => {
+    const refreshed = Promise.withResolvers<Snapshot>()
+    const list = vi.fn<List>().mockResolvedValueOnce(loaded).mockReturnValueOnce(refreshed.promise)
+    const updateEnabledHooks = vi.fn(async () => {})
+    render(<HooksSettingsSection {...sectionProps(list, updateEnabledHooks)} />)
+    fireEvent.click(await screen.findByRole('switch'))
+    await waitFor(() => { expect(updateEnabledHooks).toHaveBeenCalledOnce() })
+    await act(async () => {})
+    expect((screen.getByRole('switch') as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => { refreshed.resolve(loaded) })
+    expect((screen.getByRole('switch') as HTMLButtonElement).disabled).toBe(false)
+  })
+})
+
+describe('HooksSettingsSection description drafts', () => {
+  const described: Snapshot = {
+    entries: [],
+    hooks: [{
+      dialect: 'codex', source: '/h.json', status: 'loaded', settingsNs: 'hooks-1', skipped: [],
+      handlers: [{ event: 'Stop', command: 'node "/h/guard.mjs"', key: 'k1', description: 'Old' }],
+    }],
+  }
+  const field = (): HTMLInputElement => screen.getByRole<HTMLInputElement>('textbox', { name: `${en.hooksDescription}: guard` })
+
+  it('keeps a rejected description draft open so the save can be retried', async () => {
+    const setHookDescriptions = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined)
+    render(<HooksSettingsSection {...sectionProps(async () => described, undefined, setHookDescriptions)} />)
+    fireEvent.click(await screen.findByRole('button', { name: en.hooksDescriptionEdit }))
+    fireEvent.change(field(), { target: { value: 'Blocks writes' } })
+    fireEvent.click(screen.getByRole('button', { name: en.hooksDescriptionSave }))
+    expect(await screen.findByText(`${en.hooksWriteFailed}: offline`)).toBeTruthy()
+    expect(field().value).toBe('Blocks writes')
+    fireEvent.click(screen.getByRole('button', { name: en.hooksDescriptionSave }))
+    await waitFor(() => { expect(setHookDescriptions).toHaveBeenCalledTimes(2) })
+    expect(setHookDescriptions).toHaveBeenLastCalledWith('hooks-1', ['k1'], 'Blocks writes')
+    await waitFor(() => { expect(screen.queryByRole('textbox', { name: `${en.hooksDescription}: guard` })).toBeNull() })
   })
 })
 

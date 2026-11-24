@@ -122,6 +122,7 @@ async function handlePresentOpen(ctx: Context, request: Request): Promise<Respon
     const { absolutePath: path } = await ctx.workspaceFiles.stat({
       sessionId: id as SessionId,
       workspaceRoot: session.cwd ?? ctx.sandboxPolicy.workspaceRoot,
+      trusted: true,
     }, file.path, request.signal)
     return await openVerified(ctx, request, path, action)
   } catch (error: unknown) {
@@ -149,10 +150,10 @@ async function handleWorkspaceStatus(ctx: Context, request: Request): Promise<Re
 async function handleWorkspaceDiff(ctx: Context, request: Request): Promise<Response> {
   const query = new URL(request.url).searchParams
   const workspaceId = query.get('workspaceId')
-  const index = coordinate(query.get('index'))
-  if (!workspaceId || index === undefined) return new Response('Invalid workspace diff coordinates.', { status: 400 })
+  const path = query.get('path')
+  if (!workspaceId || !path) return new Response('Invalid workspace diff coordinates.', { status: 400 })
   try {
-    const diff = await ctx.workspaceChanges.workspaceDiff(workspaceId as WorkspaceId, index, request.signal)
+    const diff = await ctx.workspaceChanges.workspaceDiff(workspaceId as WorkspaceId, path, request.signal)
     if (diff === undefined) return new Response('Workspace comparison unavailable.', { status: 404 })
     return Response.json(diff, { headers: { 'cache-control': 'no-store' } })
   } catch (error: unknown) {
@@ -167,8 +168,8 @@ async function handleChangesSummary(ctx: Context, request: Request): Promise<Res
   if (!id || seq === undefined) return new Response('Invalid change summary coordinates.', { status: 400 })
   const summary = await ctx.workspaceChanges.summary(id as SessionId, seq)
   if (summary === undefined) return new Response('Change summary unavailable.', { status: 404 })
-  const { turn, files, total, added, deleted } = summary
-  return Response.json({ turn, files, total, added, deleted } satisfies ChangesSummary, { headers: { 'cache-control': 'no-store' } })
+  const { turn, files, total, added, deleted, incomplete } = summary
+  return Response.json({ turn, files, total, added, deleted, ...incomplete === undefined ? {} : { incomplete } } satisfies ChangesSummary, { headers: { 'cache-control': 'no-store' } })
 }
 
 /** A changed file's coordinates from a route query, or the 400 to answer with. */
@@ -210,7 +211,7 @@ async function handleChangesOpen(ctx: Context, request: Request): Promise<Respon
     const workspaceRoot = changes.cwd
     const file = changes.files[index]
     if (file === undefined) return new Response('Changed file not found in this summary.', { status: 404 })
-    const { absolutePath: path } = await ctx.workspaceFiles.stat({ sessionId: id, workspaceRoot }, file.path, request.signal)
+    const { absolutePath: path } = await ctx.workspaceFiles.stat({ sessionId: id, workspaceRoot, trusted: true }, file.path, request.signal)
     return await openVerified(ctx, request, path, action)
   } catch (error: unknown) {
     request.signal.throwIfAborted()

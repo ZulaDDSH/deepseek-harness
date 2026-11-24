@@ -165,8 +165,21 @@ describe('DiscoverSection', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('requests no remote icon until the user turns remote icons on', () => {
+    renderTab()
+    expect(document.querySelector('img')).toBeNull()
+    const toggle = screen.getByRole('button', { name: en.remoteIcons })
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    expect(document.querySelector('[data-market-entry="dsh-a"] img')?.getAttribute('src')).toBe('https://cdn.example/a.png')
+    fireEvent.click(toggle)
+    expect(document.querySelector('img')).toBeNull()
+  })
+
   it('falls back to the default artwork when an icon fails to load', () => {
     renderTab()
+    fireEvent.click(screen.getByRole('button', { name: en.remoteIcons }))
     const image = document.querySelector('[data-market-entry="dsh-a"] img') as HTMLImageElement
     expect(image.getAttribute('loading')).toBe('lazy')
     fireEvent.error(image)
@@ -481,7 +494,7 @@ describe('DiscoverSection', () => {
     expect(actions.addSource).toHaveBeenCalledOnce()
     for (const [failure, text] of [
       [{ kind: 'invalid' }, en.sourceInvalid], [{ kind: 'duplicate' }, en.sourceDuplicate],
-      [{ kind: 'unavailable' }, en.sourceUnavailable], [{ kind: 'other', reason: 'boom' }, en.sourceFailed],
+      [{ kind: 'unavailable' }, en.sourceUnavailable], [{ kind: 'changed' }, en.sourceChanged], [{ kind: 'other', reason: 'boom' }, en.sourceFailed],
     ] as const) {
       set({ sourceFailure: failure })
       expect(screen.getByRole('alert').textContent).toBe(text)

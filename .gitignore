@@ -57,3 +57,6 @@ graphify-out/
 
 # Generated company-signed CUA release record.
 /packages/experimental/cua-macos/cua-helper.json
+
+# CI checkout of ZulaDDSH/CodeNotes (DSH_CODE_NOTES_DIR).
+/code-notes/

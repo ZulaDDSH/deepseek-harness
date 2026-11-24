@@ -104,7 +104,7 @@ export async function searchWorkspace(
       timeout.signal.throwIfAborted()
       throw new RemoteError('workspace-file/search-failed', 'Could not launch or read workspace file search; the subprocess provider must be able to execute the packaged ripgrep binary', {}, { cause })
     }
-    const { outcome, stopped } = run
+    const { outcome, stopped, undecodable } = run
     combined.throwIfAborted()
     if (!stopped && (outcome.signal !== null || (outcome.exitCode !== 0 && outcome.exitCode !== 1 && outcome.exitCode !== 2))) {
       throw new RemoteError('workspace-file/search-failed', `Workspace file search exited with code ${outcome.exitCode} and signal ${outcome.signal}; check the subprocess provider${stderr.length > 0 ? `: ${stderr}` : ''}`, {})
@@ -117,6 +117,7 @@ export async function searchWorkspace(
       matches: matches.slice(0, spec.maxResults),
       truncated: matches.length > spec.maxResults,
       incomplete: stopped || outcome.exitCode === 2,
+      ...undecodable === undefined ? {} : { undecodable },
     }
   } finally {
     clearTimeout(timer)

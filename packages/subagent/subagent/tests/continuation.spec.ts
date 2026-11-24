@@ -478,6 +478,59 @@ describe('continuable activation capacity', () => {
     }
   })
 
+  it('retries a transient local handle disposal failure inside one teardown', async () => {
+    const releaseRun = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('busy'), gate: releaseRun.promise }])
+    const { ctx, parent } = await setupWith(adapter, { maxActiveSubagents: 1 })
+    parkParent(ctx, parent)
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+    const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const handle = requireLocalActivation(managerState(ctx).resident.get(started.childId)!).handle
+    const dispose = handle.dispose.bind(handle)
+    let failures = 1
+    handle.dispose = async () => {
+      if (failures > 0) {
+        failures -= 1
+        throw new Error('handle busy')
+      }
+      await dispose()
+    }
+    releaseRun.resolve(undefined)
+    await expect(started.dispose()).resolves.toBeUndefined()
+    expect(failures).toBe(0)
+    expect(ended).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-drives a fully failed local handle disposal on a later dispose without a second end event', async () => {
+    const releaseRun = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('busy'), gate: releaseRun.promise }])
+    const { ctx, parent } = await setupWith(adapter, { maxActiveSubagents: 1 })
+    parkParent(ctx, parent)
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+    const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const handle = requireLocalActivation(managerState(ctx).resident.get(started.childId)!).handle
+    const dispose = handle.dispose.bind(handle)
+    let failures = 3
+    handle.dispose = async () => {
+      if (failures > 0) {
+        failures -= 1
+        throw new Error('handle busy')
+      }
+      await dispose()
+    }
+    releaseRun.resolve(undefined)
+    await expect(started.dispose()).rejects.toMatchObject({ code: 'ACTIVATION_TEARDOWN_FAILED' })
+    expect(ended).toHaveBeenCalledTimes(1)
+    expect(failures).toBe(0)
+    await expect(started.dispose()).resolves.toBeUndefined()
+    await expect(started.dispose()).resolves.toBeUndefined()
+    expect(ended).toHaveBeenCalledTimes(1)
+  })
+
   it.each([false, true])('retains the slot through disposal, including cleanup failure: %s', async (failDisposal) => {
     const releaseRun = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter([
@@ -514,6 +567,30 @@ describe('continuable activation capacity', () => {
       releaseDisposal.resolve(undefined)
       await ctx.fiber.dispose()
     }
+  })
+
+  it('retries a failed idle wait inside the real local handle teardown without a handle stub', async () => {
+    const releaseRun = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('busy'), gate: releaseRun.promise }])
+    const { ctx, parent } = await setupWith(adapter, { maxActiveSubagents: 1 })
+    parkParent(ctx, parent)
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+    const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const activation = managerState(ctx).resident.get(started.childId)!
+    const { agent } = requireLocalActivation(activation).handle
+    const idleWait = agent.whenIdle.bind(agent)
+    let closingIdleWaits = 0
+    vi.spyOn(agent, 'whenIdle').mockImplementation(() => {
+      if (activation.closing !== undefined) closingIdleWaits += 1
+      if (closingIdleWaits === 2) return Promise.reject(new Error('idle wait failed'))
+      return idleWait()
+    })
+    releaseRun.resolve(undefined)
+    await expect(started.dispose()).resolves.toBeUndefined()
+    expect(closingIdleWaits).toBe(3)
+    expect(ended).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -1563,6 +1640,38 @@ describe('continuable child ownership', () => {
 })
 
 describe('continuable durability and teardown', () => {
+  it('returns a send_message id only after the target inbox insertion is flushed', async () => {
+    const releaseFirstTurn = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('first answer'), gate: releaseFirstTurn.promise },
+      { chunks: textResponse('second answer') },
+    ])
+    const { ctx, parent } = await setupWith(adapter)
+    parkParent(ctx, parent)
+    const flushing = Promise.withResolvers<undefined>()
+    const releaseFlush = Promise.withResolvers<undefined>()
+    let childFlushes = 0
+    ctx.on('session/flush', async (session) => {
+      if (session.header.parentSession === undefined) return
+      childFlushes++
+      if (childFlushes !== 1) return
+      flushing.resolve(undefined)
+      await releaseFlush.promise
+    })
+
+    const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
+    let accepted = false
+    const sent = ctx.subagents.sendMessage(parent, started.childId, message('durable please'), { signal: testSignal })
+      .then((id) => { accepted = true; return id })
+    await flushing.promise
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(accepted).toBe(false)
+    releaseFlush.resolve(undefined)
+    await expect(sent).resolves.toBeTruthy()
+    releaseFirstTurn.resolve(undefined)
+    await waitNoActivation(ctx, started.childId)
+  })
+
   it('rechecks direct Agent inbox work accepted during the final flush', async () => {
     const releaseFirstTurn = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter([
@@ -2841,6 +2950,27 @@ describe('continuable review regressions', () => {
     await waitNoActivation(ctx, started.childId)
   })
 
+  it('runs a send_message accepted between interrupt and idle once the child converges', async () => {
+    const release = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('working'), gate: release.promise },
+      { chunks: textResponse('woken answer') },
+    ])
+    const { ctx, parent } = await setupWith(adapter)
+    parkParent(ctx, parent)
+    const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const child = ctx.agents.get(started.childId)!
+    ctx.subagents.interrupt(started.childId, { kind: 'user' })
+    await ctx.subagents.sendMessage(parent, started.childId, message('after interrupt'), { signal: testSignal })
+    release.resolve(undefined)
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
+    await child.whenIdle()
+    expect([...child.inbox.nextTurn, ...child.inbox.nextStep]).toEqual([])
+    expect(hasUserText(child.session.snapshotEvents(), 'after interrupt')).toBe(true)
+    await waitNoActivation(ctx, started.childId)
+  })
+
   it('settles after a delivery discarded inside its own admission window', async () => {
     const releaseFirst = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter([{ chunks: textResponse('working'), gate: releaseFirst.promise }])
@@ -3326,7 +3456,7 @@ describe('continuable settlement delivery', () => {
     const child = await loadStoredSession(ctx.sessionPersistence, started.childId)
     expect(hasUserText(child.events, 'second task')).toBe(false)
     expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.name} failed before it finished.\nIts closing message:\nthe answer`,
+      `Background subagent ${started.name} failed before it finished.\nIts failure: ENOSPC: no space left on device\nIts closing message:\nthe answer`,
     )
   })
 

@@ -1067,6 +1067,43 @@ describe('HarnessSdkJsonRpcServer', () => {
     }
   })
 
+  it('treats initialize as one operation: repeats join it and conflicting handshakes reject', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-reinit-'))
+    const ctx = await makeHarness(storageDir)
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([]))
+    try {
+      const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+      const params = { cwd: storageDir, provider: 'mock', model: 'mock' }
+      const first = server.initialize(params)
+      const concurrent = server.initialize({ ...params })
+      const conflicting = server.initialize({ ...params, approvalRequests: true })
+      await expect(conflicting).rejects.toThrow('different parameters')
+      await expect(first).resolves.toEqual(await concurrent)
+      await expect(server.initialize({ ...params })).resolves.toEqual(await first)
+      await expect(server.initialize({ ...params, cwd: join(storageDir, 'other') })).rejects.toThrow('different parameters')
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('lets a failed handshake be retried with corrected parameters', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-reinit-retry-'))
+    const ctx = await makeHarness(storageDir)
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([]))
+    try {
+      const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+      await expect(server.initialize({ cwd: storageDir, provider: 'missing', model: 'mock' }))
+        .rejects.toThrow('no adapter registered')
+      await expect(server.initialize({ cwd: storageDir, provider: 'mock', model: 'mock' })).resolves.toBeDefined()
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
   it('rejects a missing non-DeepSeek provider when an LLM service already exists', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-new-llm-'))
     const ctx = await makeHarness(storageDir)

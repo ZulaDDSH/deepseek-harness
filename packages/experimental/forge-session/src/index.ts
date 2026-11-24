@@ -9,11 +9,17 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { deadline, MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { sameChangeRequestUrl } from './commands.ts'
+import { Limiter } from './limiter.ts'
 import { BINDING_RECORD, forgeChangeRequestsProjection } from './projection.ts'
 import { observeReferences } from './reference-lookup.ts'
 import type { BindingState, Config, ForgeChangeRequestsState, SessionChangeRequest, SessionChangeRequestsListener } from './types.ts'
 
 export type * from './types.ts'
+
+interface DiscoveryRun {
+  again: boolean
+  task: Promise<void>
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -50,6 +56,8 @@ export class ForgeSessionService extends Service {
   private readonly discoveryTimeoutMs: number
   private readonly watches = new Map<Session, SessionWatch>()
   private readonly discoveries = new Set<Promise<void>>()
+  private readonly discoveryRuns = new Map<string, DiscoveryRun>()
+  private readonly limiter = new Limiter(4, 64)
   private readonly sessionLifetimes = new WeakMap<Session, AbortController>()
   private readonly lifetime = new AbortController()
   private projection!: ProjectionHandle<ForgeChangeRequestsState>
@@ -157,7 +165,7 @@ export class ForgeSessionService extends Service {
     this.home.on('session/event', (session: Session, event: SessionEvent) => {
       this.react(session, event)
     })
-    observeReferences(this.home, this.discoveryTimeoutMs, (session, url) => {
+    observeReferences(this.home, this.discoveryTimeoutMs, this.limiter, (session, url) => {
       if (!this.state(session).bindings.some(binding => sameChangeRequestUrl(binding.url, url))) {
         appendPluginRecord(session, BINDING_RECORD, { action: 'reference', url })
       }
@@ -234,24 +242,45 @@ export class ForgeSessionService extends Service {
   private discover(session: Session, remote: string, branch: string): Promise<void> {
     const repository = this.home.forge.repositoryFromRemote(remote)
     if (repository === undefined) return Promise.resolve()
+    const key = JSON.stringify([session.id, repository.forge, repository.host, repository.owner, repository.name, branch])
+    const running = this.discoveryRuns.get(key)
+    if (running !== undefined) {
+      running.again = true
+      return running.task
+    }
     let lifetime = this.sessionLifetimes.get(session)
     if (lifetime === undefined) {
       lifetime = new AbortController()
       this.sessionLifetimes.set(session, lifetime)
     }
     const signal = AbortSignal.any([this.lifetime.signal, lifetime.signal])
-    const task = this.lookup(session, repository, branch, signal).catch((error: unknown) => {
-      if (signal.aborted) return
-      this.home.logger.warn(`forge-session: change request lookup for ${branch} failed: ${error instanceof Error ? error.message : String(error)}`)
-    })
-    this.discoveries.add(task)
-    void task.then(() => this.discoveries.delete(task))
-    return task
+    const run: DiscoveryRun = { again: false, task: Promise.resolve() }
+    this.discoveryRuns.set(key, run)
+    run.task = this.lookupUntilSettled(key, run, session, repository, branch, signal)
+    this.discoveries.add(run.task)
+    void run.task.then(() => this.discoveries.delete(run.task))
+    return run.task
+  }
+
+  private async lookupUntilSettled(
+    key: string, run: DiscoveryRun, session: Session, repository: ForgeRepository, branch: string, signal: AbortSignal,
+  ): Promise<void> {
+    try {
+      do {
+        run.again = false
+        await this.lookup(session, repository, branch, signal).catch((error: unknown) => {
+          if (signal.aborted) return
+          this.home.logger.warn(`forge-session: change request lookup for ${branch} failed: ${error instanceof Error ? error.message : String(error)}`)
+        })
+      } while (run.again && !signal.aborted)
+    } finally {
+      this.discoveryRuns.delete(key)
+    }
   }
 
   private async lookup(session: Session, repository: ForgeRepository, branch: string, signal: AbortSignal): Promise<void> {
     using timeout = deadline(signal, this.discoveryTimeoutMs, 'FORGE_DISCOVERY_TIMEOUT')
-    const refs = await this.home.forge.findByHead(repository, branch, timeout.signal)
+    const refs = await this.limiter.run(() => this.home.forge.findByHead(repository, branch, timeout.signal), timeout.signal)
     for (const ref of refs) {
       if (signal.aborted || this.home.sessions.get(session.id) !== session) return
       const url = this.home.forge.changeRequestUrl(ref)

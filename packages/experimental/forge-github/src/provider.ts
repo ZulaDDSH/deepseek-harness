@@ -320,16 +320,28 @@ export class GitHubProvider implements ForgeProvider {
       return { code: 'failed', message: failed.size === 0 ? 'No failed GitHub Actions job of the head commit can be rerun'
         : 'Every workflow run with a failed job is still running; rerun it once it finishes' }
     }
+    const accepted: number[] = []
     const refusals: string[] = []
+    const uncertain: string[] = []
+    let credentials: ForgeActionFailure | undefined
     for (const run of runs) {
-      const refused = await this.act(['api', '--hostname', host, '--method', 'POST', `${endpoint}/runs/${run}/rerun-failed-jobs`], signal)
-      if (refused === undefined) continue
-      if (refused.code === 'unauthenticated') return refused
-      // The head was checked before the first request, so a conflict here names no new commit.
-      refusals.push(`run ${run}: ${refused.message}`)
+      const outcome = await this.act(['api', '--hostname', host, '--method', 'POST', `${endpoint}/runs/${run}/rerun-failed-jobs`], signal)
+      if (outcome === undefined) accepted.push(run)
+      else if (outcome.code === 'unknown') uncertain.push(`run ${run}: ${outcome.message}`)
+      else if (outcome.code === 'unauthenticated') {
+        credentials = outcome
+        break
+      } else refusals.push(`run ${run}: ${outcome.message}`)
     }
-    return refusals.length === 0 ? undefined
-      : { code: 'failed', message: `GitHub refused to rerun ${refusals.length} of ${runs.length} workflow runs: ${refusals.join('; ')}` }
+    if (accepted.length === runs.length) return undefined
+    if (accepted.length === 0 && uncertain.length === 0) {
+      return credentials ?? { code: 'failed', message: `GitHub refused to rerun ${runs.length} workflow runs: ${refusals.join('; ')}` }
+    }
+    const parts = [`reran ${accepted.length} of ${runs.length} workflow runs`]
+    if (refusals.length > 0) parts.push(`refused: ${refusals.join('; ')}`)
+    if (uncertain.length > 0) parts.push(`outcome unknown: ${uncertain.join('; ')}`)
+    if (credentials !== undefined) parts.push(`stopped at credentials: ${credentials.message}`)
+    return { code: 'unknown', message: parts.join('; ') }
   }
 
   async requestReviews(
@@ -415,12 +427,19 @@ export class GitHubProvider implements ForgeProvider {
 
   /** Run one changing `gh` command; a refusal or a `gh` that cannot start becomes a failure. */
   private async act(args: readonly string[], signal: AbortSignal): Promise<ForgeActionFailure | undefined> {
-    const output = await this.attempt(args, signal)
+    let output: GhOutput | GhUnavailableError
+    try {
+      output = await this.attempt(args, signal)
+    } catch (error) {
+      if (error instanceof GhTimeoutError || error instanceof GhOutputLimitError) return { code: 'unknown', message: error.message }
+      throw error
+    }
     if (output instanceof GhUnavailableError) return { code: 'failed', message: output.message }
     if (output.exitCode === 0) return undefined
     const { message, status } = refusal(output)
     if (status === '409') return { code: 'stale', message }
     if (AUTHENTICATION.test(output.stderr)) return { code: 'unauthenticated', message }
+    if (status?.startsWith('5')) return { code: 'unknown', message }
     return { code: 'failed', message }
   }
 

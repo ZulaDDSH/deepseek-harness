@@ -15,7 +15,7 @@ import type { ScheduleId } from '../src/types.ts'
 import { createRRuleScheduleRecord } from '../src/domain.ts'
 import { ScheduleRuntime, type ScheduleRuntimeLimits } from '../src/runtime.ts'
 import type { ScheduleTask } from '../src/storage.ts'
-import { agentFor, harness, seededTask, type HarnessAgent } from './harness.ts'
+import { agentFor, harness, seededTask, type HarnessAgent, type ScheduleTaskFields } from './harness.ts'
 
 const LIMITS: ScheduleRuntimeLimits = { retention: { days: 30, records: 200 }, newSessionIntervalMs: 3_600_000 }
 const active: Awaited<ReturnType<typeof harness>>[] = []
@@ -31,7 +31,7 @@ afterEach(async () => {
 function task(
   target: ScheduleTask['target'],
   rrule = 'DTSTART:20260916T000001Z\nRRULE:FREQ=DAILY;COUNT=1',
-  fields: Partial<ScheduleTask> = {},
+  fields: ScheduleTaskFields = {},
 ): ScheduleTask {
   return seededTask(createRRuleScheduleRecord(brandString<ScheduleId>('task'), 'Task', 'Do work', rrule, Date.now()), target, fields)
 }
@@ -88,20 +88,31 @@ function archive(test: Awaited<ReturnType<typeof setup>>, ...sessionIds: Session
 }
 
 /**
- * Keep each Session that a delivery creates busy: its Agent runs, keeps the reminder in its inbox, and never reaches
- * whole-agent idle.
+ * Keep each Session that a delivery creates busy: its Agent runs, keeps the reminder in its inbox, and reaches
+ * whole-agent idle only when the returned function is called.
  * @param test - Runtime fixture whose created Sessions stay busy.
+ * @returns Lets every created Agent reach whole-agent idle.
  */
-function keepCreatedSessionsBusy(test: Awaited<ReturnType<typeof setup>>): void {
+function keepCreatedSessionsBusy(test: Awaited<ReturnType<typeof setup>>): () => void {
   const create = test.createSession.getMockImplementation()!
+  const idle = Promise.withResolvers<void>()
+  const queues: UserMessage[][] = []
+  let released = false
   test.createSession.mockImplementation(async (request) => {
     const created = await create(request)
+    if (released) return created
     const agent = test.agents.get(created.sessionId)!
     const nextTurn: UserMessage[] = []
+    queues.push(nextTurn)
     agent.followup.mockImplementation((message) => { nextTurn.push(message) })
-    Object.assign(agent, { status: 'running', inbox: { ...agent.inbox, nextTurn }, whenIdle: () => new Promise<void>(() => {}) })
+    Object.assign(agent, { status: 'running', inbox: { ...agent.inbox, nextTurn }, whenIdle: () => idle.promise })
     return created
   })
+  return () => {
+    released = true
+    for (const queue of queues) queue.length = 0
+    idle.resolve()
+  }
 }
 
 it('delivers to a designated Session and retains an ended receipt', async () => {
@@ -280,28 +291,65 @@ it('limits a frequent recurring new-Session task to one creation per configured 
   expect(tasks[0]).toMatchObject({ status: 'active', lastDelivery: { scheduledAt: '2026-09-16T02:00:01.000Z' } })
 })
 
-it('launches each occurrence of a new-Session task while the earlier launches still run', async () => {
-  const tasks = [task({ kind: 'new', create: {} }, 'DTSTART:20260916T000001Z\nRRULE:FREQ=MINUTELY;COUNT=3')]
+it('holds the slot of a new-Session task until its launched Agent is idle and coalesces the occurrences meanwhile', async () => {
+  const tasks = [task({ kind: 'new', create: {} }, 'DTSTART:20260916T000001Z\nRRULE:FREQ=MINUTELY')]
   const test = await setup(tasks, { ...LIMITS, newSessionIntervalMs: 60_000 })
-  keepCreatedSessionsBusy(test)
+  const release = keepCreatedSessionsBusy(test)
+  const id = tasks[0]!.record.id
   test.runtime.requestDrive()
-  await vi.advanceTimersByTimeAsync(121_000)
-  expect(test.createSession).toHaveBeenCalledTimes(3)
-  expect(new Set(tasks[0]!.deliveryHistory.records.map(record => record.targetSessionId)).size).toBe(3)
-  expect(test.runtime.isExecutionActive(tasks[0]!.record.id)).toBe(false)
-  expect(tasks[0]).toMatchObject({ status: 'ended', lastDelivery: { scheduledAt: '2026-09-16T00:02:01.000Z' } })
+  await vi.advanceTimersByTimeAsync(300_000)
+  expect(test.createSession).toHaveBeenCalledOnce()
+  expect(test.runtime.isExecutionActive(id)).toBe(true)
+  expect(tasks[0]).toMatchObject({ status: 'active', lastDelivery: { scheduledAt: '2026-09-16T00:00:01.000Z' } })
+  release()
+  await vi.advanceTimersByTimeAsync(500)
+  expect(test.createSession).toHaveBeenCalledTimes(2)
+  expect(tasks[0]!.lastDelivery?.scheduledAt).toBe('2026-09-16T00:04:01.000Z')
+  expect(new Set(tasks[0]!.deliveryHistory.records.map(record => record.targetSessionId)).size).toBe(2)
 })
 
-it('admits a manual run of a new-Session task while its earlier launch still runs', async () => {
+it('refuses a manual run of a new-Session task while its earlier launch still runs', async () => {
   const tasks = [task({ kind: 'new', create: {} }, 'DTSTART:20260916T010000Z\nRRULE:FREQ=DAILY')]
   const test = await setup(tasks, { ...LIMITS, newSessionIntervalMs: 60_000 })
-  keepCreatedSessionsBusy(test)
+  const release = keepCreatedSessionsBusy(test)
   const id = tasks[0]!.record.id
   expect(await test.runtime.runNow(id)).toMatchObject({ admitted: true })
-  expect(test.runtime.isExecutionActive(id)).toBe(false)
+  expect(test.runtime.isExecutionActive(id)).toBe(true)
   vi.setSystemTime('2026-09-16T00:01:00Z')
+  expect(await test.runtime.runNow(id)).toMatchObject({ admitted: false })
+  expect(test.createSession).toHaveBeenCalledOnce()
+  release()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(test.runtime.isExecutionActive(id)).toBe(false)
   expect(await test.runtime.runNow(id)).toMatchObject({ admitted: true })
   expect(test.createSession).toHaveBeenCalledTimes(2)
+})
+
+it('keeps the slot of a new-Session task after a restart while its last launch is still queued', async () => {
+  const previous = brandString<SessionId>('previous')
+  const earlier = createUserMessage({ content: [{ type: 'text', text: 'Do work' }], source: { kind: 'schedule' } })
+  const receipt = {
+    scheduledAt: '2026-09-15T23:59:01.000Z', deliveredAt: '2026-09-15T23:59:01.000Z',
+    messageId: earlier.id, targetSessionId: previous,
+  }
+  const tasks = [task({ kind: 'new', create: {} }, 'DTSTART:20260916T000001Z\nRRULE:FREQ=MINUTELY', {
+    lastDelivery: receipt,
+    deliveryHistory: { records: [{ ...receipt, prompt: 'Do work' }], earlierRecordsUnavailable: false, earlierRecordsPruned: false },
+  })]
+  const test = await setup(tasks, { ...LIMITS, newSessionIntervalMs: 60_000 })
+  const running = agentFor(test.ctx, previous)
+  const idle = Promise.withResolvers<void>()
+  const queued = [earlier]
+  Object.assign(running, { status: 'running', inbox: { ...running.inbox, nextTurn: queued }, whenIdle: () => idle.promise })
+  test.agents.set(previous, running)
+  test.runtime.requestDrive()
+  await vi.advanceTimersByTimeAsync(5000)
+  expect(test.createSession).not.toHaveBeenCalled()
+  expect(test.runtime.isExecutionActive(tasks[0]!.record.id)).toBe(true)
+  queued.length = 0
+  idle.resolve()
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(test.createSession).toHaveBeenCalledOnce()
 })
 
 it('wakes the idle earlier Session of a new-Session task and still launches the due occurrence', async () => {
@@ -317,11 +365,13 @@ it('wakes the idle earlier Session of a new-Session task and still launches the 
   })]
   const test = await setup(tasks, { ...LIMITS, newSessionIntervalMs: 60_000 })
   const waiting = agentFor(test.ctx, previous)
-  const remove = vi.fn()
-  Object.assign(waiting, { inbox: { ...waiting.inbox, nextTurn: [earlier], remove } })
+  const queued = [earlier]
+  const remove = vi.fn(() => { queued.length = 0 })
+  Object.assign(waiting, { inbox: { ...waiting.inbox, nextTurn: queued, remove } })
   test.agents.set(previous, waiting)
   test.runtime.requestDrive()
   await vi.advanceTimersByTimeAsync(1000)
+  await vi.advanceTimersByTimeAsync(10)
   expect(remove).toHaveBeenCalledExactlyOnceWith(earlier.id)
   expect(waiting.followup).toHaveBeenCalledExactlyOnceWith(earlier)
   expect(test.createSession).toHaveBeenCalledOnce()

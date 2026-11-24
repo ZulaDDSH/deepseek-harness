@@ -53,7 +53,7 @@ The service requires `agents`, `sessions`, `storageDomain`, and `sessionPersiste
 | Configuration | Default | Meaning |
 |---|---|---|
 | `deliveryHistoryDays` | `30` | Retain 1–3650 days of receipts, measured back from each appended delivery. |
-| `deliveryHistoryRecords` | `200` | Retain the newest 1–10,000 receipts per task. |
+| `deliveryHistoryRecords` | `200` | Retain the newest 1–10,000 receipts per task. Each distinct retained prompt is stored once per task; past 1 MiB of distinct prompt text the oldest receipts are dropped. |
 | `newSessionIntervalSeconds` | `60` | Delivery floor for `new` targets, from 60 through 604,800 seconds. |
 
 The [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-schedule) defines all fields. Remote `deliveryLimits()` exposes the effective new-Session interval for UI hints.
@@ -77,7 +77,7 @@ The `session` target reuses an existing, unarchived, non-delegated Session; unlo
 <a id="storage-format"></a>
 ### Storage format and upgrades
 
-The `schedule` domain declares `version: 2, compatibleVersions: [1]` and uses the configured backend with a whole-unit layout. JSON uses `<DSH_HOME>/storages/schedule.json`. SQLite stores the complete task below as JSON text in `u_schedule_tasks.value`, with its id in the primary-key column `key`. It keeps physical schema version **1** (`PRAGMA user_version`) and the same tables; only the `schedule` row in `units.version` changes to **2** on the first successful write. No SQL DDL migration is needed.
+The `schedule` domain declares `version: 3, compatibleVersions: [1, 2]` and uses the configured backend with a whole-unit layout. JSON uses `<DSH_HOME>/storages/schedule.json`. SQLite stores the complete task below as JSON text in `u_schedule_tasks.value`, with its id in the primary-key column `key`. It keeps physical schema version **1** (`PRAGMA user_version`) and the same tables; only the `schedule` row in `units.version` changes to **3** on the first successful write. No SQL DDL migration is needed.
 
 Schedule loads and validates all tasks into memory at Host open. Task lookup, filtering by activity, due time, or target, sorting, pagination, and history queries use that memory. SQLite does not query inside the JSON or maintain separate timing, status, or target columns; its task operations are an initial full-table read and key-based writes/deletes. Pagination limits the response, not the stored rows loaded. The task decoder enforces the JSON fields below; SQLite treats `value` as opaque text.
 
@@ -85,7 +85,7 @@ One current JSON task has this envelope; the table key must equal `record.id`:
 
 ```json
 {
-  "unit": { "name": "schedule", "version": 2 },
+  "unit": { "name": "schedule", "version": 3 },
   "global": null,
   "tables": { "tasks": { "deploy-check": {
     "record": {
@@ -151,12 +151,12 @@ For example, the Cron record in the envelope above can instead be an RRULE recor
 
 #### When stored tasks upgrade
 
-`compatibleVersions: [1]` admits v1 alongside v2, then the current task decoder validates and normalizes each row in memory. No separate migration command is needed. Unknown versions reject before tasks activate; invalid input does not change the saved bytes.
+`compatibleVersions: [1, 2]` admits v1 and v2 alongside v3, then the current task decoder validates and normalizes each row in memory. No separate migration command is needed. Unknown versions reject before tasks activate; invalid input does not change the saved bytes.
 
 | Operation | Persistent effect |
 |---|---|
 | Open, catalog, or view | Decode once at Host open; later reads use normalized memory. No file write or Session activation. |
-| Save/edit, including an equivalent Save | Write the edited row in current format and atomically stamp the unit v2. Unchanged rows keep their saved fields. |
+| Save/edit, including an equivalent Save | Write the edited row in current format and atomically stamp the unit v3. Unchanged rows keep their saved fields. |
 | Fire or run now | Normal delivery commits write current task state, including destination reservations and receipts. No additional migration pass. |
 | Delete | Remove the row through the same durable API; a successful write uses the current unit version. |
 
@@ -164,19 +164,19 @@ Normalization walks the task and retained receipts; it neither enumerates missed
 
 #### Future versions
 
-A compatible v3 uses `version: 3, compatibleVersions: [1, 2]`, extends this decoder/defaults, and writes current rows on edits or deliveries. Keep one task type and management API. No startup script or v1→v2→v3 conversion chain is required. A current unit stamp can contain untouched older rows, so retain their decoding until all affected rows are rewritten and validated. If the same saved fields acquire a different meaning, use an explicit discriminator or a recoverable complete upgrade. The storage domain has no incompatible-value migration runner today; Session-log migrations and SQLite physical-layout versions have separate owners. See the shared [domain version policy](../../../docs/subsystems/storage.md#domain-versioning).
+A compatible v4 uses `version: 4, compatibleVersions: [1, 2, 3]`, extends this decoder/defaults, and writes current rows on edits or deliveries. Keep one task type and management API. No startup script or v1→v2→v3 conversion chain is required. A current unit stamp can contain untouched older rows, so retain their decoding until all affected rows are rewritten and validated. If the same saved fields acquire a different meaning, use an explicit discriminator or a recoverable complete upgrade. The storage domain has no incompatible-value migration runner today; Session-log migrations and SQLite physical-layout versions have separate owners. See the shared [domain version policy](../../../docs/subsystems/storage.md#domain-versioning).
 
-A v1 binary rejects a store after a v2 write. Invalid or ambiguous receipts reject rather than inventing their historical destination.
+A v1 or v2 binary rejects a store after a v3 write. Invalid or ambiguous receipts reject rather than inventing their historical destination.
 
 ### Dispatch and lifecycle
 
 All seven kinds use the normal evaluator. Shared [`Cron` and `RRule`](../../util/time/README.md) own pure parsing and bounded recurrence arithmetic; Schedule maps refusal reasons to its input errors and owns task policy, targets, and delivery floors. Existing Cron expression and zone stay authoritative. Reads and metadata edits preserve committed UTC occurrences and stored zone aliases.
 
-Management and delivery writes share one Host FIFO. Mutations recheck cancellation and revisions before persistence; arming rechecks Session-target availability inside that queue. Commits emit `schedule/changed`, recompute the timer, and queue notices separately. Delivery stores a `new` target reservation before creation, enqueues a `schedule` message, awaits Session flush, then saves the receipt, prompt snapshot, and next occurrence or ended status. These separate commits can duplicate delivery after a crash. Reused targets hold an execution slot until the Agent is idle; per-delivery targets can run concurrently. Run-now uses the same admission without moving the next occurrence.
+Management writes and the short delivery sections (due scan, `new` target reservation, enqueue, receipt commit) share one Host FIFO; Session activation, creation and flush run outside it under a 120-second step deadline, and each queue section revalidates the task, so a stalled delivery blocks neither management nor other due reminders. Each due group is delivered in its own task, at most 16 at a time, and a failed task backs off on its own schedule. Mutations recheck cancellation and revisions before persistence; arming rechecks Session-target availability inside that queue. Commits emit `schedule/changed`, recompute the timer, and queue notices separately. Delivery stores a `new` target reservation before creation, enqueues a `schedule` message, awaits Session flush, then saves the receipt, prompt snapshot, and next occurrence or ended status. These separate commits can duplicate delivery after a crash. Every target holds its task's execution slot until the launched Agent is idle, so a task has at most one active run; a `new` target launches no further Session while its last launch runs. Run-now uses the same admission without moving the next occurrence.
 
 History stays with the task and is pruned only on append. Missing old history keeps the latest receipt and marks earlier records unavailable. Historical Session-log `schedule/change` events retain their frozen types as recorded data; Schedule does not interpret them, warn about them, or import them into the Host store.
 
-`archiveAdmission()` reports active tasks whose `session` or reserved `new_once` target has the matching Session id. Stop deletes the set in one domain batch inside the same FIFO. A rejected batch announces `schedule/changed` so observers read the catalog again; an `unknown-state` failure quarantines the domain until it is reopened. Delivery refuses archived destination Sessions, including reserved retries. Reads and deletion never activate Sessions. Shutdown drains accepted work and notices before closing storage.
+`archiveAdmission()` reports active tasks whose `session` or reserved `new_once` target has the matching Session id. Stop deletes the set in one domain batch inside the same FIFO. A rejected batch announces `schedule/changed` so observers read the catalog again; an `unknown-state` failure quarantines the domain until it is reopened. Delivery refuses archived destination Sessions, including reserved retries. Reads and deletion never activate Sessions. Shutdown drains accepted work, including manual runs, and notices before closing storage; a Session flush that does not settle is given 5 seconds after shutdown starts.
 
 </details>
 
@@ -274,13 +274,13 @@ Notices append at the next step boundary and preserve the existing request prefi
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- The Host must be running. Failed restore, creation, enqueue, or writes retain the task and warn; there is no retry loop. A later management change, wake, or restart can retry it.
-- Session flush and task acknowledgment are separate commits, so delivery is at least once. Graceful Agent disposal can discard queued input after a receipt was saved; receipts establish inbox persistence, not execution.
+- The Host must be running. Failed restore, creation, enqueue, or writes retain the task and warn, and the runtime retries each still-due task with exponential backoff from 5 seconds up to a 5-minute cap until delivery succeeds; a persistent fault shows as one repeated `reminders [...] were not acknowledged` warning per attempt. A retry after a flush or write failure that followed the enqueue queues the occurrence again, so that window delivers at least once. A restore, creation or flush that does not settle within 120 seconds counts as a failure and is retried the same way; it delays only the tasks of its own group, and at most 16 deliveries run at once, so a startup backlog of overdue groups activates up to 16 Sessions concurrently. A task deleted, retargeted, paused or rescheduled while its delivery is in flight keeps that change: a deleted task gets no receipt, a retargeted one records the receipt and advances while keeping its new target, and a paused or rescheduled one records the receipt without advancing its occurrence.
+- Session flush and task acknowledgment are separate commits, so delivery is at least once: a crash or a failed receipt write after the flush delivers the occurrence again, and the saved `messageId` is the only identity linking the receipt to its message. Graceful Agent disposal can discard queued input after a receipt was saved, and the task is not redelivered: a receipt establishes durable inbox admission, not execution, and Schedule does not track cancellation or execution of an admitted message.
 - Deletion removes saved task history and stops future delivery, retaining Sessions and messages. Session-log reminders require explicit recreation; missing historical prompts and timestamps cannot be recovered.
 - Management is Host-wide, without task-level authorization. The model tool layer refuses delegated callers; Schedule refuses delegated Session targets. Reads and deletion remain available for unavailable targets.
 - Cron uses five-field Vixie syntax; RRULE has a bounded RFC 5545 profile. Both use current IANA data. Restart preserves committed occurrences; exhaustion ends a task after its final delivery.
-- JSON serializes the whole unit including retained histories, and open loads all tasks. Pagination bounds response counts, not storage, memory, prompt bytes, or write cost.
-- The delivery floor is 60 seconds, or the configured interval for `new` targets, measured from the previous occurrence. Late deliveries collapse missed occurrences; per-delivery Sessions can overlap without a concurrency cap.
+- JSON serializes the whole unit including retained histories, and open loads all tasks. Pagination bounds response counts, not storage, memory, or write cost. A task's retained history holds at most 1 MiB of distinct prompt text; a prompt over 64 KiB (65536 UTF-8 bytes) cannot be created or newly set.
+- The delivery floor is 60 seconds, or the configured interval for `new` targets, measured from the previous occurrence. Late deliveries collapse missed occurrences, including those that fall due while the task's run is active, and run-now is refused then. The limit is one active run per task and is not configurable; there is no Host-wide cap on task runs, so many tasks can still run at once; only delivery activations are capped, at 16 in flight. After a restart the slot is held again only while the last launch is still queued, because Agent run state is not persisted, so a run already underway at restart is not recognised.
 - Recovery checks the latest receipt Session before delivery. Change notices are best-effort and reach only loaded involved Agents.
 
 <a id="dev-note"></a>

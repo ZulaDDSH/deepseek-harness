@@ -91,6 +91,29 @@ describe('guarded deployment (with dsh-fs-observation-policy)', () => {
       expect(ctx.tools.get('read')).toBeUndefined()
     })
 
+    it('appends to a read file and fills an empty one, keeping the guard for unread files', async () => {
+      await writeFile(join(dir, 'notes.md'), '# Notes\n')
+      await writeFile(join(dir, 'empty.txt'), '')
+      await writeFile(join(dir, 'unread.txt'), 'original\n')
+      await call('read', { file_path: 'notes.md' })
+      await call('read', { file_path: 'empty.txt' })
+      expect((await call('edit', { file_path: 'notes.md', old_string: '', new_string: '- entry\n', append: true })).isError).toBe(false)
+      expect((await call('edit', { file_path: 'notes.md', old_string: '', new_string: '- second\n', append: true })).isError).toBe(false)
+      expect(await readFile(join(dir, 'notes.md'), 'utf8')).toBe('# Notes\n- entry\n- second\n')
+      expect((await call('edit', { file_path: 'empty.txt', old_string: '', new_string: 'first line\n', append: true })).isError).toBe(false)
+      expect(await readFile(join(dir, 'empty.txt'), 'utf8')).toBe('first line\n')
+      expect(await call('edit', { file_path: 'unread.txt', old_string: '', new_string: 'x', append: true }))
+        .toMatchObject({ isError: true, error: { info: { code: 'FS_NOT_OBSERVED' } } })
+      expect(await readFile(join(dir, 'unread.txt'), 'utf8')).toBe('original\n')
+    })
+
+    it('keeps CRLF line endings when appending', async () => {
+      await writeFile(join(dir, 'crlf.txt'), 'one\r\ntwo\r\n')
+      await call('read', { file_path: 'crlf.txt' })
+      expect((await call('edit', { file_path: 'crlf.txt', old_string: '', new_string: 'three\n', append: true })).isError).toBe(false)
+      expect(await readFile(join(dir, 'crlf.txt'), 'utf8')).toBe('one\r\ntwo\r\nthree\r\n')
+    })
+
     it('creates a file with exactly the requested bytes', async () => {
       const result = await call('write', { file_path: 'new.txt', content: 'line one\nline two\n' })
       expect(result.isError).toBe(false)

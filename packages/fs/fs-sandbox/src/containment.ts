@@ -17,16 +17,10 @@ function isMissing(error: unknown): boolean {
   return MISSING_CODES.has(code)
 }
 
-function comparablePath(path: string, caseSensitive: boolean): string {
-  return caseSensitive ? path : path.toLowerCase()
-}
-
-function isLexicallyUnder(path: string, root: string, caseSensitive: boolean): boolean {
-  const comparableTarget = comparablePath(path, caseSensitive)
-  const comparableRoot = comparablePath(root, caseSensitive)
-  if (comparableTarget === comparableRoot) return true
-  const prefix = comparableRoot.endsWith(sep) ? comparableRoot : comparableRoot + sep
-  return comparableTarget.startsWith(prefix)
+function isLexicallyUnder(path: string, root: string): boolean {
+  if (path === root) return true
+  const prefix = root.endsWith(sep) ? root : root + sep
+  return path.startsWith(prefix)
 }
 
 async function statIfPresent(path: string): Promise<BigIntStats | undefined> {
@@ -50,17 +44,11 @@ function sameIdentity(left: BigIntStats, right: BigIntStats): boolean {
  * without weakening containment to a textual approximation.
  * @param path - canonical target key, which may end in a missing suffix.
  * @param root - canonical writable root.
- * @param caseSensitive - whether lexical comparison preserves case; defaults
- *   to the host filesystem convention used by supported platforms.
  * @returns whether the target is the root or a descendant of it.
  * @throws FsError when an ancestor or the root cannot be inspected, coded by the Node errno.
  */
-export async function isPathUnder(
-  path: string,
-  root: string,
-  caseSensitive = process.platform !== 'win32',
-): Promise<boolean> {
-  if (isLexicallyUnder(path, root, caseSensitive)) return true
+export async function isPathUnder(path: string, root: string): Promise<boolean> {
+  if (isLexicallyUnder(path, root)) return true
 
   const rootInfo = await statIfPresent(root)
   if (!rootInfo) return false

@@ -443,6 +443,11 @@ watch(signal: AbortSignal, includeIdentityChanges: boolean = false): AsyncIterab
  * @returns initial state, login progress, and credential-change updates.
  */
 @Remote({ name: 'watch', mode: 'stream' }) watchState(signal: AbortSignal): AsyncIterable<AccountUpdate>
+
+/** State of the background token revocation after sign-out.
+ * @returns none when no revocation ran, pending while one is in flight, otherwise its outcome.
+ */
+getRevocationStatus():'none' | 'pending' | RevocationOutcome
 ```
 
 Source: [`packages/credentials/deepseek-account/src/index.ts`](../../packages/credentials/deepseek-account/src/index.ts)
@@ -567,6 +572,19 @@ An account model request requires the user to sign in.
 ```
 
 Source: [`packages/credentials/deepseek-account/src/types.ts`](../../packages/credentials/deepseek-account/src/types.ts)
+
+<a id="deepseek-accountrevocation--emit"></a>
+
+#### `deepseek-account/revocation` — emit
+
+Constraint: revocation settled, read getRevocationStatus(). @mode emit
+
+```ts cordis-catalog
+/** Constraint: revocation settled, read getRevocationStatus(). @mode emit */
+'deepseek-account/revocation'(): void
+```
+
+Source: [`packages/credentials/deepseek-account/src/index.ts`](../../packages/credentials/deepseek-account/src/index.ts)
 
 <a id="deepseek-accountsession-expired--emit"></a>
 

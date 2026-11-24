@@ -301,7 +301,11 @@ export class TerminalView {
       const current = this.state.getSnapshot().info
       if (current !== undefined) this.inventory.update({ ...current, title: title.trim() })
       this.patch({ ...(current === undefined ? {} : { info: { ...current, title: title.trim() } }), title: title.trim() })
-    } catch (error) { this.fail(error) }
+    } catch (error) {
+      if (this.stopped()) return
+      if (remoteErrorOf(error)?.code === 'terminal/unavailable') this.fail(error)
+      else this.patch({ error: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   /**

@@ -42,6 +42,7 @@ MILESTONE-AUDIT.md                (audit-milestone)
 
 - One commit per task: `type(NN-PP): summary`, where type is `feat`, `fix`, `refactor`, `test`, `docs` or `chore`. Planning-only commits use `docs(NN): summary`.
 - Stage explicit paths with `git add <path>`. Never use `git add -A` or `git add .`.
+- Commit with the same explicit paths, `git commit -m "<message>" -- <path>...`. Parallel coders share one index, and a bare `git commit` also commits what another coder or the user has staged.
 - Commit with the user's configured git identity. Add no trailers (no `Co-Authored-By`, no "Generated with" lines) and no `--author`. Do not pass `--no-verify`.
 - With `planning: local`, never stage `.planning/`.
 

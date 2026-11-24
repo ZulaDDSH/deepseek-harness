@@ -15,7 +15,7 @@ import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import type { AuthorizationSession } from '@deepseek-ai/dsh-authorization'
 import { profile, readAccountDetail } from './details.ts'
 import { readNotificationContent, readNotifications, sendNotificationEvent } from './notifications.ts'
-import { revokeAccount, type LogoutRetryPolicy } from './logout.ts'
+import { revokeAccount, type LogoutRetryPolicy, type RevocationOutcome } from './logout.ts'
 import { AccountUnauthorizedError, PlatformAuthError, platformHeaders, platformOrigin, browserUrl, requestPlatform, initialization, exchange, loginOrigin } from './protocol.ts'
 
 export type * from './types.ts'
@@ -27,6 +27,8 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'deepseek-account/signed-out'(): void
+    /** Constraint: revocation settled, read getRevocationStatus(). @mode emit */
+    'deepseek-account/revocation'(): void
   }
 }
 
@@ -119,7 +121,8 @@ export class DeepSeekAccount extends TypertRemoteService {
   private readonly attemptTimeout: number
   private readonly logoutPolicy: LogoutRetryPolicy
   private readonly logoutLifetime = new AbortController()
-  private readonly revocations = new Set<Promise<void>>()
+  private readonly revocations = new Set<Promise<unknown>>()
+  private revocationStatus: 'none' | 'pending' | RevocationOutcome = 'none'
   private attempt: Attempt | undefined
   private readonly listeners = new Set<(kind: 'snapshot' | 'credentials-changed' | 'identity') => void>()
   /**
@@ -128,6 +131,10 @@ export class DeepSeekAccount extends TypertRemoteService {
    */
   private lastProfile: { readonly token: string; readonly profile: Extract<AccountDetails['profile'], { status: 'ready' }> } | undefined
   private detailsLifetime = new AbortController()
+  private notificationRead: {
+    readonly lifetime: AbortController; readonly token: string; readonly headers: string
+    readonly read: Promise<AccountNotificationBatch>
+  } | undefined
   private closed = false
   private removing: Promise<AccountView> | undefined
 
@@ -260,8 +267,7 @@ export class DeepSeekAccount extends TypertRemoteService {
     const stored = await this.readCurrentGrant(lifetime)
     if (stored === null) return null
     try {
-      const batch = await readNotifications(this.harnessOrigin, stored.token,
-        AbortSignal.any([lifetime.signal, AbortSignal.timeout(this.requestTimeout)]), headers)
+      const batch = await this.sharedNotificationRead(lifetime, stored.token, headers)
       return this.detailsLifetime === lifetime ? batch : null
     } catch (error) {
       if (this.detailsLifetime !== lifetime) return null
@@ -341,6 +347,20 @@ export class DeepSeekAccount extends TypertRemoteService {
     const previous = this.lastProfile?.profile.value.id || null
     this.lastProfile = { token, profile }
     if (previous !== (profile.value.id || null)) this.changed('identity')
+  }
+
+  private sharedNotificationRead(lifetime: AbortController, token: string,
+    headers: Record<string, string>): Promise<AccountNotificationBatch> {
+    const key = JSON.stringify(headers)
+    const current = this.notificationRead
+    if (current?.lifetime === lifetime && current.token === token && current.headers === key) return current.read
+    const read = readNotifications(this.harnessOrigin, token,
+      AbortSignal.any([lifetime.signal, AbortSignal.timeout(this.requestTimeout)]), headers)
+    const entry = { lifetime, token, headers: key, read }
+    this.notificationRead = entry
+    const settle = (): void => { if (this.notificationRead === entry) this.notificationRead = undefined }
+    void read.then(settle, settle)
+    return read
   }
 
   private async getDetail<K extends keyof AccountDetails>(field: K, headers: Record<string, string>,
@@ -659,9 +679,18 @@ export class DeepSeekAccount extends TypertRemoteService {
 
   private revoke(token: string, headers: Record<string, string>): void {
     if (this.closed) return
+    this.revocationStatus = 'pending'
     const revocation = revokeAccount(this.origin, token, this.logoutPolicy,
-      this.logoutLifetime.signal, { ...this.requestHeaders, ...headers }).finally(() => { this.revocations.delete(revocation) })
+      this.logoutLifetime.signal, { ...this.requestHeaders, ...headers }).then((outcome) => {
+      this.revocationStatus = outcome
+      if (outcome !== 'revoked') this.ctx.logger.warn('deepseek-account: remote revocation of the signed-out token %s; revoke it at the issuer', outcome)
+      this.ctx.emit('deepseek-account/revocation')
+    }).finally(() => { this.revocations.delete(revocation) })
     this.revocations.add(revocation)
+  }
+
+  getRevocationStatus():'none' | 'pending' | RevocationOutcome {
+    return this.revocationStatus
   }
 
   private invalidateDetails(): void {

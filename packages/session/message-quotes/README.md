@@ -68,7 +68,7 @@ The plugin rewrites no history. Consumers append the encoded text as user conten
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- Recognition covers explicitly marked lines with up to three leading spaces; it does not implement Markdown lazy continuation or fenced-code parsing.
+- Recognition covers explicitly marked lines with up to three leading spaces; it does not implement Markdown lazy continuation. Lines inside backtick or tilde fenced code (an unclosed fence runs to the end of the text) stay literal and are never shown as quotes; fences nested inside a quote line are not tracked.
 
 <a id="dev-note"></a>
 ### Dev Note

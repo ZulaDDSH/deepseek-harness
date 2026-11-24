@@ -48,13 +48,17 @@ Choose it when a knowledge source is a Git repository — public GitHub or a loc
 |---|---|
 | `owner/name` | `https://github.com/owner/name.git`, cloned |
 | a URL (`https://…`, `git@…`) | passed to Git unchanged, cloned |
-| an absolute or relative path | used as an existing local checkout; must already be a Git work tree |
+| an absolute path, or a relative path starting with `./` or `../` | used as an existing local checkout; must already be a Git work tree. A relative path without the leading `./` (such as `dir/name`) is read as GitHub `owner/name` shorthand |
 
 A private repository is never given credentials by this package: cloning and fetching run through the ordinary system Git, so host-side credential configuration — an SSH key, a credential helper, an already-authenticated environment — is what makes a private clone succeed. No token is read from or written to a knowledge record.
 
 ### What you get
 
-`resolveGitSource` clones a new remote repository, or fetches an existing one, checks out the resolved commit, and returns the checkout root plus its SHA. A branch resolves to its fetched `origin` commit when available; repeating the same branch source after upstream advances returns the new commit. Tags take precedence over unqualified branch names; use `refs/heads/<name>` to select a colliding branch. Qualified refs and full commit SHAs retain their explicit meaning. A local checkout without the fetched branch uses its local ref. `listSourceFiles` reports exactly the tracked files the configured pathspecs select, using Git's own pathspec matching so `**` behaves as Git defines it.
+`resolveGitSource` clones a new remote repository, or fetches an existing one, checks out the resolved commit, and returns the absolute checkout root (a relative local path or `checkoutDir` is resolved against the current directory once, at call time) plus its SHA. A branch resolves to its fetched `origin` commit when available; repeating the same branch source after upstream advances returns the new commit. Tags take precedence over unqualified branch names; use `refs/heads/<name>` to select a colliding branch. Qualified refs and full commit SHAs retain their explicit meaning. A local checkout without the fetched branch uses its local ref. A local checkout that has a remote must fetch it successfully or the call fails with the Git error, so an offline or unauthenticated remote never silently resolves a stale tracking ref; a checkout with no remote is not fetched. A local checkout with staged or unstaged edits to tracked files is refused with an error and is never reset; when its `HEAD` already is the resolved commit it is left exactly as it is (branch stays attached), otherwise a non-forced `git checkout` moves it, which Git itself refuses if it would overwrite local files. A `checkoutDir` is resolver-owned: a remote clone there is checked out with `--force`, so do not keep your own edits in it. `listSourceFiles` reports exactly the tracked files the configured pathspecs select, using Git's own pathspec matching so `**` behaves as Git defines it.
+
+Both `resolveGitSource` and `listSourceFiles` accept an optional last argument `{ signal, timeoutMs, maxOutputBytes }`. `signal` cancels the operation; `timeoutMs` is one deadline for the whole operation (default 30 minutes); `maxOutputBytes` caps each of a Git command's stdout and stderr (default 64 MiB) and fails the call with a clear error when exceeded. On cancellation, timeout, or overflow the whole Git process tree is killed (`taskkill /T /F` on Windows, a process-group SIGKILL elsewhere) and the call rejects immediately.
+
+Resolutions and `listSourceFiles` calls for the same checkout root are serialized inside the process, so each `resolveGitSource` returns the commit it checked out itself. The checkout is a single mutable work tree, not a snapshot: a later resolution of the same root moves it, and `listSourceFiles` then throws for the older result instead of listing another revision. Read the files before resolving the same root again, or give concurrent revisions separate `checkoutDir` values.
 
 Remote checkouts default to `.dsh-knowledge/<sha256>` under the current directory, with the hash computed from the complete expanded clone source. An existing checkout must have an `origin` URL exactly matching that clone source; a missing or different origin rejects the call before fetching or changing the checkout. Equivalent URL spellings are not normalized.
 
@@ -106,6 +110,7 @@ These limits describe what this package does not do. They are current package co
 - **No knowledge-service ingestion call** — this package stops at producing a checkout and a file list; sending that list to a knowledge service's index tool is a separate integration step.
 - **Shallow clone is not used** — every clone is a full clone, which is simple and correct but slower than a shallow clone for a large repository with long history.
 - **Local checkout must already be a Git work tree** — a plain directory of files with no `.git` is rejected rather than initialized.
+- **No per-commit snapshot and no cross-process lock** — the checkout can still change after a call returns, and two processes sharing one root are not coordinated; only `listSourceFiles` detects that the checkout has moved.
 - **No submodule handling** — a repository with submodules resolves its top-level tree only.
 
 <a id="dev-note"></a>

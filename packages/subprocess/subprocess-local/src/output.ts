@@ -1,9 +1,12 @@
 /** Bounded output tails and private spill files shared by process providers. */
 import { randomBytes } from 'node:crypto'
-import { closeSync, mkdtempSync, openSync, rmdirSync, unlinkSync, writeSync } from 'node:fs'
+import { closeSync, mkdtempSync, openSync, rmdirSync, statSync, unlinkSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { CollectedOutput } from '@deepseek-ai/dsh-subprocess'
+import { activeSpills, sweepSpillFilesThrottled } from './retention.ts'
+
+export { sweepSpillFiles } from './retention.ts'
 
 /**
  * Receives one spill failure so the owner can log it through its own logger.
@@ -32,15 +35,16 @@ let defaultSpillDir: string | undefined
  * The default spill location: a private (0700) per-process directory under
  * the OS tmpdir, created lazily. Predictable world-readable paths would let
  * other local users read command output or pre-create symlinks. The directory
- * is created once per process and never recreated: when an external
- * temporary-file cleaner removes it while empty, the next spill open fails and
- * the collector degrades to its in-memory tail. At a JavaScript-observable
+ * is recreated when an external temporary-file cleaner removed it. At a JavaScript-observable
  * process exit the directory is removed only when it holds no completed spill
  * file (spill files are retained as full-output recovery artifacts until an
  * external cleanup).
  */
 function privateSpillDir(): string {
-  defaultSpillDir ??= mkdtempSync(join(tmpdir(), 'dsh-subprocess-'))
+  if (defaultSpillDir === undefined || statSync(defaultSpillDir, { throwIfNoEntry: false })?.isDirectory() !== true) {
+    defaultSpillDir = mkdtempSync(join(tmpdir(), 'dsh-subprocess-'))
+    sweepSpillFilesThrottled(defaultSpillDir)
+  }
   return defaultSpillDir
 }
 
@@ -111,6 +115,17 @@ export function prepareManagedProcessBinding(
 }
 
 
+// Constraint: counts only bytes that end on a character boundary; a truncated trailing sequence is at most 3 bytes.
+function completeUtf8Length(bytes: Buffer): number {
+  for (let back = 1; back <= Math.min(3, bytes.length); back += 1) {
+    const byte = bytes[bytes.length - back] as number
+    if ((byte & 0xc0) === 0x80) continue
+    const needed = byte >= 0xf0 ? 4 : byte >= 0xe0 ? 3 : byte >= 0xc0 ? 2 : 1
+    return needed > back ? bytes.length - back : bytes.length
+  }
+  return bytes.length
+}
+
 /**
  * Collects one stream with a bounded in-memory tail. With spill options, on
  * first overflow a spill file is created and every chunk (including those
@@ -133,6 +148,7 @@ export class OutputCollector {
   private spillFd: number | undefined
   private spillFile: string | undefined
   private spillDisabled: boolean
+  private sealed = false
   /** Total bytes ever pushed (not just retained). */
   private total = 0
 
@@ -208,6 +224,7 @@ export class OutputCollector {
         const fd = openSync(file, 'wx', 0o600)
         this.spillFile = file
         this.spillFd = fd
+        activeSpills.add(file)
         for (const prior of this.chunks) writeSync(fd, prior)
       }
       writeSync(this.spillFd, chunk)
@@ -233,6 +250,7 @@ export class OutputCollector {
     this.spillFd = undefined
     this.spillFile = undefined
     this.spillDisabled = true
+    if (file !== undefined) activeSpills.delete(file)
     if (fd !== undefined) {
       try {
         closeSync(fd)
@@ -263,9 +281,10 @@ export class OutputCollector {
     const buffer = Buffer.concat(this.chunks)
     const lossy = fromByte < windowStart
     const slice = lossy ? buffer : buffer.subarray(fromByte - windowStart)
+    const length = this.sealed ? slice.length : completeUtf8Length(slice)
     return {
-      text: slice.toString('utf8'),
-      nextOffset: this.total,
+      text: slice.subarray(0, length).toString('utf8'),
+      nextOffset: this.total - (slice.length - length),
       lossy,
       ...this.spillFile !== undefined ? { spillPath: this.spillFile } : {},
     }
@@ -287,7 +306,9 @@ export class OutputCollector {
    * never point at a still-open file.
    */
   seal(): void {
+    this.sealed = true
     if (this.spillFd === undefined) return
+    if (this.spillFile !== undefined) activeSpills.delete(this.spillFile)
     try {
       closeSync(this.spillFd)
     } catch {
@@ -296,6 +317,7 @@ export class OutputCollector {
       this.spillFile = undefined
     }
     this.spillFd = undefined
+    sweepSpillFilesThrottled(defaultSpillDir)
   }
 
   /**

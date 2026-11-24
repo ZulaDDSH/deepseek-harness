@@ -55,11 +55,14 @@ describe('SDK approval bridge', () => {
     const h = await setup(true)
     h.client.onRequest(async (method, params) => {
       expect(method).toBe('approval/request')
-      expect(params).toEqual({ sessionId: 'main', toolName: 'bash', callId: 'call-1', reason: 'write outside workspace' })
+      expect(params).toEqual({
+        sessionId: 'main', toolName: 'bash', callId: 'call-1', reason: 'write outside workspace', operation: '{"command":"touch /x"}',
+      })
       return { outcome }
     })
     await expect(h.ctx.approval.request({
       agent: h.agent, toolName: 'bash', callId: brandString<ToolCallId>('call-1'), reason: 'write outside workspace',
+      operation: '{"command":"touch /x"}',
     })).resolves.toBe(outcome)
     expect(h.agent.session.snapshotEvents().slice(-2).map(e => [e.type, e.data])).toEqual([
       ['approval/asked', expect.objectContaining({ toolName: 'bash', reason: 'write outside workspace' })],

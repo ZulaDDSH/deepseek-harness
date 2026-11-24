@@ -192,3 +192,9 @@ declare module '@deepseek-ai/dsh-session/types' {
     }
   }
 }
+
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface RemoteErrorDetailsMap {
+    TEAM_MODE_PERSISTENCE_UNCONFIRMED: { readonly enabled: boolean }
+  }
+}

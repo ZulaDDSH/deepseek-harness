@@ -378,6 +378,48 @@ describe('fold onto the downstream decision', () => {
   })
 })
 
+describe('own __proto__ argument keys and deep arguments', () => {
+  async function run(ctx: Context, responses: ReturnType<typeof toolCallResponse>[]): Promise<Agent> {
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([...responses, textResponse('done')]))
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+    return agent
+  }
+  const withProto = (value: number): object => JSON.parse(`{"__proto__":{"v":${value}}}`) as object
+
+  it('treats calls differing only in a __proto__ value as different', async () => {
+    const ctx = await harness({ thresholds: [2] })
+    const agent = await run(ctx, [
+      toolCallResponse('c1', 'probe', withProto(1)),
+      toolCallResponse('c2', 'probe', withProto(2)),
+    ])
+    expect(reminders(agent)).toHaveLength(0)
+  })
+
+  it('treats calls with an identical __proto__ value as the same and quotes the key', async () => {
+    const ctx = await harness({ thresholds: [2] })
+    const agent = await run(ctx, [
+      toolCallResponse('c1', 'probe', withProto(1)),
+      toolCallResponse('c2', 'probe', withProto(1)),
+    ])
+    expect(reminders(agent)).toHaveLength(1)
+  })
+
+  it('keeps an effectful tool result and skips detection for arguments past the depth limit', async () => {
+    const ctx = await harness({ thresholds: [2] })
+    const deep = `${'{"a":'.repeat(20_000)}1${'}'.repeat(20_000)}`
+    const chunks = toolCallResponse('c1', 'probe', {}).map(chunk => chunk.type === 'tool-call-delta'
+      ? { ...chunk, argumentsDelta: chunk.argumentsDelta === '{}'.slice(0, 5) ? deep : '' }
+      : chunk.type === 'block-end' && chunk.block.type === 'tool-call' ? { ...chunk, block: { ...chunk.block, arguments: deep } } : chunk)
+    const agent = await run(ctx, [chunks, chunks])
+    const results = agent.session.snapshotEvents().filter((e): e is SessionEvent<'tool/result'> => e.type === 'tool/result')
+    expect(results).toHaveLength(2)
+    expect(results.every(r => !r.data.message.isError)).toBe(true)
+    expect(reminders(agent)).toHaveLength(0)
+  })
+})
+
 describe('config validation fails loud', () => {
   async function spine(): Promise<Context> {
     const ctx = new Context()

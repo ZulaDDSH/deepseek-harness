@@ -73,7 +73,7 @@ export class OpenInAppPathController {
   /**
    * @param remote - the Session Remote namespace answering availability and running gestures.
    */
-  constructor(private readonly remote: OpenInAppPathRemote) {}
+  constructor(private readonly remote: OpenInAppPathRemote, private readonly openTimeoutMs = 30_000) {}
 
   /**
    * Read desktop availability once per controller life; concurrent calls share the read.
@@ -93,16 +93,15 @@ export class OpenInAppPathController {
    */
   async openPath(path: string, action: OpenInAppPathAction, application?: string): Promise<OpenInAppOutcome> {
     const request: SessionOpenWorkspacePathRequest = action === 'reveal' ? { path, action } : { path, ...(application === undefined ? {} : { application }) }
-    let ok = false
-    try {
-      ok = (await this.remote.session.openWorkspacePath(request)).ok
-    } catch {
-      // Swallows carrier rejections: a Host that cannot be reached failed the
-      // gesture like a Host that refused it, and the control announces that.
-    }
+    const ok = await this.acknowledged(request).catch(() => false)
     if (ok) return { kind: action === 'reveal' ? 'revealed' : 'opened' }
     const failure: OpenInAppPathFailure = action === 'open' ? 'openError' : 'revealError'
     return { kind: 'failed', failure }
+  }
+
+  private async acknowledged(request: SessionOpenWorkspacePathRequest): Promise<boolean> {
+    const signal = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(this.openTimeoutMs)])
+    return (await this.remote.session.openWorkspacePath(request, signal)).ok
   }
 
   /**
@@ -173,14 +172,10 @@ export class OpenInAppPathController {
   }
 
   private async run(): Promise<void> {
-    let available = false
-    try {
-      const result = await this.remote.session.canOpenWorkspacePath()
-      available = result.ok && result.value
-    } catch {
-      // Swallows carrier rejections: an unreachable Host reads as no desktop,
-      // so the preview shows no path control rather than a broken one.
-    }
+    const available = await this.remote.session.canOpenWorkspacePath().then(
+      result => result.ok && result.value,
+      () => false,
+    )
     this.desktop.set(available)
   }
 }

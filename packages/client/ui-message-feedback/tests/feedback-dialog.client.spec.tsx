@@ -24,7 +24,7 @@ const t = makeTranslate(zh, commonZh)
 /** Render the entry over a fixed state and recording verbs. */
 function mount(overrides: Partial<FeedbackDialogState> = {}) {
   const state: FeedbackDialogState = {
-    target: { kind: 'session' }, category: null, text: '', submitting: false, failure: null, toast: 0,
+    target: { kind: 'session' }, category: null, text: '', localOnly: false, sharing: null, submitting: false, failure: null, toast: 0,
     ...overrides,
   }
   const verbs = {
@@ -53,6 +53,39 @@ describe('FeedbackDialog', () => {
 
     expect(ui.queryByRole('dialog')).toBeNull()
     expect(ui.queryByRole('alert')).toBeNull()
+  })
+
+  it('keeps the export disclosure visible whether or not the draft has text', () => {
+    expect(mount().getByRole('note').textContent).toBe(zh['dialog.disclosure'])
+    cleanup()
+    expect(mount({ text: 'typed detail' }).getByRole('note').textContent).toBe(zh['dialog.disclosure'])
+  })
+
+  it('names the live destination while telemetry is on and offers the local-only choice', () => {
+    const sharing = { sharing: 'feedback-only', destination: 'https://collector.example.test' } as const
+    const ui = mount({ sharing })
+
+    expect(ui.getByRole('note').textContent).toBe(zh['dialog.disclosure.to'].replace('{destination}', sharing.destination))
+    const box = ui.getByLabelText(zh['dialog.localOnly']) as HTMLInputElement
+    expect(box.checked).toBe(false)
+    fireEvent.click(box)
+    expect(ui.edit).toHaveBeenCalledWith({ localOnly: true })
+  })
+
+  it('states that nothing is sent and hides the local-only choice while telemetry is off', () => {
+    for (const sharing of [{ sharing: 'disabled' }, { sharing: 'none' }] as const) {
+      const ui = mount({ sharing })
+      expect(ui.getByRole('note').textContent).toBe(zh['dialog.disclosure.off'])
+      expect(ui.queryByLabelText(zh['dialog.localOnly'])).toBeNull()
+      cleanup()
+    }
+  })
+
+  it('states the local-only outcome once the choice is checked', () => {
+    const ui = mount({ localOnly: true, sharing: { sharing: 'feedback-only', destination: 'https://collector.example.test' } })
+
+    expect(ui.getByRole('note').textContent).toBe(zh['dialog.disclosure.local'])
+    expect((ui.getByLabelText(zh['dialog.localOnly']) as HTMLInputElement).checked).toBe(true)
   })
 
   it('shows every category, the detail box with the hint, and an enabled Submit for an empty draft', () => {

@@ -456,3 +456,73 @@ describe('clearedProxyEnv', () => {
     expect(Object.values(cleared).every(value => value === undefined)).toBe(true)
   })
 })
+
+describe('fail-closed proxy policy', () => {
+  const socks = { HTTP_PROXY: 'socks5://127.0.0.1:1080' }
+
+  it('refuses to install when a proxy value is unusable and DSH_PROXY_FAIL_CLOSED is set', async () => {
+    await withCleanProxyEnv(async () => {
+      const before = getGlobalDispatcher()
+      for (const flag of ['1', 'true', ' TRUE ']) {
+        await expect(install(env({ ...socks, DSH_PROXY_FAIL_CLOSED: flag }))).rejects.toThrow(/DSH_PROXY_FAIL_CLOSED.*SOCKS/)
+      }
+      await expect(install(env({ HTTPS_PROXY: 'not a url', DSH_PROXY_FAIL_CLOSED: '1' }))).rejects.toThrow(/not a valid URL/)
+      expect(getGlobalDispatcher()).toBe(before)
+    })
+  })
+
+  it('keeps the reported direct fallback unless the flag is on, and never fails for an absent or valid proxy', async () => {
+    await withCleanProxyEnv(async () => {
+      for (const lookup of [env(socks), env({ ...socks, DSH_PROXY_FAIL_CLOSED: '0' })]) {
+        const installed = await install(lookup)
+        expect(installed.reported).toHaveLength(1)
+        await installed.dispose()
+      }
+      for (const lookup of [env({ DSH_PROXY_FAIL_CLOSED: '1' }), env({ HTTP_PROXY: proxyUrl, DSH_PROXY_FAIL_CLOSED: '1' })]) {
+        const installed = await install(lookup)
+        expect(installed.reported).toEqual([])
+        await installed.dispose()
+      }
+    })
+  })
+})
+
+describe('overlapping installations', () => {
+  it('refuses an out-of-order disposal without touching the live policy, then unwinds in order', async () => {
+    await withCleanProxyEnv(async () => {
+      const outer = await install(proxyAll())
+      const inner = await install(env({ HTTP_PROXY: proxyUrl, NO_PROXY: 'origin.test' }))
+      const live = getGlobalDispatcher()
+      await expect(outer.dispose()).rejects.toThrow(/reverse order/)
+      expect(getGlobalDispatcher()).toBe(live)
+      expect(proxyRouteFor(new URL(proxyTarget))).toEqual({ proxied: false })
+      expect(proxyRouteFor(new URL('http://other.test/'))).toMatchObject({ proxied: true, proxy: proxyUrl })
+      await inner.dispose()
+      await outer.dispose()
+      await outer.dispose()
+    })
+  })
+
+  it('makes a repeated disposal a no-op that cannot restore stale state', async () => {
+    await withCleanProxyEnv(async () => {
+      const baseline = getGlobalDispatcher()
+      const first = await install(proxyAll())
+      const second = await install(proxyAll())
+      await second.dispose()
+      await first.dispose()
+      await second.dispose()
+      await first.dispose()
+      expect(getGlobalDispatcher()).toBe(baseline)
+    })
+  })
+
+  it('serializes installations started together', async () => {
+    await withCleanProxyEnv(async () => {
+      const baseline = getGlobalDispatcher()
+      const [a, b] = await Promise.all([install(proxyAll()), install(proxyAll())])
+      await b.dispose()
+      await a.dispose()
+      expect(getGlobalDispatcher()).toBe(baseline)
+    })
+  })
+})

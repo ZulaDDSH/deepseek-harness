@@ -20,6 +20,7 @@ import type {
   WebSearchResult,
 } from './types.ts'
 import { WebError } from './types.ts'
+import { boundSearchResult } from './safety.ts'
 
 export {
   WebError,
@@ -184,7 +185,7 @@ export class WebRuntime extends TypertRemoteService {
    */
   async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
     const result = await this.selectSearchProvider().search(request, signal)
-    return capSources(result, request.maxResults)
+    return boundSearchResult(capSources(result, request.maxResults))
   }
 
   /**

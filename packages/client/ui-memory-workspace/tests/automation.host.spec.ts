@@ -2,10 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { createVolatile, updateVolatile, type Volatile } from '@deepseek-ai/cosmokit'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { getEventListeners } from 'node:events'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join, resolve, sep } from 'node:path'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { runNativeCommand } from '@deepseek-ai/dsh-native-command'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
@@ -32,7 +35,7 @@ const MIGRATIONS = [
   '1.2.7-compaction-checkpoints', '1.3-long-term-memory',
 ]
 const CWD = join(tmpdir(), 'dsh-memory-project')
-const PROJECT_ROOT_TEXT = 'Session bound'
+const PROJECT_ROOT_TEXT = 'Session bound\nProject: fixture (fixture)'
 
 interface Fixture {
   ctx: Context
@@ -152,6 +155,28 @@ describe('Memory digest', () => {
     expect(performance.now() - started).toBeLessThan(1000)
   })
 
+  it('keeps the original request and every steering message of one turn within a deterministic bound', () => {
+    const log = new SessionTurns(session(), 1)
+    log.begin('Refactor the parser')
+    log.answer('working on it')
+    log.begin('Also keep the public API')
+    log.begin('And add tests')
+    log.answer('Done.')
+    const turn = log.finish()
+    expect(turn?.prompt).toBe('Refactor the parser | Then: Also keep the public API | Then: And add tests')
+    expect(turn?.outcome).toBe('Done.')
+    log.begin('x'.repeat(5000))
+    log.begin('y'.repeat(5000))
+    const long = log.finish()!.prompt
+    expect(Array.from(long).length).toBeLessThanOrEqual(800)
+    expect(long).toContain('…')
+    expect(long).toContain(' | Then: ')
+    log.begin('abandoned')
+    log.discard()
+    log.begin('fresh')
+    expect(log.finish()?.prompt).toBe('fresh')
+  })
+
   it('skips a turn that carried neither a request nor a reply', () => {
     const log = new SessionTurns(session(), 1)
     expect(log.finish()).toBeUndefined()
@@ -164,7 +189,29 @@ describe('Memory digest', () => {
     expect(workspaceEntity(join(CWD, 'a'))).not.toBe(workspaceEntity(join(CWD, 'b')))
     expect(workspaceEntity(`${CWD}/`)).toBe(workspaceEntity(CWD))
     expect(workspaceEntity(join(CWD, '..', 'dsh-memory-project'))).toBe(workspaceEntity(CWD))
-    expect(workspaceEntity(CWD)).toMatch(/^dsh-workspace:dsh-memory-project-[0-9a-f]{8}$/)
+    expect(workspaceEntity(CWD)).toMatch(/^dsh-workspace:dsh-memory-project-[0-9a-f]{16}$/)
+  })
+
+  it('names one entity for equivalent spellings and aliases of an existing workspace folder', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-Memory-Entity-'))
+    directories.push(root)
+    const folder = join(root, 'Project')
+    await mkdir(join(folder, 'sub'), { recursive: true })
+    expect(workspaceEntity(`${folder}${sep}sub${sep}..`)).toBe(workspaceEntity(folder))
+    expect(workspaceEntity(`${folder}${sep}.`)).toBe(workspaceEntity(folder))
+    expect(workspaceEntity(join(folder, 'sub'))).not.toBe(workspaceEntity(folder))
+    if (process.platform === 'win32') expect(workspaceEntity(join(root, 'pROJECT'))).toBe(workspaceEntity(folder))
+    const alias = join(root, 'alias')
+    await symlink(folder, alias, 'junction')
+    expect(workspaceEntity(alias)).toBe(workspaceEntity(folder))
+    expect(workspaceEntity(folder)).toContain(`:${basename(await realpath(folder))}-`)
+  })
+
+  it('does not fold case or shorten the hash for distinct folders', () => {
+    const upper = join(tmpdir(), 'dsh-missing-Alpha', 'project')
+    const lower = join(tmpdir(), 'dsh-missing-alpha', 'project')
+    expect(workspaceEntity(upper)).not.toBe(workspaceEntity(lower))
+    expect(workspaceEntity(upper)).toMatch(/^dsh-workspace:project-[0-9a-f]{16}$/)
   })
 
   it('renders the policy and the recalled context within their bounds', () => {
@@ -234,6 +281,20 @@ describe('Automatic chat saves', () => {
     expect(calls).toHaveLength(0)
   })
 
+  it('saves a steered turn with its original request and does not carry an interrupted turn into the next one', async () => {
+    const { ctx, calls } = await fixture()
+    const chat = session()
+    prompt(ctx, chat, 'cancelled request')
+    done(ctx, chat, 'aborted')
+    prompt(ctx, chat, 'Build the importer')
+    prompt(ctx, chat, 'Use streaming')
+    reply(ctx, chat, 'Importer built.')
+    done(ctx, chat)
+    await vi.waitFor(() => { expect(calls).toHaveLength(1) })
+    expect(String(calls[0]!.narrative)).toContain('User: Build the importer | Then: Use streaming | Outcome: Importer built.')
+    expect(String(calls[0]!.narrative)).not.toContain('cancelled request')
+  })
+
   it('never breaks the turn when Memorix fails, reports the failure, and recovers on the next turn', async () => {
     const attempts: number[] = []
     const { ctx, db } = await fixture({ call: async (name, args) => {
@@ -292,7 +353,7 @@ describe('Automatic chat saves', () => {
     expect(calls).toHaveLength(0)
     expect(searches).toHaveLength(0)
     expect(bindings).toHaveLength(0)
-    expect(await ctx.memoryWorkspace.status()).toEqual({ chatMemory: false, server: 'ready' })
+    expect(await ctx.memoryWorkspace.status()).toEqual({ chatMemory: false, server: 'ready', maxDocumentBytes: 16 * 1024 * 1024 })
   })
 
   it('reports a Memorix server that is not mounted as a save failure instead of an error', async () => {
@@ -362,6 +423,47 @@ describe('Memory policy and first-message recall', () => {
     expect(await assembled(ctx, 's2')).toBe('')
     expect(bindings).toEqual([expect.stringContaining(markerRoots), expect.stringContaining(markerRoots)])
     expect(new Set(bindings).size).toBe(2)
+  })
+
+  it('rebinds when the server project changed behind the cached binding and when a restarted server is unbound', async () => {
+    const server = { project: 'workspace-a', bound: true }
+    const stored: string[] = []
+    const bindings: unknown[] = []
+    const archived: unknown[] = []
+    const { ctx, db } = await fixture({ search: '', call: async (name, args) => {
+      if (name === 'memorix_resolve') {
+        archived.push({ ...args, project: server.project })
+        return { content: [{ type: 'text', text: 'resolved' }] }
+      }
+      if (name === 'memorix_session_start') {
+        bindings.push(args.projectRoot)
+        server.project = 'workspace-a'
+        server.bound = true
+        return { content: [{ type: 'text', text: '[OK] Session started: s\nProject: workspace (workspace-a)\n' }] }
+      }
+      if (!server.bound) return { isError: true, content: [{ type: 'text', text: 'Cannot store memory in the current project yet.\nTo bind this session, call memorix_session_start' }] }
+      stored.push(`${server.project}:${asText(args.topicKey)}`)
+      const text = storeText(db, args).replace('Project: fixture', `Project: ${server.project}`)
+      db.prepare('UPDATE observations SET projectId = ? WHERE topicKey = ?').run(server.project, asText(args.topicKey))
+      return { content: [{ type: 'text', text }] }
+    } })
+    const chat = session()
+    const save = async (request: string, count: number): Promise<void> => {
+      prompt(ctx, chat, request); reply(ctx, chat, request); done(ctx, chat)
+      await vi.waitFor(() => { expect(stored.length).toBeGreaterThanOrEqual(count) })
+      await vi.waitFor(async () => { expect((await ctx.memoryWorkspace.status()).saveFailure).toBeUndefined() })
+    }
+    await save('first', 1)
+    expect(bindings).toHaveLength(1)
+    server.project = 'other-project'
+    await save('second', 3)
+    expect(bindings).toHaveLength(2)
+    expect(stored.slice(1)).toEqual([expect.stringMatching(/^other-project:/), expect.stringMatching(/^workspace-a:/)])
+    expect(archived).toEqual([{ ids: [expect.any(Number)], status: 'archived', project: 'other-project' }])
+    server.bound = false
+    await save('third', 4)
+    expect(bindings).toHaveLength(3)
+    expect((await ctx.memoryWorkspace.status()).saveFailure).toBeUndefined()
   })
 
   it('binds a folder inside a Git repository by its own path and gives every other folder, including one that only contains a repository, its own project', async () => {
@@ -457,6 +559,46 @@ describe('Memory policy and first-message recall', () => {
     expect(searches).toEqual([{ query: 'fix the login bug', limit: 8, scope: 'project', quality: 'fast', status: 'active' }])
   })
 
+  it('still recalls notes saved under the earlier entity name of this workspace and saves under the new one', async () => {
+    const { ctx, db, calls } = await fixture({ search: 'obs:2 obs:1 obs:3' })
+    await ctx.plugin(SystemPrompt)
+    const legacy =`dsh-workspace:${basename(CWD)}-${createHash('sha256').update(process.platform === 'win32' ? resolve(CWD).toLowerCase() : resolve(CWD)).digest('hex').slice(0, 8)}`
+    expect(legacy).not.toBe(workspaceEntity(CWD))
+    const insert = db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, createdAt) VALUES (?, ?, ?, ?, ?)')
+    insert.run(legacy, 'Turn 1: before', 'legacy narrative', 'dsh-session:old:1:turn:1', '2020-01-01T00:00:00.000Z')
+    insert.run(workspaceEntity(CWD), 'Turn 1: after', 'current narrative', 'dsh-session:old:2:turn:1', '2021-01-01T00:00:00.000Z')
+    insert.run('dsh-workspace:elsewhere-00000000', 'Turn 1: other', 'other narrative', 'dsh-session:x:1:turn:1', '2022-01-01T00:00:00.000Z')
+    inbox(ctx, session('s1'), 'fix the login bug')
+    const recalled = await assembled(ctx, 's1')
+    expect(recalled).toContain('legacy narrative')
+    expect(recalled).toContain('current narrative')
+    expect(recalled.indexOf('current narrative')).toBeLessThan(recalled.indexOf('legacy narrative'))
+    expect(recalled).not.toContain('other narrative')
+    const target = session('s2')
+    prompt(ctx, target, 'fix it')
+    reply(ctx, target, 'done')
+    done(ctx, target)
+    await vi.waitFor(() => { expect(calls).toHaveLength(1) })
+    expect(calls[0]?.entityName).toBe(workspaceEntity(CWD))
+  })
+
+  it('resolves the workspace path once per recall search and once per save', async () => {
+    const { ctx, calls } = await fixture()
+    await ctx.plugin(SystemPrompt)
+    const resolved = vi.spyOn(realpathSync, 'native')
+    inbox(ctx, session('s1'), 'fix the login bug')
+    await assembled(ctx, 's1')
+    expect(resolved).toHaveBeenCalledTimes(1)
+    resolved.mockClear()
+    const target = session('s2')
+    prompt(ctx, target, 'fix it')
+    reply(ctx, target, 'done')
+    done(ctx, target)
+    await vi.waitFor(() => { expect(calls).toHaveLength(1) })
+    expect(resolved).toHaveBeenCalledTimes(1)
+    resolved.mockRestore()
+  })
+
   it('bounds the recalled notes within the character limit', async () => {
     const search = 'Found 2 observation(s):\n| obs:1@fixture | x |\n| obs:2@fixture | x |'
     const { ctx, db } = await fixture({ config: { memoryCharacters: 600 }, search })
@@ -479,10 +621,14 @@ describe('Memory policy and first-message recall', () => {
     } })
     await failing.ctx.plugin(SystemPrompt)
     const warn = vi.spyOn(failing.ctx.logger, 'warn')
-    failing.db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, createdAt) VALUES (?, ?, ?, ?, ?)')
-      .run(workspaceEntity(CWD), 'Turn 1: latest', 'latest narrative', 'dsh-session:old:1:turn:1', '2020-01-01T00:00:00.000Z')
+    failing.db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, projectId, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(workspaceEntity(CWD), 'Turn 1: latest', 'latest narrative', 'dsh-session:old:1:turn:1', 'fixture', '2020-01-01T00:00:00.000Z')
+    failing.db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, projectId, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(workspaceEntity(CWD), 'Turn 2: foreign', 'foreign narrative', 'dsh-session:other:1:turn:1', 'other-project', '2026-11-01T00:00:00.000Z')
     inbox(failing.ctx, session('s1'), 'anything')
-    expect(await assembled(failing.ctx, 's1')).toContain('latest narrative')
+    const failingContext = await assembled(failing.ctx, 's1')
+    expect(failingContext).toContain('latest narrative')
+    expect(failingContext).not.toContain('foreign narrative')
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('automatic memory recall failed: search index is busy'))
 
     const hung = await fixture({ call: (name, _args, signal) => {
@@ -491,11 +637,72 @@ describe('Memory policy and first-message recall', () => {
     } })
     await hung.ctx.plugin(SystemPrompt)
     const hungWarn = vi.spyOn(hung.ctx.logger, 'warn')
-    hung.db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, createdAt) VALUES (?, ?, ?, ?, ?)')
-      .run(workspaceEntity(CWD), 'Turn 1: slow', 'slow fallback narrative', 'dsh-session:old:1:turn:1', '2020-01-01T00:00:00.000Z')
+    hung.db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, projectId, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(workspaceEntity(CWD), 'Turn 1: slow', 'slow fallback narrative', 'dsh-session:old:1:turn:1', 'fixture', '2020-01-01T00:00:00.000Z')
+    hung.db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, projectId, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(workspaceEntity(CWD), 'Turn 2: foreign', 'foreign narrative', 'dsh-session:other:1:turn:1', 'other-project', '2026-11-01T00:00:00.000Z')
     inbox(hung.ctx, session('s2'), 'slow search')
-    expect(await assembled(hung.ctx, 's2')).toContain('slow fallback narrative')
+    const hungContext = await assembled(hung.ctx, 's2')
+    expect(hungContext).toContain('slow fallback narrative')
+    expect(hungContext).not.toContain('foreign narrative')
     expect(hungWarn).toHaveBeenCalledWith(expect.stringContaining('did not finish within 3 s'))
+  }, 15_000)
+
+  it('includes legacy workspace entities in the empty-search fallback', async () => {
+    const { ctx, db } = await fixture()
+    await ctx.plugin(SystemPrompt)
+    const legacy = `dsh-workspace:${basename(CWD)}-${createHash('sha256').update(process.platform === 'win32' ? resolve(CWD).toLowerCase() : resolve(CWD)).digest('hex').slice(0, 8)}`
+    expect(legacy).not.toBe(workspaceEntity(CWD))
+    const insert = db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, projectId, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
+    insert.run(legacy, 'Turn 1: old', 'legacy fallback narrative', 'dsh-session:old:1:turn:1', 'fixture', '2020-01-01T00:00:00.000Z')
+    inbox(ctx, session('s1'), 'first message')
+    expect(await assembled(ctx, 's1')).toContain('legacy fallback narrative')
+  })
+
+  it('keeps another project\'s notes of the same entity out of the empty-search fallback', async () => {
+    const { ctx, db } = await fixture()
+    await ctx.plugin(SystemPrompt)
+    const insert = db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, projectId, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
+    insert.run(workspaceEntity(CWD), 'Turn 1: own', 'own project narrative', 'dsh-session:old:1:turn:1', 'fixture', '2020-01-01T00:00:00.000Z')
+    insert.run(workspaceEntity(CWD), 'Turn 2: other', 'other project narrative', 'dsh-session:other:1:turn:1', 'other-project', '2026-11-01T00:00:00.000Z')
+    inbox(ctx, session('s1'), 'first message')
+    const context = await assembled(ctx, 's1')
+    expect(context).toContain('own project narrative')
+    expect(context).not.toContain('other project narrative')
+  })
+
+  it('shows no fallback notes when the bind reply names no project', async () => {
+    const { ctx, db } = await fixture({ call: async (name) => {
+      if (name === 'memorix_session_start') return { content: [{ type: 'text', text: 'Session bound' }] }
+      return { content: [{ type: 'text', text: '' }] }
+    } })
+    await ctx.plugin(SystemPrompt)
+    db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, projectId, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(workspaceEntity(CWD), 'Turn 1: unbound', 'unfiltered narrative', 'dsh-session:old:1:turn:1', 'fixture', '2020-01-01T00:00:00.000Z')
+    inbox(ctx, session('s1'), 'first message')
+    expect(await assembled(ctx, 's1')).not.toContain('unfiltered narrative')
+  })
+
+  it('skips a recall search that expired while queued behind another Memorix operation', async () => {
+    const release = Promise.withResolvers<void>()
+    const searched: unknown[] = []
+    const { ctx, db } = await fixture({ call: async (name, args) => {
+      if (name === 'memorix_session_start') return { content: [{ type: 'text', text: PROJECT_ROOT_TEXT }] }
+      if (name === 'memorix_search') { searched.push(args); return { content: [{ type: 'text', text: '' }] } }
+      await release.promise
+      return { content: [{ type: 'text', text: storeText(db, args) }] }
+    } })
+    await ctx.plugin(SystemPrompt)
+    db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, createdAt) VALUES (?, ?, ?, ?, ?)')
+      .run(workspaceEntity(CWD), 'Turn 1: older', 'older fallback narrative', 'dsh-session:old:1:turn:1', '2020-01-01T00:00:00.000Z')
+    const chat = session('s1')
+    prompt(ctx, chat, 'blocking save'); reply(ctx, chat, 'ok'); done(ctx, chat)
+    inbox(ctx, chat, 'first message')
+    expect(await assembled(ctx, 's1')).toContain('older fallback narrative')
+    release.resolve()
+    await vi.waitFor(() => { expect(db.prepare('SELECT COUNT(*) AS n FROM observations').get()?.n).toBe(2) })
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(searched).toEqual([])
   }, 15_000)
 
   it('answers a memory lookup from the auto responder with this workspace notes and falls through otherwise', async () => {
@@ -606,6 +813,35 @@ describe('Memory policy and first-message recall', () => {
     expect(assembly.contexts.find(context => context.name === 'memory:recall')?.text).toBe('')
   })
 
+  it('leaves no abort listener on the turn signal after the recall has settled', async () => {
+    const search = 'Found 1 observation(s):\n| obs:1@fixture | x |'
+    const { ctx, db } = await fixture({ search })
+    await ctx.plugin(SystemPrompt)
+    db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, createdAt) VALUES (?, ?, ?, ?, ?)')
+      .run(workspaceEntity(CWD), 'Turn 1: earlier', 'earlier narrative', 'dsh-session:old:1:turn:1', '2020-01-01T00:00:00.000Z')
+    inbox(ctx, session('listeners'), 'earlier')
+    const turn = new AbortController()
+    const baseline = getEventListeners(turn.signal, 'abort').length
+    for (let step = 0; step < 5; step += 1) {
+      const assembly = await ctx.systemPrompt.assemble({ agent: { session: { id: 'listeners' } }, signal: turn.signal } as never)
+      expect(assembly.contexts.find(context => context.name === 'memory:recall')?.text).toContain('earlier narrative')
+    }
+    expect(getEventListeners(turn.signal, 'abort')).toHaveLength(baseline)
+  })
+
+  it('registers no abort listener for an already aborted turn signal', async () => {
+    const { ctx } = await fixture()
+    await ctx.plugin(SystemPrompt)
+    inbox(ctx, session('gone'), 'anything')
+    const turn = new AbortController()
+    turn.abort()
+    const add = vi.spyOn(turn.signal, 'addEventListener')
+    const assembly = await ctx.systemPrompt.assemble({ agent: { session: { id: 'gone' } }, signal: turn.signal } as never)
+    expect(assembly.contexts.find(context => context.name === 'memory:recall')?.text).toBe('')
+    expect(getEventListeners(turn.signal, 'abort')).toHaveLength(0)
+    expect(add).not.toHaveBeenCalledWith('abort', expect.anything(), expect.anything())
+  })
+
   it('drops the recalled notes the moment the chat-memory switch is turned off', async () => {
     const { ctx, db, fiber } = await fixture()
     await ctx.plugin(SystemPrompt)
@@ -618,8 +854,63 @@ describe('Memory policy and first-message recall', () => {
     expect(await ctx.memoryWorkspace.status()).toMatchObject({ chatMemory: false })
   })
 
+  it('writes nothing when the switch is turned off while a save waits on workspace binding', async () => {
+    let turnOff = (): void => undefined
+    const stores: unknown[] = []
+    const { ctx, fiber } = await fixture({ call: async (name, args) => {
+      if (name === 'memorix_session_start') {
+        turnOff()
+        return { content: [{ type: 'text', text: PROJECT_ROOT_TEXT }] }
+      }
+      stores.push(args)
+      return { content: [{ type: 'text', text: 'stored' }] }
+    } })
+    turnOff = () => { updateVolatile((fiber.effectiveConfig as { chatMemory: Volatile<boolean> }).chatMemory, createVolatile(false)) }
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    const chat = session()
+    prompt(ctx, chat, 'private'); reply(ctx, chat, 'answer'); done(ctx, chat)
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(stores).toEqual([])
+    expect(warn).not.toHaveBeenCalled()
+    expect(await ctx.memoryWorkspace.status()).not.toHaveProperty('saveFailure')
+  })
+
+  it('returns no notes when the switch is turned off during a lookup search', async () => {
+    let turnOff = (): void => undefined
+    const { ctx, db, fiber } = await fixture({ call: async (name) => {
+      if (name === 'memorix_session_start') return { content: [{ type: 'text', text: PROJECT_ROOT_TEXT }] }
+      turnOff()
+      return { content: [{ type: 'text', text: 'Found 1 observation(s):\n| obs:1@fixture | x |' }] }
+    } })
+    turnOff = () => { updateVolatile((fiber.effectiveConfig as { chatMemory: Volatile<boolean> }).chatMemory, createVolatile(false)) }
+    db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, createdAt) VALUES (?, ?, ?, ?, ?)')
+      .run(workspaceEntity(CWD), 'Turn 1: earlier', 'earlier narrative', 'dsh-session:old:1:turn:1', '2020-01-01T00:00:00.000Z')
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    expect(await ctx.waterfall('memory/lookup', 'q', session('s1') as never, new AbortController().signal, () => Promise.resolve(undefined))).toBeUndefined()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('inserts no recalled notes when the switch is turned off while prompt assembly awaits the recall', async () => {
+    let release = (): void => undefined
+    const held = new Promise<void>((resolve) => { release = resolve })
+    const { ctx, db, fiber } = await fixture({ call: async (name) => {
+      if (name === 'memorix_session_start') return { content: [{ type: 'text', text: PROJECT_ROOT_TEXT }] }
+      await held
+      return { content: [{ type: 'text', text: 'Found 1 observation(s):\n| obs:1@fixture | x |' }] }
+    } })
+    await ctx.plugin(SystemPrompt)
+    db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, createdAt) VALUES (?, ?, ?, ?, ?)')
+      .run(workspaceEntity(CWD), 'Turn 1: earlier', 'earlier narrative', 'dsh-session:old:1:turn:1', '2020-01-01T00:00:00.000Z')
+    inbox(ctx, session('live'), 'anything')
+    const assembly = assembled(ctx, 'live')
+    await new Promise(resolve => setTimeout(resolve, 50))
+    updateVolatile((fiber.effectiveConfig as { chatMemory: Volatile<boolean> }).chatMemory, createVolatile(false))
+    release()
+    expect(await assembly).toBe('')
+  })
+
   it('reports the chat-memory switch and a connected Memorix with no recorded failures', async () => {
     const { ctx } = await fixture()
-    expect(await ctx.memoryWorkspace.status()).toEqual({ chatMemory: true, server: 'ready' })
+    expect(await ctx.memoryWorkspace.status()).toEqual({ chatMemory: true, server: 'ready', maxDocumentBytes: 16 * 1024 * 1024 })
   })
 })

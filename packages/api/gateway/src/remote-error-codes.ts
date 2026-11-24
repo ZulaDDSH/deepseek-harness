@@ -21,6 +21,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'gateway/context-not-found': TypertGatewayFaultDetails
     'gateway/context-unavailable': TypertGatewayFaultDetails
     'gateway/definition-unavailable': TypertGatewayFaultDetails
+    'gateway/event-backlog': TypertGatewayFaultDetails
     'gateway/input-invalid': TypertGatewayFaultDetails
     'gateway/interactions-forbidden': TypertGatewayFaultDetails
     'gateway/invocation-unavailable': TypertGatewayFaultDetails

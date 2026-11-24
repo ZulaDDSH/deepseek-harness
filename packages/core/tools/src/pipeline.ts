@@ -11,7 +11,7 @@ import { TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH, ToolNotFoundError, ToolOutp
 import { APPROVAL_CANCELLED, APPROVAL_ERROR_NAME, APPROVAL_REJECTED, APPROVAL_UNAVAILABLE, type ApprovalErrorCode } from './error-codes.ts'
 import { validateJsonSchemaValue } from './json-schema.ts'
 import type { ToolsService } from './index.ts'
-import type { ResolvedToolSet, ToolDefinition, ToolExecutionInput, ToolExecutionMode, ToolExecution, ToolRunContext, ToolExecutionResult, ToolExecutionSuccess, ToolErrorInfo, ToolExecutionToken, PreToolDecision, PostToolDecision } from './contracts.ts'
+import type { ResolvedToolSet, ToolDefinition, ToolExecutionInput, ToolExecutionMode, ToolExecution, ToolRunContext, ToolExecutionResult, ToolExecutionSuccess, ToolErrorInfo, ToolExecutionToken, PreToolDecision, PostToolDecision, ToolPreflightResult } from './contracts.ts'
 
 /** Executor-owned lookup and restrictions applied before extensible execution policy. */
 export interface ToolExecutionSource {
@@ -231,6 +231,14 @@ export class ToolExecutionPipeline {
     } catch (error: unknown) {
       return { kind: 'final-result', exec, result: toolErrorResult(error) }
     }
+  }
+
+  async preflight(input: ToolExecutionInput): Promise<ToolPreflightResult> {
+    const prepared = await this.prepare(input)
+    if (prepared.kind === 'dispatch') return { allowed: true }
+    const { result } = prepared
+    const text = result.content.flatMap(block => block.type === 'text' ? [block.text] : []).join(' ')
+    return { allowed: false, reason: result.error?.message ?? (text.length > 0 ? text : `tool "${input.name}" was not allowed`) }
   }
 
   /** Whether the original caller signal is currently aborted. */
@@ -467,12 +475,14 @@ export class ToolExecutionPipeline {
         approvalCancelled: false,
       }
     }
+    const operation = operationSummary(exec.arguments)
     const outcome = await approval.request({
       agent: exec.agent,
       toolName: exec.name,
       callId: exec.callId,
       ...ask.reason !== undefined ? { reason: ask.reason } : {},
       ...ask.displayReason !== undefined ? { displayReason: ask.displayReason } : {},
+      ...operation !== undefined ? { operation } : {},
       signal: exec.signal,
     })
     switch (outcome) {
@@ -711,6 +721,28 @@ function errorInfo(error: unknown): ToolErrorInfo | undefined {
 /** Materialize a non-granting approval outcome as a denial with routable `ApprovalError` identity. */
 function approvalDenial(reason: string, code: ApprovalErrorCode): Extract<PreToolDecision, { kind: 'deny' }> {
   return { kind: 'deny', reason, info: { name: APPROVAL_ERROR_NAME, code } }
+}
+
+const OPERATION_LIMIT = 1024
+const OPERATION_SECRET_KEY = /pass(word|wd)?|secret|token|api[-_]?key|authorization|credential|cookie/i
+
+function boundedOperation(value: unknown, depth: number): unknown {
+  if (typeof value === 'string') return value.length > 256 ? `${value.slice(0, 256)}...` : value
+  if (value === null || typeof value !== 'object') return value
+  if (depth >= 4) return '[nested]'
+  if (Array.isArray(value)) return value.slice(0, 16).map(item => boundedOperation(item, depth + 1))
+  const out: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(value).slice(0, 32)) {
+    out[key] = OPERATION_SECRET_KEY.test(key) ? '[redacted]' : boundedOperation(item, depth + 1)
+  }
+  return out
+}
+
+function operationSummary(args: unknown): string | undefined {
+  if (args === undefined) return undefined
+  const text = JSON.stringify(boundedOperation(args, 0))
+  if (text === undefined) return undefined
+  return text.length > OPERATION_LIMIT ? `${text.slice(0, OPERATION_LIMIT)}...` : text
 }
 
 /** Whether a value thrown after cancellation is that cancellation and carries no identity of its own. */

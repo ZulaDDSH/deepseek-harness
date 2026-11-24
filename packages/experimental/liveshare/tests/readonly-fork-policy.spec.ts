@@ -119,9 +119,11 @@ describe('read-only fork authorization', () => {
     const ceiling = READ_ONLY_FORK_CEILING
     expect(ceiling.readOnly).toBe(true)
     expect(ceiling.allowedTools).toEqual([
-      'read', 'read_image', 'glob', 'grep', 'present', 'todo_write', 'skill', 'web_search', 'web_fetch',
-      'run_code',
+      'read', 'read_image', 'glob', 'grep', 'present', 'todo_write', 'skill', 'web_search',
     ])
+    expect(ceiling.allowedTools).not.toContain('run_code')
+    expect(ceiling.allowedTools).not.toContain('web_fetch')
+    expect(ceiling.deniedCapabilities).toContain('run_code')
     expect(WRITE_FORK_CEILING.allowedTools).toEqual([...ceiling.allowedTools, 'edit', 'write'])
     // A ceiling that can be edited is not a ceiling: these are refused at the seam, not configured.
     for (const denied of ['bash', 'pwsh', 'cua', 'plugin_manager', 'schedule_create', 'write', 'edit']) {

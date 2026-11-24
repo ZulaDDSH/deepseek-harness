@@ -2,7 +2,9 @@
 
 import type { RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { deadline } from '@deepseek-ai/dsh-timeout'
-import { FILES_API_TIMEOUT, type DeepSeekFileStore, type DeepSeekFileConnection, type DeepSeekFilePolicy } from './file-store.ts'
+import {
+  FILES_API_TIMEOUT, uploadIdentityOf, type DeepSeekFileStore, type DeepSeekFileConnection, type DeepSeekFilePolicy,
+} from './file-store.ts'
 import type { DeepSeekFileId } from './file-id.ts'
 
 /** Position of an image occurrence in the request's conversation messages. */
@@ -135,7 +137,7 @@ export class RequestFiles {
   async retry(detail: string): Promise<boolean> {
     if (this.used.length === 0 || !providerRejectedFileId(detail)) return false
     await this.files.invalidate(
-      staleMappings(this.used, detail).map(file => ({ variantId: file.version.variantId, fileId: file.fileId })),
+      staleMappings(this.used, detail).map(file => ({ variantId: uploadIdentityOf(file.version), fileId: file.fileId })),
       this.connection,
     )
     if (this.retried) return false

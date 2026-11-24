@@ -3,6 +3,10 @@ import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { MenuAction, MenuActionView, MenuContribution, MenuResolution, ContextMenuTarget, ContextMenuTargetMap } from './types.ts'
 
+function isThenable(value: unknown): value is PromiseLike<readonly MenuAction[]> {
+  return typeof (value as { then?: unknown } | null)?.then === 'function'
+}
+
 interface Provider {
   readonly id: string
   readonly order: number
@@ -108,16 +112,17 @@ export class MenuRegistry {
         preparing = undefined
         try {
           const result = provider.resolve(target, signal)
-          if (result instanceof Promise) clear()
-          preparing = result instanceof Promise ? new Promise<void>((settle) => {
+          if (!isThenable(result)) { accept(result); return }
+          clear()
+          preparing = new Promise<void>((settle) => {
             const timer = this.timeoutMs === undefined ? undefined : setTimeout(() => {
-              deadline.abort(); this.failed()
+              if (!signal.aborted) { deadline.abort(); this.failed() }
             }, this.timeoutMs)
             const finish = (): void => { clearTimeout(timer); signal.removeEventListener('abort', finish); settle() }
             signal.addEventListener('abort', finish, { once: true })
-            void result.then(accept).catch(() => { if (!signal.aborted) this.failed() }).finally(finish)
-          }) : undefined
-          if (!(result instanceof Promise)) accept(result)
+            if (signal.aborted) finish()
+            void Promise.resolve(result).then(accept).catch(() => { if (!signal.aborted) this.failed() }).finally(finish)
+          })
         } catch (_error) { if (!signal.aborted) { clear(); this.failed() } }
       }
       const subscriptions: (() => void)[] = []

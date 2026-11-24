@@ -28,6 +28,8 @@ beforeEach(async () => {
     maxLines: 100,
     maxEntries: 100,
     search: { maxResults: 100, maxEntries: 1000, graceMs: 3000, timeoutMs: 30000, stderrMaxBytes: 65536 },
+    confineReads: true,
+    readRoots: [],
   })
   ctx.sessions.create(harness.scope.sessionId, { meta: { cwd: harness.workspace, origin: 'subagent' } })
   const connection = ctx.get('connection') as HostConnectionService

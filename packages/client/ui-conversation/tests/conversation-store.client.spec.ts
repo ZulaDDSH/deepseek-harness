@@ -161,4 +161,20 @@ describe('createConversationStore', () => {
       expect(read.mock.calls).toEqual([[`${KEY}.${sessionId}`], [`${KEY}.${sessionId}`]])
     } finally { read.mockRestore() }
   })
+
+  it('reads an empty draft and no view preference, and still creates a store', () => {
+    const saved = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, get: () => { throw new DOMException('blocked', 'SecurityError') } })
+    try {
+      const sessionId = 'blocked-session' as SessionId
+      expect(readConversationDraft(sessionId)).toEqual({ text: '', references: [] })
+      expect(readConversationViewPreference(sessionId)).toBeNull()
+      const store = createConversationStore().create(sessionId)
+      store.actions.setDraft('kept in memory')
+      expect(store.store.getSnapshot().draft).toBe('kept in memory')
+    } finally {
+      if (saved === undefined) Reflect.deleteProperty(globalThis, 'localStorage')
+      else Object.defineProperty(globalThis, 'localStorage', saved)
+    }
+  })
 })

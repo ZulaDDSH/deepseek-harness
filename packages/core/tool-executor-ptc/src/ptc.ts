@@ -47,6 +47,28 @@ interface RunCodeFlavor {
   readonly codeDescription: string
 }
 
+// Constraint: must not serialize or allocate; stops counting once the total passes limit.
+export function jsonByteSize(value: JsonValue, limit: number): number {
+  let total = 0
+  const pending: JsonValue[] = [value]
+  while (pending.length > 0 && total <= limit) {
+    const item = pending.pop()!
+    if (typeof item === 'string') total += Buffer.byteLength(item) + 2
+    else if (item === null || typeof item !== 'object') total += String(item).length
+    else if (Array.isArray(item)) {
+      total += 2 + item.length
+      for (const child of item) pending.push(child)
+    } else {
+      for (const [key, child] of Object.entries(item)) {
+        total += Buffer.byteLength(key) + 4
+        pending.push(child)
+      }
+      total += 2
+    }
+  }
+  return total
+}
+
 /** Keep tool-call rules here; the runtime owns evaluation syntax and state retention. */
 function runCodeFlavor(language: string, outputInstruction: string, execution = {
   programDescription: 'the program to execute',
@@ -218,7 +240,7 @@ export function createRunCodeTransport(
   calls: PtcCalls,
   options?: Omit<RunCodeToolOptions, 'limits'>,
 ): ToolDefinition {
-  const { maxSubCallsPerMinute, maxParallelSubCalls: maxParallel } = config
+  const { maxSubCallsPerMinute, maxParallelSubCalls: maxParallel, maxBindingResultBytes, maxProgramResultBytes } = config
   const toolName = options?.name ?? RUN_CODE_NAME
   const getRuntime = options === undefined ? () => requirePtcRuntime(ctx) : () => requireRuntimeLanguage(options.runtime)
   // Retain services for log settlement after the executor context becomes inactive.
@@ -451,6 +473,7 @@ export function createRunCodeTransport(
         // changes across awaits, and a direct `.aborted` re-check after one
         // would be narrowed away by control flow analysis.
         const runOver = (): boolean => runController.signal.aborted
+        let deliveredBytes = 0
 
         const binding = (schema: ToolSchema): PtcBindingFunction => async (rawArgs: unknown): Promise<JsonValue> => {
           const { name } = schema
@@ -608,6 +631,14 @@ export function createRunCodeTransport(
                 + outcome.content.filter(block => block.type === 'text').map(block => block.text).join('\n'))
             }
             if (name === 'read_image' || images.length > 1) throw new Error('Image-producing tools must return exactly one image')
+          }
+          const size = jsonByteSize(outcome.value, maxBindingResultBytes)
+          if (size > maxBindingResultBytes) {
+            throw new Error(`${name} result is over the ${maxBindingResultBytes} byte limit for one binding result; narrow the call or page through the data`)
+          }
+          deliveredBytes += size
+          if (deliveredBytes > maxProgramResultBytes) {
+            throw new Error(`${name} result would pass the ${maxProgramResultBytes} byte limit for all binding results in one ${toolName} run; narrow the calls`)
           }
           return outcome.value
         }

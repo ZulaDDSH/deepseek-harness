@@ -9,7 +9,7 @@
  * recreated record would make every render resubscribe and restart the stream.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError, type RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { createSnapshotStore, type ObservableSnapshot, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {
   ResourceOpenContext,
@@ -18,6 +18,8 @@ import type {
   Resources,
   ResourceSnapshot,
 } from './contract.ts'
+
+const MAX_IDLE_RECORDS = 256
 
 /** A provider with its value type erased, so one map holds every protocol. */
 interface RuntimeProvider {
@@ -36,6 +38,7 @@ interface ResourceRecord {
   holders: number
   /** Present while the provider's stream runs; aborting it ends the stream. */
   controller: AbortController | undefined
+  ended: boolean
 }
 
 /**
@@ -75,6 +78,7 @@ function idle(status: 'none' | 'loading'): ResourceSnapshot<unknown> {
 export class ResourceRegistry implements Resources {
   private readonly providers = new Map<string, RuntimeProvider>()
   private readonly records = new Map<string, ResourceRecord>()
+  private readonly idleRecords = new Set<ResourceRecord>()
 
   /** @param ctx - Context whose effects own the registered providers. */
   constructor(private readonly ctx: Context) {}
@@ -112,6 +116,8 @@ export class ResourceRegistry implements Resources {
     if (record === undefined) {
       record = this.create(address)
       this.records.set(address, record)
+      this.idleRecords.add(record)
+      this.evictIdle()
     }
     return record
   }
@@ -127,6 +133,7 @@ export class ResourceRegistry implements Resources {
       store,
       holders: 0,
       controller: undefined,
+      ended: false,
       source: {
         getSnapshot: () => store.getSnapshot(),
         subscribe: (listener) => {
@@ -157,14 +164,26 @@ export class ResourceRegistry implements Resources {
 
   private hold(record: ResourceRecord): void {
     record.holders += 1
-    if (record.holders === 1) this.start(record)
+    this.idleRecords.delete(record)
+    if (!this.records.has(record.address)) this.records.set(record.address, record)
+    if (record.holders === 1 || (record.ended && record.store.getSnapshot().status === 'failed')) this.start(record)
   }
 
   private release(record: ResourceRecord): void {
     record.holders -= 1
     if (record.holders > 0) return
+    this.idleRecords.add(record)
+    this.evictIdle()
     this.stop(record)
     record.store.set(idle(this.providerOf(record.protocol) === undefined ? 'none' : 'loading'))
+  }
+
+  private evictIdle(): void {
+    for (const record of this.idleRecords) {
+      if (this.idleRecords.size <= MAX_IDLE_RECORDS) return
+      this.idleRecords.delete(record)
+      this.records.delete(record.address)
+    }
   }
 
   /** The provider arrived: a held record opens its stream, an idle one turns `loading`. */
@@ -187,8 +206,10 @@ export class ResourceRegistry implements Resources {
     if (provider === undefined) return
     const controller = new AbortController()
     record.controller = controller
+    record.ended = false
     if (record.store.getSnapshot().status !== 'loading') record.store.set(idle('loading'))
-    void this.consume(record, provider, controller.signal)
+    void this.consume(record, provider, controller.signal).catch((error: unknown) => { this.fail(record, controller.signal, error) })
+      .finally(() => { if (record.controller === controller) record.ended = true })
   }
 
   private stop(record: ResourceRecord): void {
@@ -196,7 +217,15 @@ export class ResourceRegistry implements Resources {
     record.controller = undefined
   }
 
-  /** Failures arrive as frames; a throw inside the stream is left to surface. */
+  private fail(record: ResourceRecord, signal: AbortSignal, error: unknown): void {
+    if (signal.aborted) return
+    record.store.set({
+      status: 'failed',
+      value: record.store.getSnapshot().value,
+      failure: new RemoteError('gateway/internal', error instanceof Error ? error.message : String(error), {}),
+    })
+  }
+
   private async consume(record: ResourceRecord, provider: RuntimeProvider, signal: AbortSignal): Promise<void> {
     const stream = provider.open(record.address, { signal })
     for await (const frame of stream) {

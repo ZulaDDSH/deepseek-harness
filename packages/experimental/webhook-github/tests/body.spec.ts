@@ -37,6 +37,20 @@ describe('bounded webhook body intake', () => {
     expect(oversized.resume).toHaveBeenCalledOnce()
   })
 
+  it('destroys a request whose body outlasts the deadline and answers 408', async () => {
+    let fail!: (error: Error) => void
+    const stalled = new Promise<never>((_resolve, reject) => { fail = reject })
+    const destroy = vi.fn((): IncomingMessage => { fail(new Error('closed')); return slow as IncomingMessage })
+    const slow: Partial<IncomingMessage> = {
+      headers: {},
+      complete: false,
+      destroy,
+      async * [Symbol.asyncIterator]() { await stalled },
+    }
+    await expect(readBoundedUtf8Body(slow as IncomingMessage, 10, 20)).rejects.toMatchObject({ status: 408 })
+    expect(destroy).toHaveBeenCalledOnce()
+  })
+
   it('rejects a chunked body at the first byte beyond the cap', async () => {
     const streamed = request({ chunks: [Buffer.from('ab'), Buffer.from('c')] })
     await expect(readBoundedUtf8Body(streamed, 2)).rejects.toMatchObject({ status: 413 })

@@ -198,8 +198,10 @@ describe('BrowserBody', () => {
     const frame = mounted.view.container.querySelector('iframe')!
     const revision = mounted.store.getSnapshot().byTab[TAB]!.request!.revision
 
+    expect(mounted.view.queryByText(zh['address.requested'])).toBeNull()
     fireEvent.load(frame)
     expect(mounted.store.getSnapshot().byTab[TAB]?.navigation).toEqual({ status: 'known', revision })
+    expect(mounted.view.getByText(zh['address.requested'])).toBeDefined()
     expect(mounted.view.getByRole('button', { name: zh.back })).toHaveProperty('disabled', false)
     fireEvent.load(frame)
     expect(mounted.store.getSnapshot().byTab[TAB]?.navigation).toEqual({ status: 'unknown', revision })

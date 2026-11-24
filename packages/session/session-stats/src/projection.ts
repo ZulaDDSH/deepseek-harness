@@ -14,8 +14,8 @@
  * (`deriveStats` in dsh-client-ui-conversation, that fold's whole-window
  * fallback role): model time is `step/start` → `assistant/message`, first
  * token is the first non-empty delta chunk and survives an in-step
- * `llm/retry`, decode spans first token → assembled message on steps that
- * also report output tokens, and tool time pairs `tool/call` → `tool/result`
+ * `llm/retry`, decode spans the final attempt's first token → assembled message
+ * on steps that also report output tokens, and tool time pairs `tool/call` → `tool/result`
  * by callId. A cancelled step assembles no message, so its partial stream
  * time stays uncounted in every time figure — matching the window, which
  * renders it as an untimed interrupted node.
@@ -151,8 +151,9 @@ export const sessionStatsProjectionDefinition = {
           next.ttftMs += Math.max(0, firstToken - open.startTime)
           next.ttftSteps += 1
           const outputTokens = usageOutputTokens(event.data.usage)
-          if (outputTokens !== null) {
-            next.decodeMs += Math.max(0, event.time - firstToken)
+          const decodeStart = assistantStreamFirstTokenTime(event.data.stream)
+          if (outputTokens !== null && decodeStart !== undefined) {
+            next.decodeMs += Math.max(0, event.time - decodeStart)
             next.decodeTokens += outputTokens
           }
         }

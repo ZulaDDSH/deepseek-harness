@@ -12,6 +12,70 @@ export function exportName(name: string | undefined, mediaType: string): string 
   return resolveDragFileName({ name: name ?? 'image', mediaType })
 }
 
+export const REMOTE_IMAGE_BYTES = 64 * 1024 * 1024
+export const REMOTE_IMAGE_MS = 30_000
+export const MAX_FILE_ACTION_BYTES = 256 * 1024 * 1024
+
+export interface OriginalWindow {
+  readonly absolutePath: string
+  readonly version: string
+  readonly data: ArrayLike<number>
+  readonly eof: boolean
+}
+
+export async function readOriginalBytes(
+  readWindow: (offset: number) => Promise<OriginalWindow>, signal: AbortSignal, limit = MAX_FILE_ACTION_BYTES,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const chunks: Uint8Array<ArrayBuffer>[] = []
+  let total = 0
+  let first: OriginalWindow | undefined
+  for (;;) {
+    signal.throwIfAborted()
+    const window = await readWindow(total)
+    if (first === undefined) first = window
+    else if (window.absolutePath !== first.absolutePath || window.version !== first.version) {
+      throw new Error('Original file changed while it was read')
+    }
+    const data = new Uint8Array(window.data)
+    total += data.byteLength
+    if (total > limit) throw new Error('Original file is too large')
+    chunks.push(data)
+    if (window.eof || data.byteLength === 0) break
+  }
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
+async function readBounded(response: Response, limit: number): Promise<Blob> {
+  const type = response.headers?.get('content-type') ?? ''
+  const declared = Number(response.headers?.get('content-length'))
+  if (Number.isFinite(declared) && declared > limit) throw new Error('Original file is too large')
+  if (response.body === null || response.body === undefined) {
+    const blob = await response.blob()
+    if (blob.size > limit) throw new Error('Original file is too large')
+    return blob
+  }
+  const reader = response.body.getReader()
+  const chunks: Uint8Array<ArrayBuffer>[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > limit) {
+      await reader.cancel()
+      throw new Error('Original file is too large')
+    }
+    chunks.push(value)
+  }
+  return new Blob(chunks, { type })
+}
+
 /** File action owner; browser download requests never imply a saved path. */
 export class BrowserFileActions implements FileActions {
   private downloadUrl: string | undefined
@@ -30,9 +94,18 @@ export class BrowserFileActions implements FileActions {
       this.lifetime.signal.throwIfAborted()
       return new Blob([new Uint8Array(content.bytes)], { type: content.mediaType || source.mediaType || '' })
     }
-    const response = await fetch(source.url, { signal: this.lifetime.signal, referrerPolicy: 'no-referrer' })
-    if (!response.ok) throw new Error('Original file unavailable')
-    return response.blob()
+    const deadline = new AbortController()
+    const timer = setTimeout(() => { deadline.abort(new Error('Original file download timed out')) }, REMOTE_IMAGE_MS)
+    const cancel = (): void => { deadline.abort(this.lifetime.signal.reason) }
+    this.lifetime.signal.addEventListener('abort', cancel, { once: true })
+    try {
+      const response = await fetch(source.url, { signal: deadline.signal, referrerPolicy: 'no-referrer' })
+      if (!response.ok) throw new Error('Original file unavailable')
+      return await readBounded(response, REMOTE_IMAGE_BYTES)
+    } finally {
+      clearTimeout(timer)
+      this.lifetime.signal.removeEventListener('abort', cancel)
+    }
   }
   async save(source: FileActionSource, mode: 'download' | 'saveAs'): Promise<FileSaveResult> {
     this.lifetime.signal.throwIfAborted()

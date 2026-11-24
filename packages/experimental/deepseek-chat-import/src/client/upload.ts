@@ -275,7 +275,10 @@ function responseOf(value: unknown): DeepseekChatImportResponse | undefined {
   if (value.ok === false) {
     const error = value.error
     if (!isObject(error) || !isReason(error.reason) || typeof error.message !== 'string') return undefined
-    return { ok: false, error: { reason: error.reason, message: error.message } }
+    const sessionIds = Array.isArray(error.sessionIds) && error.sessionIds.every(id => typeof id === 'string')
+      ? error.sessionIds as string[]
+      : []
+    return { ok: false, error: { reason: error.reason, message: error.message, ...sessionIds.length === 0 ? {} : { sessionIds } } }
   }
   return undefined
 }

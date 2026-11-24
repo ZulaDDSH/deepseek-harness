@@ -43,4 +43,4 @@ Tool schemas remain stable within a preset. New peer messages and results extend
 
 ### Dev Note
 
-See [code notes](../../../docs/code-notes/deepseek-harness.md) for anchored implementation decisions.
+See [code notes](https://github.com/ZulaDDSH/CodeNotes/blob/main/Deepseek%20Harness/deepseek-harness.md) for anchored implementation decisions.

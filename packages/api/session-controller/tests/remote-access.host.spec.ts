@@ -183,6 +183,31 @@ describe('Session Controller access', () => {
     }
   })
 
+  it('authorizes outline by Address like events and rejects a role without the outline action', async () => {
+    const { ctx, shared, hidden } = await harness()
+    shared.inbox.append('next-turn', message('shared history'))
+    hidden.inbox.append('next-turn', message('private history'))
+    await ctx.plugin(TypertGatewayService)
+    const held = guestPolicy(ctx, {
+      role: { name: 'test:outline-reader', resource: 'session', actions: ['session/outline'] },
+      resource: { kind: 'session', id: SHARED },
+    })
+    const request = (sessionId: SessionId) => ({ address: { kind: 'session', sessionId } })
+    const invoke = (body: Record<string, unknown>) => ctx.typertGateway.invoke({
+      peer: { id: 'outline-access-peer' as PeerId, ctx, principal: GUEST, interactions: 'answer', signal: new AbortController().signal, dispose: async () => {} },
+      namespace: 'session', method: 'outline', args: { request: body },
+    })
+    await expect(invoke(request(SHARED))).resolves.toMatchObject({ entries: [], hasMore: false })
+    await expect(invoke(request(PRIVATE))).rejects.toMatchObject({ code: 'remote-access/denied', details: { reason: 'no-allow' } })
+    await expect(invoke({ ...request(SHARED), sessionId: SHARED }))
+      .rejects.toMatchObject({ code: 'remote-access/denied', details: { reason: 'resource-invalid' } })
+    held.splice(0, held.length, {
+      role: { name: 'test:events-reader', resource: 'session', actions: ['session/events', 'session/page'] },
+      resource: { kind: 'session', id: SHARED },
+    })
+    await expect(invoke(request(SHARED))).rejects.toMatchObject({ code: 'remote-access/denied' })
+  })
+
   it('lets a global role call session/list and lists only the Sessions a Session role admits', async () => {
     const { ctx, as } = await harness()
     await ctx.plugin(TypertGatewayService)
@@ -262,8 +287,8 @@ describe('Session Controller access', () => {
     await expect(prompt(GUEST, 'guest-1')).resolves.toEqual({ accepted: true })
     await expect(prompt(OWNER, 'owner-1')).resolves.toEqual({ accepted: true })
     // The durable Inbox splice records each accepted message with its source.
-    const logged = shared.session.snapshotEvents()
-      .flatMap(event => event.type === 'agent/inbox/spliced' ? event.data.inserted.map(item => item.source) : [])
+    const logged = [...new Map(shared.session.snapshotEvents()
+      .flatMap(event => event.type === 'agent/inbox/spliced' ? event.data.inserted.map(item => [item.id, item.source] as const) : [])).values()]
     expect(logged).toEqual([
       { kind: 'user', rpcId: 'guest-1', principal: GUEST },
       { kind: 'user', rpcId: 'owner-1' },

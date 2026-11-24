@@ -29,13 +29,16 @@ kind: "package-reference"
 | `path` | Exact non-root pathname without trailing slash, query, or fragment. |
 | `secretEnv` | Credential reference containing the GitHub webhook secret. |
 | `maxBodyBytes` | Positive safe-integer ceiling for the untouched request body. |
+| `maxConcurrentRequests` | Optional, default 16. Requests allowed to read and verify a body at once; more get `429`. Buffered bytes stay under `maxConcurrentRequests * maxBodyBytes`. |
+| `bodyTimeoutMs` | Optional, default 30000. Time allowed to receive one body before the request is dropped. |
+| `replayWindowMs` | Optional, default 3600000, `0` disables. How long a verified body is remembered so an identical replay is acknowledged but not dispatched again. |
 
-All fields are required. The secret reference is resolved for every request, so rotation affects the next delivery without reloading the plugin.
+The first four fields are required. The secret reference is resolved for every request, so rotation affects the next delivery without reloading the plugin.
 
 <a id="http-contract"></a>
 ## HTTP contract
 
-Only `POST application/json` is accepted. The adapter reads a bounded UTF-8 body, requires `X-Hub-Signature-256`, `X-GitHub-Delivery`, and `X-GitHub-Event`, resolves the secret, verifies HMAC before JSON parsing, and requires a top-level lossless-JSON object. It never logs the secret, signature, or payload.
+Only `POST application/json` is accepted. The adapter requires `X-Hub-Signature-256`, `X-GitHub-Delivery`, and `X-GitHub-Event` before reading anything, reads a bounded UTF-8 body, resolves the secret, verifies HMAC before JSON parsing, and requires a top-level lossless-JSON object. It never logs the secret, signature, or payload.
 
 | Status | Meaning |
 |---|---|
@@ -43,8 +46,10 @@ Only `POST application/json` is accepted. The adapter reads a bounded UTF-8 body
 | `400` | Required header, UTF-8, JSON, or top-level object was invalid. |
 | `401` | Signature was invalid. |
 | `405` | Method was not `POST`. |
+| `408` | The body was not received within `bodyTimeoutMs`. |
 | `413` | Declared or streamed body exceeded `maxBodyBytes`. |
 | `415` | Media type was not `application/json`. |
+| `429` | `maxConcurrentRequests` requests were already reading bodies. |
 | `503` | Credential or webhook runtime was unavailable. |
 
 `202` does not state that any rule matched or that a Session was created. GitHub event-specific field validation belongs to each rule; the adapter guarantees only authenticated generic JSON.
@@ -71,7 +76,9 @@ Independent. Authentication and HTTP dispatch do not touch a model request; any 
 
 - **No TLS** — the injected development WebServer is normally loopback-only behind a TLS reverse proxy or tunnel.
 - **Generic payload validation only** — rules own validation of the GitHub event fields they consume.
-- **No provider acknowledgement of downstream work** — `202` precedes arbitrary rule calls and Session creation.
+- **No provider acknowledgement of downstream work** — `202` precedes arbitrary rule calls and Session creation. When the webhook runtime journal is active (the default under the Host data directory; see the [webhook README](../webhook/README.md#known-limitations-and-deferred-work)), the delivery is persisted before the `202` and replayed after a Host crash, at least once, so a rule can run twice and owns idempotency through the delivery ID. A rule that throws is marked failed in the journal and the Host log and is not retried automatically. With the journal off or unavailable, a Host crash after the `202` or a rule or Session-creation failure loses the delivery with only a Host log line, and recovery is a manual redelivery from GitHub.
+- **Replay protection is bounded and in memory** — an identical verified body is not dispatched twice within `replayWindowMs` (up to 4096 remembered bodies, oldest evicted first). The HMAC does not cover the delivery or event headers, so the check keys on the body digest, not the delivery ID. The memory is lost on restart, and a legitimate GitHub redelivery carries the same body, so it is also acknowledged without dispatch until the window passes; set `replayWindowMs` to `0` when redelivering sooner.
+- **No aggregate rate or connection limit** — the adapter caps concurrent body readers and body time, but connection counts, per-address rate limits, and TLS belong to the reverse proxy in front of the ingress.
 - **No form encoding** — GitHub must send `application/json`; `application/x-www-form-urlencoded` is rejected.
 
 

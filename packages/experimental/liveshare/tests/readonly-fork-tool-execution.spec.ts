@@ -338,7 +338,7 @@ describe('fork child tool execution', () => {
         },
       },
     })
-    for (const name of ['todo_write', 'skill', 'web_search', 'web_fetch']) fixture(name, {})
+    for (const name of ['todo_write', 'skill', 'web_search']) fixture(name, {})
     expect(installLimit()).toBeDefined()
 
     await ctx.fs.resolve(root)
@@ -369,7 +369,7 @@ describe('fork child tool execution', () => {
     expect(calls.length).toBe(before)
 
     // A tool with no local file effect needs no path, and its arguments reach it unchanged.
-    for (const name of ['todo_write', 'skill', 'web_search', 'web_fetch']) {
+    for (const name of ['todo_write', 'skill', 'web_search']) {
       const result = await call(name, { value: name })
       expect(result.isError).toBe(false)
       expect(calls.at(-1)).toEqual({ tool: name, args: { value: name } })

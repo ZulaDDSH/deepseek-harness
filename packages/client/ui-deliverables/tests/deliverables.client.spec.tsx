@@ -737,6 +737,12 @@ describe('ChangedFiles card', () => {
     expect(summaries.state.getSnapshot()[changesSummaryUrl(brandString<SessionId>('child-session'), 9)]).toBeUndefined()
   })
 
+  it('titles a partial snapshot as incomplete, even when it lists no file', () => {
+    const partial = servedStore({ turn: 1, files: [], total: 0, added: 0, deleted: 0, incomplete: { paths: ['locked.txt'] } })
+    const { view } = renderCard(new PresentedOpenController(), en, { changes, presented: [] as never[] }, partial)
+    expect(view.getByText('Edited at least 0 files; some files could not be read')).toBeTruthy()
+  })
+
   it('sums the header from the Host totals, not from the capped list', () => {
     const capped = servedStore({ turn: 1, files: files.slice(0, 1), total: 2, added: 50, deleted: 20 })
     const { view } = renderCard(new PresentedOpenController(), en, { changes, presented: [] as never[] }, capped)
@@ -1008,8 +1014,11 @@ describe('plugin registration', () => {
       await readFace.refreshStatus(workspaceId)
       expect(readFace.hooks.workspaceStatus.getSnapshot()['api/workspace.status?workspaceId=workspace']).toMatchObject({ branch: 'main' })
       fetcher.mockResolvedValueOnce(Response.json({ kind: 'binary', path: 'image.png', display: 'image.png' }))
-      await readFace.loadDiff(workspaceId, 0)
-      expect(readFace.hooks.workspaceDiff.getSnapshot()['api/workspace.diff?workspaceId=workspace&index=0']).toMatchObject({ kind: 'binary' })
+      await readFace.loadDiff(workspaceId, 'image.png')
+      expect(readFace.hooks.workspaceDiff.getSnapshot()['api/workspace.diff?workspaceId=workspace&path=image.png']).toMatchObject({ kind: 'binary' })
+      fetcher.mockResolvedValueOnce(Response.json(status))
+      await readFace.refreshStatus(workspaceId)
+      expect(readFace.hooks.workspaceDiff.getSnapshot()['api/workspace.diff?workspaceId=workspace&path=image.png']).toBeUndefined()
     }
     const label = ctx.slots.entries('sidebar.panellist')[0]!.options.label
     expect(typeof label === 'function' ? label() : label).toBe('Changes')

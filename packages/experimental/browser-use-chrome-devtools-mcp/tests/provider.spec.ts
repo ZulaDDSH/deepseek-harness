@@ -31,6 +31,18 @@ it.each([
   expect(options.args.slice(1)).toEqual(['--no-usage-statistics', flag, endpoint])
 })
 
+it.each([
+  'wss://browser.example/devtools/browser/id?token=s3cr3t',
+  'https://user:s3cr3t@browser.example/',
+  'http://browser.example/#s3cr3t',
+])('rejects the secret-bearing endpoint %s without echoing it', (endpoint) => {
+  let message = ''
+  try { Provider.apply(new Context(), Provider.Config({ mode: 'attach', endpoint })) } catch (error) { message = (error as Error).message }
+  expect(message).toContain('process argument')
+  expect(message).not.toContain('s3cr3t')
+  expect(mountSessionMcp).not.toHaveBeenCalled()
+})
+
 it('rejects trailing endpoint garbage before mounting any browser resources', () => {
   expect(() => { Provider.apply(new Context(), Provider.Config({ mode: 'attach', endpoint: 'http://localhost trailing-junk' })) }).toThrow('browser endpoint')
   expect(mountSessionMcp).not.toHaveBeenCalled()

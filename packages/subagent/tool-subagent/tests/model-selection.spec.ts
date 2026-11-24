@@ -167,7 +167,7 @@ describe('dsh-tool-subagent model selection', () => {
     const ctx = await setup({ provider: 'mock', modelSelection: true })
     const agent = modelSelectionSetupAgent(ctx)
     const descriptions = () => ctx.tools.schemas(agent).map(schema => schema.description).join('\n')
-    const guidance = 'Inspect options here before selecting a child provider and model'
+    const guidance = 'Query when choosing an explicit child route or reasoning effort'
     expect(descriptions()).not.toContain(guidance)
     expect(descriptions()).not.toContain('list_subagent_models')
 
@@ -388,7 +388,7 @@ describe('dsh-tool-subagent model selection', () => {
     expect(requests[0]?.agentOptions).toEqual({
       provider: 'current-provider',
       model: 'current-model',
-      reasoningEffort: 'high',
+      reasoningEffort: undefined,
     })
   })
 

@@ -103,8 +103,9 @@ describe('Assembled liveshare viewer page', () => {
     if (rowMenu === undefined) throw new Error('no Session row menu')
     await act(async () => { fireEvent.click(rowMenu) })
     expect((await screen.findAllByRole('menuitem')).map(item => item.textContent)).toEqual([
-      'Color', 'Default', 'Red', 'Orange', 'Green', 'Blue', 'Purple', 'Icon', 'Copy Session ID',
+      'Color', 'Icon', 'Copy Session ID', 'Default', 'Red', 'Orange', 'Green', 'Blue', 'Purple',
     ])
+    await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }) })
     await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }) })
     await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull() })
     expect(document.body.textContent).not.toContain('Fork session')

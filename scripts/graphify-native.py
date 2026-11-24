@@ -17,30 +17,65 @@ from graphify.paths import write_json_atomic
 from networkx.readwrite.json_graph import node_link_graph, node_link_data
 
 
-def memorix_graph(database: Path, graph_path: Path) -> None:
+TOPIC_GLOB = "document:" + "?" * 64 + ":part:*"
+TOPIC_PATTERN = re.compile(r"document:([a-f0-9]{64}):part:([1-9][0-9]*)")
+TITLE_PATTERN = re.compile(r"(.+) \(([1-9][0-9]*)/([1-9][0-9]*)\)")
+DEFAULT_MAX_DOCUMENTS = 500
+MAX_REPORTED = 20
+DEFAULT_MAX_SOURCE_BYTES = 64 * 1024 * 1024
+
+
+def document_rows(connection: sqlite3.Connection, max_documents: int, max_source_bytes: int) -> list[tuple]:
+    """Fetch active importer chunks after checking the document count and total text size."""
+    count, size = connection.execute(
+        "SELECT COUNT(DISTINCT projectId || ':' || substr(topicKey, 10, 64)), COALESCE(SUM(LENGTH(CAST(narrative AS BLOB))), 0) "
+        "FROM observations WHERE topicKey GLOB ? AND status = 'active'", (TOPIC_GLOB,)).fetchone()
+    if count > max_documents:
+        raise ValueError(f"Memorix holds {count} imported documents, over the graph limit of {max_documents} "
+                         "(maxGraphDocuments); archive documents or raise the limit")
+    if size > max_source_bytes:
+        raise ValueError(f"Memorix imported documents hold {size} bytes of text, over the graph limit of {max_source_bytes} "
+                         "(maxGraphSourceBytes); archive documents or raise the limit")
+    return connection.execute(
+        "SELECT id, projectId, topicKey, title, narrative FROM observations WHERE topicKey GLOB ? AND status = 'active'",
+        (TOPIC_GLOB,)).fetchall()
+
+
+def group_chunks(rows: list[tuple]) -> tuple[dict[tuple[str, str, int], list[tuple[int, int, str, str]]], list[str]]:
+    """Group importer chunks by project, file hash and part total; list the rows that were left out."""
+    documents: dict[tuple[str, str, int], list[tuple[int, int, str, str]]] = {}
+    skipped: list[str] = []
+    for identifier, project, topic, title, narrative in rows:
+        topic_match = TOPIC_PATTERN.fullmatch(topic)
+        if topic_match is None:
+            continue
+        title_match = TITLE_PATTERN.fullmatch(title or "")
+        if title_match is None:
+            skipped.append(f"observation {identifier} ({topic}): title is not '<name> (<part>/<total>)'")
+        elif int(topic_match[2]) != int(title_match[2]):
+            skipped.append(f"observation {identifier} ({topic}): title part {title_match[2]} disagrees with the topic key")
+        else:
+            documents.setdefault((project, topic_match[1], int(title_match[3])), []).append(
+                (int(topic_match[2]), int(title_match[3]), title_match[1], narrative))
+    return documents, skipped
+
+
+def memorix_graph(database: Path, graph_path: Path, max_documents: int = DEFAULT_MAX_DOCUMENTS,
+                  max_source_bytes: int = DEFAULT_MAX_SOURCE_BYTES) -> None:
     """Rebuild the official structural graph from complete active document imports."""
     with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
-        rows = connection.execute(
-            "SELECT projectId, topicKey, title, narrative FROM observations "
-            "WHERE topicKey LIKE 'document:%' AND status = 'active'"
-        ).fetchall()
-    documents: dict[tuple[str, str], list[tuple[int, int, str, str]]] = {}
-    for project, topic, title, narrative in rows:
-        topic_match = re.fullmatch(r"document:([a-f0-9]{64}):part:([1-9][0-9]*)", topic)
-        title_match = re.fullmatch(r"(.+) \(([1-9][0-9]*)/([1-9][0-9]*)\)", title)
-        if topic_match is None or title_match is None:
-            raise ValueError("Invalid Memorix document chunk metadata")
-        part = int(topic_match[2])
-        if part != int(title_match[2]):
-            raise ValueError("Memorix document chunk indices disagree")
-        documents.setdefault((project, topic_match[1]), []).append(
-            (part, int(title_match[3]), title_match[1], narrative))
+        rows = document_rows(connection, max_documents, max_source_bytes)
+    documents, skipped = group_chunks(rows)
+    for line in skipped[:MAX_REPORTED]:
+        print("graphify-native skipped: " + line, file=sys.stderr)
+    if len(skipped) > MAX_REPORTED:
+        print(f"graphify-native skipped: {len(skipped) - MAX_REPORTED} more damaged chunks", file=sys.stderr)
     graph_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="memorix-graph-", dir=graph_path.parent) as directory:
         root = Path(directory)
         paths = []
         titles = {}
-        for (project, digest), chunks in sorted(documents.items()):
+        for (project, digest, _), chunks in sorted(documents.items()):
             chunks.sort()
             total = chunks[0][1]
             if len(chunks) != total or any(part != index or count != total
@@ -80,8 +115,10 @@ def run() -> None:
         parser = argparse.ArgumentParser()
         parser.add_argument("--database", type=Path, required=True)
         parser.add_argument("--graph", type=Path, required=True)
+        parser.add_argument("--max-documents", type=int, default=DEFAULT_MAX_DOCUMENTS)
+        parser.add_argument("--max-source-bytes", type=int, default=DEFAULT_MAX_SOURCE_BYTES)
         options = parser.parse_args(args[1:])
-        memorix_graph(options.database, options.graph)
+        memorix_graph(options.database, options.graph, options.max_documents, options.max_source_bytes)
         args = ["export", "html", "--graph", str(options.graph)]
     if args[:2] == ["export", "html"] and "--graph" in args:
         graph_path = Path(args[args.index("--graph") + 1])

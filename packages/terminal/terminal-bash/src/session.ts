@@ -43,6 +43,8 @@ function utf8Tail(text: string, maxBytes: number): { text: string; truncated: bo
 
 // Bound pending string fragments independently of deployment retention limits.
 const COALESCED_CHUNK_UNITS = 4096
+const EMULATOR_PAUSE_FLOOR_CHARS = 1 << 20
+const RESPONSE_WRITE_PAUSE = 1024
 
 interface TextChunk {
   text: string
@@ -298,16 +300,20 @@ export class LocalPtySession implements TerminalBackendSession {
   private responseWrites = Promise.resolve()
   private pendingResponseWrites = 0
   private emulatorClosed = false
+  private outputPaused = false
+  private readonly emulatorPauseChars: number
 
   constructor(
     private readonly terminal: SubprocessTerminalHandle,
     private readonly config: ResolvedConfig,
   ) {
     this.pid = terminal.pid
+    this.emulatorPauseChars = Math.max(EMULATOR_PAUSE_FLOOR_CHARS, 2 * config.scrollbackMaxBytes)
     const { Terminal: HeadlessTerminal } = requireHeadless()
     this.emulator = new HeadlessTerminal({ cols: config.cols, rows: config.rows, scrollback: 0 })
     this.emulatorData = this.emulator.onData((data) => {
       this.pendingResponseWrites += 1
+      this.updateFlow()
       const response = this.responseWrites.then(async () => { await this.terminal.write(data) })
       this.responseWrites = response.then(
         () => { this.finishResponseWrite() },
@@ -502,6 +508,7 @@ export class LocalPtySession implements TerminalBackendSession {
 
   close(reason: string): Promise<void> {
     this.closing = true
+    this.updateFlow()
     if (this.closePromise !== undefined) return this.closePromise
     const closing = this.closeOnce(reason).catch((error: unknown) => {
       this.closePromise = undefined
@@ -706,6 +713,7 @@ export class LocalPtySession implements TerminalBackendSession {
   private queueEmulatorData(data: string): void {
     if (this.emulatorClosed) return
     this.emulatorBuffer += data
+    this.updateFlow()
     if (this.emulatorWriteDone === undefined) {
       const idle = Promise.withResolvers<undefined>()
       this.emulatorWrites = idle.promise
@@ -725,6 +733,7 @@ export class LocalPtySession implements TerminalBackendSession {
     }
     const data = this.emulatorBuffer
     this.emulatorBuffer = ''
+    this.updateFlow()
     this.emulatorWriting = true
     try {
       this.emulator.write(data, () => {
@@ -742,8 +751,18 @@ export class LocalPtySession implements TerminalBackendSession {
     }
   }
 
+  private updateFlow(): void {
+    const overloaded = !this.closing && !this.emulatorClosed
+      && (this.emulatorBuffer.length > this.emulatorPauseChars || this.pendingResponseWrites > RESPONSE_WRITE_PAUSE)
+    if (overloaded === this.outputPaused) return
+    this.outputPaused = overloaded
+    if (overloaded) this.terminal.output.pause()
+    else this.terminal.output.resume()
+  }
+
   private finishResponseWrite(): void {
     this.pendingResponseWrites -= 1
+    this.updateFlow()
     this.releaseSettledActive()
   }
 
@@ -757,6 +776,7 @@ export class LocalPtySession implements TerminalBackendSession {
   private closeEmulator(): void {
     if (this.emulatorClosed) return
     this.emulatorClosed = true
+    this.updateFlow()
     this.emulatorBuffer = ''
     this.emulatorWriting = false
     const done = this.emulatorWriteDone

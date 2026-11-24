@@ -276,6 +276,61 @@ describe('typert loader', () => {
     }, { timeout: 10_000 })
   })
 
+  it('reads the artifact again when a package is removed and remounted at a new version', LOADER_TEST_TIMEOUT, async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-typert-loader-'))
+    await linkZod(root)
+    const name = '@fixture/updated'
+    await writePackage(root, name, { typertSource: typertSource(name, 'Before') })
+    const ctx = await boot()
+    const id = await ctx.loader.create({ name })
+    await ctx.loader.await()
+    await mountTypertLoader(ctx)
+    expect(ctx.typert.get(`${name}#Before`)).toBeDefined()
+
+    ctx.loader.remove(id)
+    await ctx.loader.await()
+    await vi.waitFor(() => { expect(ctx.typert.get(`${name}#Before`)).toBeUndefined() }, { timeout: 10_000 })
+    const dir = join(root, 'node_modules', '@fixture', 'updated')
+    await writeFile(join(dir, 'typert.next.js'), typertSource(name, 'After'))
+    await writeFile(join(dir, 'package.json'), JSON.stringify({
+      name, type: 'module', exports: { '.': './index.js', './package.json': './package.json', './typert': './typert.next.js' },
+    }))
+    ;ctx.pluginPackages['packages'].clear()
+    await ctx.loader.create({ name })
+    await ctx.loader.await()
+
+    await vi.waitFor(() => { expect(ctx.typert.get(`${name}#After`)).toBeDefined() }, { timeout: 10_000 })
+    expect(ctx.typert.get(`${name}#Before`)).toBeUndefined()
+  })
+
+  it('recovers on a later remount after a manifest import was rejected', LOADER_TEST_TIMEOUT, async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-typert-loader-'))
+    await linkZod(root)
+    const name = '@fixture/recovering'
+    await writePackage(root, name, { typertSource: typertSource('@fixture/other', 'Thing') })
+    const ctx = await boot()
+    await mountTypertLoader(ctx)
+    const errors = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
+    const id = await ctx.loader.create({ name })
+    await ctx.loader.await()
+    await vi.waitFor(() => { expect(errors).toHaveBeenCalled() }, { timeout: 10_000 })
+    expect(ctx.typert.list()).toEqual([])
+
+    ctx.loader.remove(id)
+    await ctx.loader.await()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    const dir = join(root, 'node_modules', '@fixture', 'recovering')
+    await writeFile(join(dir, 'typert.fixed.js'), typertSource(name, 'Thing'))
+    await writeFile(join(dir, 'package.json'), JSON.stringify({
+      name, type: 'module', exports: { '.': './index.js', './package.json': './package.json', './typert': './typert.fixed.js' },
+    }))
+    ;ctx.pluginPackages['packages'].clear()
+    await ctx.loader.create({ name })
+    await ctx.loader.await()
+
+    await vi.waitFor(() => { expect(ctx.typert.get(`${name}#Thing`)).toBeDefined() }, { timeout: 10_000 })
+  })
+
   it('skips package-subpath rows and validates npm aliases against the manifest owner', LOADER_TEST_TIMEOUT, async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-typert-loader-'))
     await linkZod(root)

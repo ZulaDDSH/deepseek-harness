@@ -102,7 +102,7 @@ const STAGING_PREFIX = '.init-'
  * hook that launched DSH can leave, and without prompts or LFS downloads.
  */
 function gitEnv(): Record<string, string> {
-  const env = Object.fromEntries(Object.entries(scrubbedParentEnv())
+  const env = Object.fromEntries(Object.entries(scrubbedParentEnv({ proxyCredentials: true }))
     .filter(([name]) => !name.startsWith('GIT_') || name === 'GIT_SSH' || name === 'GIT_SSH_COMMAND'))
   // A user's own ssh program keeps precedence; the default only keeps ssh from waiting for a prompt.
   const ssh = env.GIT_SSH === undefined && env.GIT_SSH_COMMAND === undefined ? { GIT_SSH_COMMAND: 'ssh -o BatchMode=yes' } : {}

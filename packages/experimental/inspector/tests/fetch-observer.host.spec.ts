@@ -61,6 +61,19 @@ describe('full fetch observer', () => {
     expect(payload(records, 'fetch/end')).toMatchObject({ responseBodyTruncated: false })
   })
 
+  it('forwards a per-call dispatcher to the underlying fetch', async () => {
+    const native = vi.fn(async (_request: Request, _init?: unknown) => new Response('ok'))
+    Object.defineProperty(globalThis, 'fetch', { value: native, writable: true, configurable: true })
+    observer = installFetchObserver({ publish() {} }, { maxRequestBodyBytes: 16, maxResponseBodyBytes: 16, maxChunkBytes: 4 })
+    const dispatcher = { dispatch() {} }
+
+    await (await fetch('https://example.test/', { dispatcher } as RequestInit)).text()
+    await (await fetch('https://example.test/')).text()
+
+    expect(native.mock.calls[0]?.[1]).toEqual({ dispatcher })
+    expect(native.mock.calls[1]?.[1]).toBeUndefined()
+  })
+
   it('marks bodies truncated without changing the caller response', async () => {
     const records: InspectorRecordInput[] = []
     Object.defineProperty(globalThis, 'fetch', {

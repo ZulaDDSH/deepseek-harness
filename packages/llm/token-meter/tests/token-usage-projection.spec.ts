@@ -387,6 +387,16 @@ describe('contextPressure session projection', () => {
     expect(pressure(ctx, session)).toEqual({ pressureTokens: 125, projectedTokens: 125 })
   })
 
+  it('derives prompt pressure from the authoritative total when cache buckets are unspecified', async () => {
+    const { ctx, session } = await harness()
+    startStep(session, 1, 1)
+    usageChunk(session, { inputTokens: 100, outputTokens: 20, totalTokens: 170 }, 1, 1)
+    expect(pressure(ctx, session).pressureTokens).toBe(150)
+    startStep(session, 2, 1)
+    usageChunk(session, { inputTokens: 100, outputTokens: 20, totalTokens: 120 }, 2, 1)
+    expect(pressure(ctx, session).pressureTokens).toBe(100)
+  })
+
   it('replaces pressure with the newest request rather than accumulating', async () => {
     const { ctx, session } = await harness()
     startStep(session, 1, 1)
@@ -448,7 +458,7 @@ describe('contextPressure session projection', () => {
     const checkpoint = JSON.parse(JSON.stringify(
       ctx.sessionProjections.checkpoint(session),
     )) as ReturnType<typeof ctx.sessionProjections.checkpoint>
-    expect(checkpoint.contextPressure?.ver).toBe(5)
+    expect(checkpoint.contextPressure?.ver).toBe(6)
 
     await meterFiber.dispose()
     expect(ctx.sessionProjections.snapshot(session).values).not.toHaveProperty('contextPressure')

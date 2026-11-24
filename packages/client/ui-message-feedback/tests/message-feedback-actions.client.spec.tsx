@@ -15,6 +15,7 @@ import type { MessageId } from '@deepseek-ai/dsh-api-remotes/client'
 import type {
   MessageFeedbackItem, MessageFeedbackRating, MessageFeedbackVersion,
 } from '@deepseek-ai/dsh-message-feedback/types'
+import type { SessionFeedbackSharing } from '@deepseek-ai/dsh-command-feedback/types'
 import { MessageFeedbackActions } from '../src/client/MessageFeedbackActions.tsx'
 import type {
   MessageFeedbackActionResult, MessageFeedbackView,
@@ -47,6 +48,7 @@ function mount(options: {
   status?: MessageFeedbackView['status']
   /** The Session access answer for recording message feedback; allowed when omitted. */
   allowed?: boolean
+  sharing?: SessionFeedbackSharing | null
 } = {}) {
   const view: MessageFeedbackView = {
     status: options.status ?? 'ready',
@@ -54,16 +56,20 @@ function mount(options: {
     error: null,
   }
   const ensure = vi.fn(() => Promise.resolve<MessageFeedbackActionResult>(options.ensureResult ?? { ok: true }))
-  const retract = vi.fn((_id: MessageId, _rating: MessageFeedbackRating) =>
+  const retract = vi.fn((_id: MessageId, _rating: MessageFeedbackRating, _localOnly?: boolean) =>
     Promise.resolve<MessageFeedbackActionResult>(options.retractResult ?? { ok: true }))
   const openDialog = vi.fn((_id: MessageId, _rating: MessageFeedbackRating) => {})
   const current = vi.fn((_id: MessageId) => options.committed ?? options.current)
   const useFeedback = (<T,>(select: (v: MessageFeedbackView) => T): T =>
     useSyncExternalStore(() => () => {}, () => select(view))) as never
+  const loadSharing = vi.fn(() => Promise.resolve())
+  const dialogState = { sharing: options.sharing ?? null }
+  const useDialog = (<T,>(select: (v: typeof dialogState) => T): T =>
+    useSyncExternalStore(() => () => {}, () => select(dialogState))) as never
   const useAccess = vi.fn((_action: string) => options.allowed ?? true)
-  const props = { messageId: MSG, ensure, current, retract, openDialog, useFeedback, t } as unknown as
+  const props = { messageId: MSG, ensure, current, retract, loadSharing, openDialog, useFeedback, useDialog, t } as
     Parameters<typeof MessageFeedbackActions>[0]
-  return { ...render(<MessageFeedbackActions {...props} useAccess={useAccess} />), ensure, retract, openDialog, useAccess }
+  return { ...render(<MessageFeedbackActions {...props} useAccess={useAccess} />), ensure, retract, loadSharing, openDialog, useAccess }
 }
 
 describe('MessageFeedbackActions', () => {
@@ -132,6 +138,7 @@ describe('MessageFeedbackActions', () => {
     const ui = mount({ current: item({ rating: 'positive' }) })
 
     fireEvent.click(ui.getByLabelText(zh['action.likeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
 
     await waitFor(() => { expect(ui.retract).toHaveBeenCalledWith(MSG, 'positive') })
     await waitFor(() => { expect(ui.getByLabelText(zh['action.likeActive']).hasAttribute('disabled')).toBe(false) })
@@ -169,6 +176,7 @@ describe('MessageFeedbackActions', () => {
     const ui = mount({ committed: item({ rating: 'negative' }) })
 
     fireEvent.click(ui.getByLabelText(zh['action.dislike']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
 
     await waitFor(() => { expect(ui.retract).toHaveBeenCalledWith(MSG, 'negative') })
     expect(ui.openDialog).not.toHaveBeenCalled()
@@ -178,6 +186,7 @@ describe('MessageFeedbackActions', () => {
     const ui = mount({ current: item({ rating: 'negative' }) })
 
     fireEvent.click(ui.getByLabelText(zh['action.dislikeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
 
     await waitFor(() => { expect(ui.retract).toHaveBeenCalledWith(MSG, 'negative') })
     expect(ui.openDialog).not.toHaveBeenCalled()
@@ -190,6 +199,7 @@ describe('MessageFeedbackActions', () => {
     })
 
     fireEvent.click(ui.getByLabelText(zh['action.likeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
 
     await waitFor(() => { expect(ui.getByText(zh['error.conflict'])).toBeTruthy() })
   })
@@ -201,6 +211,7 @@ describe('MessageFeedbackActions', () => {
     })
 
     fireEvent.click(ui.getByLabelText(zh['action.likeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
 
     await waitFor(() => { expect(ui.getByText(zh['error.generic'])).toBeTruthy() })
   })
@@ -212,6 +223,7 @@ describe('MessageFeedbackActions', () => {
     })
 
     fireEvent.click(ui.getByLabelText(zh['action.dislikeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
 
     await waitFor(() => { expect(ui.getByText(zh['error.conflict'])).toBeTruthy() })
   })
@@ -231,15 +243,18 @@ describe('MessageFeedbackActions', () => {
       current: () => recorded,
       retract: vi.fn(() => gate),
       openDialog: vi.fn(),
+      loadSharing: vi.fn(() => Promise.resolve()),
+      useDialog: (<T,>(select: (v: { sharing: null }) => T): T => select({ sharing: null })) as never,
       useFeedback,
       t,
-    } as unknown as Parameters<typeof MessageFeedbackActions>[0]
+    } as Parameters<typeof MessageFeedbackActions>[0]
     const ui = render(<MessageFeedbackActions {...props} useAccess={() => true} />)
     const errors: unknown[] = []
     const onError = (event: ErrorEvent): void => { errors.push(event.error) }
     window.addEventListener('error', onError)
 
     fireEvent.click(ui.getByLabelText(zh['action.likeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
     ui.unmount()
     release()
     await gate
@@ -261,9 +276,11 @@ describe('MessageFeedbackActions', () => {
       current: () => undefined,
       retract: vi.fn(),
       openDialog,
+      loadSharing: vi.fn(() => Promise.resolve()),
+      useDialog: (<T,>(select: (v: { sharing: null }) => T): T => select({ sharing: null })) as never,
       useFeedback,
       t,
-    } as unknown as Parameters<typeof MessageFeedbackActions>[0]
+    } as Parameters<typeof MessageFeedbackActions>[0]
     const ui = render(<MessageFeedbackActions {...props} useAccess={() => true} />)
     const errors: unknown[] = []
     const onError = (event: ErrorEvent): void => { errors.push(event.error) }
@@ -295,15 +312,18 @@ describe('MessageFeedbackActions', () => {
       current: () => item({ rating: 'negative' }),
       retract: vi.fn(() => gate),
       openDialog: vi.fn(),
+      loadSharing: vi.fn(() => Promise.resolve()),
+      useDialog: (<T,>(select: (v: { sharing: null }) => T): T => select({ sharing: null })) as never,
       useFeedback,
       t,
-    } as unknown as Parameters<typeof MessageFeedbackActions>[0]
+    } as Parameters<typeof MessageFeedbackActions>[0]
     const ui = render(<MessageFeedbackActions {...props} useAccess={() => true} />)
     const errors: unknown[] = []
     const onError = (event: ErrorEvent): void => { errors.push(event.error) }
     window.addEventListener('error', onError)
 
     fireEvent.click(ui.getByLabelText(zh['action.dislikeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
     // The retraction starts only after the seeding read settles; unmount
     // while that retraction is in flight.
     await waitFor(() => { expect(props.retract).toHaveBeenCalledWith(MSG, 'negative') })
@@ -313,6 +333,19 @@ describe('MessageFeedbackActions', () => {
 
     window.removeEventListener('error', onError)
     expect(errors).toEqual([])
+  })
+
+  it('asks before withdrawing a rating and states the export, and cancelling retracts nothing', async () => {
+    const ui = mount({ current: item({ rating: 'positive' }) })
+
+    fireEvent.click(ui.getByLabelText(zh['action.likeActive']))
+
+    expect(await ui.findByText(zh['withdraw.body'])).toBeTruthy()
+    expect(ui.retract).not.toHaveBeenCalled()
+    fireEvent.click(ui.getByText(zh['withdraw.cancel']))
+    await waitFor(() => { expect(ui.queryByText(zh['withdraw.body'])).toBeNull() })
+    expect(ui.retract).not.toHaveBeenCalled()
+    expect(ui.getByLabelText(zh['action.likeActive']).hasAttribute('disabled')).toBe(false)
   })
 
   it('surfaces a failed list load next to the controls', () => {
@@ -329,8 +362,44 @@ describe('MessageFeedbackActions', () => {
     })
 
     fireEvent.click(ui.getByLabelText(zh['action.likeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
 
     await waitFor(() => { expect(ui.getByText(zh['error.generic'])).toBeTruthy() })
     expect(ui.queryByText(zh['error.load'])).toBeNull()
+  })
+
+  it('names the live destination in the withdrawal confirmation and re-reads the policy', async () => {
+    const sharing = { sharing: 'feedback-only', destination: 'https://collector.example.test' } as const
+    const ui = mount({ current: item({ rating: 'positive' }), sharing })
+
+    fireEvent.click(ui.getByLabelText(zh['action.likeActive']))
+
+    expect((await ui.findByRole('note')).textContent).toBe(zh['withdraw.body.to'].replace('{destination}', sharing.destination))
+    expect(ui.loadSharing).toHaveBeenCalledTimes(1)
+  })
+
+  it('states that nothing is sent without offering the local choice while telemetry is off', async () => {
+    const ui = mount({ current: item({ rating: 'positive' }), sharing: { sharing: 'none' } })
+
+    fireEvent.click(ui.getByLabelText(zh['action.likeActive']))
+
+    expect((await ui.findByRole('note')).textContent).toBe(zh['withdraw.body.off'])
+    expect(ui.queryByLabelText(zh['withdraw.localOnly'])).toBeNull()
+    fireEvent.click(ui.getByText(zh['withdraw.confirm']))
+    await waitFor(() => { expect(ui.retract).toHaveBeenCalledWith(MSG, 'positive') })
+  })
+
+  it('withdraws on this device only when the local choice is checked', async () => {
+    const ui = mount({
+      current: item({ rating: 'negative' }),
+      sharing: { sharing: 'feedback-only', destination: 'https://collector.example.test' },
+    })
+
+    fireEvent.click(ui.getByLabelText(zh['action.dislikeActive']))
+    fireEvent.click(await ui.findByLabelText(zh['withdraw.localOnly']))
+    expect(ui.getByRole('note').textContent).toBe(zh['withdraw.body.local'])
+    fireEvent.click(ui.getByText(zh['withdraw.confirm']))
+
+    await waitFor(() => { expect(ui.retract).toHaveBeenCalledWith(MSG, 'negative', true) })
   })
 })

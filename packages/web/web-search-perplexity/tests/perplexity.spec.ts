@@ -19,20 +19,21 @@ afterEach(() => {
 })
 
 describe('Perplexity response mapping', () => {
-  it('maps the answer and prefers structured search_results', () => {
+  it('maps the answer and keeps structured search_results and appends extra citations', () => {
     const result = mapPerplexityResponse({
       choices: [{ message: { content: 'the answer' } }],
       search_results: [
         { url: 'https://a.test', title: 'A', snippet: 'snip', date: '2026-02-02' },
         { url: 'https://b.test' },
       ],
-      citations: ['https://ignored.test'],
+      citations: ['https://a.test', 'https://extra.test'],
     })
     expect(result).toEqual({
       content: 'the answer',
       sources: [
         { url: 'https://a.test', title: 'A', snippet: 'snip', publishedAt: '2026-02-02' },
         { url: 'https://b.test' },
+        { url: 'https://extra.test' },
       ],
       truncated: false,
     })
@@ -159,14 +160,14 @@ describe('PerplexitySearchProvider error handling', () => {
   })
 
   it('surfaces an abort during success-body parse as WEB_ABORTED, not provider error', async () => {
-    const body = { json: () => Promise.reject(new DOMException('aborted', 'AbortError')), ok: true, status: 200 }
+    const body = new Response(new ReadableStream({ pull(streamController) { streamController.error(new DOMException('aborted', 'AbortError')) } }), { status: 200 })
     vi.stubGlobal('fetch', vi.fn(async () => body as unknown as Response))
     await expect(new PerplexitySearchProvider(options).search({ query: 'q' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
   })
 
   it('surfaces an abort during error-body parse as WEB_ABORTED', async () => {
-    const body = { json: () => Promise.reject(new DOMException('aborted', 'AbortError')), ok: false, status: 500 }
+    const body = new Response(new ReadableStream({ pull(streamController) { streamController.error(new DOMException('aborted', 'AbortError')) } }), { status: 500 })
     vi.stubGlobal('fetch', vi.fn(async () => body as unknown as Response))
     await expect(new PerplexitySearchProvider(options).search({ query: 'q' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
@@ -240,5 +241,45 @@ describe('web-search-perplexity plugin registration', () => {
     } finally {
       if (prev !== undefined) process.env.PERPLEXITY_API_KEY = prev
     }
+  })
+})
+
+describe('PerplexitySearchProvider bounds and cancellation', () => {
+  const oversized = (key: string): string => JSON.stringify({ [key]: 'x'.repeat(5 * 1024 * 1024) })
+
+  it('rejects a success body over the byte cap without parsing it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(oversized('pad'), { status: 200 })))
+    await expect(new PerplexitySearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_RESPONSE_TOO_LARGE' }))
+  })
+
+  it('keeps the status-line message when an error body is over the byte cap', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(oversized('message'), { status: 500 })))
+    await expect(new PerplexitySearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: 'Perplexity API error (HTTP 500)' }))
+  })
+
+  it('reports WEB_ABORTED with the caller reason when fetch rejects with a non-DOM abort reason', async () => {
+    const reason = new Error('caller stopped')
+    const controller = new AbortController()
+    vi.stubGlobal('fetch', vi.fn(async () => { controller.abort(reason); throw reason }))
+    const error = await new PerplexitySearchProvider(options).search({ query: 'q' }, controller.signal).catch((e: unknown) => e)
+    expect(error).toMatchObject({ code: 'WEB_ABORTED', cause: reason })
+  })
+
+  it('reports WEB_ABORTED when the signal aborts while the success body is read', async () => {
+    const reason = new Error('caller stopped')
+    const controller = new AbortController()
+    const body = new ReadableStream({ pull(streamController) { controller.abort(reason); streamController.error(new Error('stream broke')) } }, { highWaterMark: 0 })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status: 200 })))
+    const error = await new PerplexitySearchProvider(options).search({ query: 'q' }, controller.signal).catch((e: unknown) => e)
+    expect(error).toMatchObject({ code: 'WEB_ABORTED', cause: reason })
+  })
+
+  it('returns citations as sources when search_results is empty or lacks them', () => {
+    expect(mapPerplexityResponse({ search_results: [], citations: ['https://a.test', 'https://a.test', 'https://b.test'] }).sources)
+      .toEqual([{ url: 'https://a.test' }, { url: 'https://b.test' }])
+    expect(mapPerplexityResponse({ search_results: [{ url: 'https://a.test', title: 'A' }, { title: 'no url' } as never], citations: ['https://c.test'] }).sources)
+      .toEqual([{ url: 'https://a.test', title: 'A' }, { url: 'https://c.test' }])
   })
 })

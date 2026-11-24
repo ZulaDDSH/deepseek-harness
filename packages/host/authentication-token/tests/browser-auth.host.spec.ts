@@ -4,8 +4,10 @@ import { createHmac } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import type { PeerId } from '@deepseek-ai/dsh-typert-protocol'
+import { CONNECT_PATH } from '@deepseek-ai/dsh-client-connection'
 import { BrowserAuth } from '../src/browser-auth.ts'
 import type { ConnectionIndexRequest, ConnectionIndexResponse } from '../src/types.ts'
+import { FakeSocket } from './fake-socket.ts'
 import { RecordCredentials } from './browser-credentials.ts'
 
 function signedCookie(store: RecordCredentials, name: string, payload: unknown): string {
@@ -88,6 +90,11 @@ function exchange(
   return { cookie: setCookie.split(';', 1)[0]!, launchUrl, state: res.state }
 }
 
+function sidOf(cookie: string): string {
+  const body = cookie.split('=')[1]!.split('.')[1]!
+  return (JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as { sid: string }).sid
+}
+
 afterEach(() => {
   vi.useRealTimers()
 })
@@ -165,6 +172,7 @@ describe('BrowserAuth', () => {
     const processOwner = {}
     const first = await createAuth(store, 30, processOwner)
     const login = exchange(first)
+    await first.settled()
 
     expect(login.state).toMatchObject({
       status: 303,
@@ -331,20 +339,74 @@ describe('BrowserAuth', () => {
     const store = new RecordCredentials()
     const auth = await createAuth(store)
     const first = exchange(auth)
-    expect(store).toMatchObject({ reads: 0, modifies: 1 })
+    await auth.settled()
+    expect(store).toMatchObject({ reads: 0, modifies: 2 })
 
     await store.deleteRecord()
     expect(auth.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: first.cookie }))).toBe(true)
     const sameActivation = exchange(auth)
+    await auth.settled()
     expect(auth.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: sameActivation.cookie }))).toBe(true)
-    expect(store).toMatchObject({ reads: 0, modifies: 1 })
+    expect(store.record).toBeUndefined()
 
     const reactivated = await createAuth(store)
     const second = exchange(reactivated)
     expect(second.cookie).not.toBe(first.cookie)
     expect(reactivated.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: first.cookie }))).toBe(false)
     expect(reactivated.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: second.cookie }))).toBe(true)
-    expect(store).toMatchObject({ reads: 0, modifies: 2 })
+    await reactivated.settled()
+    expect(store).toMatchObject({ reads: 0, modifies: 5 })
+  })
+
+  it('revokes one browser session, survives restart, and leaves the others valid', async () => {
+    const store = new RecordCredentials()
+    const auth = await createAuth(store)
+    const keep = exchange(auth)
+    const drop = exchange(auth)
+    await auth.settled()
+    const asRequest = (cookie: string): ConnectionIndexRequest => request('/', '127.0.0.1:3080', { cookie })
+    const sidOf = (cookie: string): string => {
+      const body = cookie.split('=')[1]!.split('.')[1]!
+      return (JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as { sid: string }).sid
+    }
+    expect(auth.sessions().map(entry => entry.id).sort()).toEqual([sidOf(keep.cookie), sidOf(drop.cookie)].sort())
+    await expect(auth.revoke(sidOf(drop.cookie))).resolves.toBe(true)
+    await expect(auth.revoke(sidOf(drop.cookie))).resolves.toBe(false)
+    expect(auth.isAuthenticated(asRequest(drop.cookie))).toBe(false)
+    expect(auth.isAuthenticated(asRequest(keep.cookie))).toBe(true)
+    await auth.settled()
+    const restarted = await createAuth(store)
+    expect(restarted.isAuthenticated(asRequest(drop.cookie))).toBe(false)
+    expect(restarted.isAuthenticated(asRequest(keep.cookie))).toBe(true)
+  })
+
+  it('reports a failed revoke persistence to the caller', async () => {
+    const store = new RecordCredentials()
+    const auth = await createAuth(store)
+    const { cookie } = exchange(auth)
+    await auth.settled()
+    const sid = (JSON.parse(Buffer.from(cookie.split('=')[1]!.split('.')[1]!, 'base64url').toString('utf8')) as { sid: string }).sid
+    const failure = new Error('credential store unavailable')
+    vi.spyOn(console, 'error').mockImplementationOnce(() => undefined)
+    vi.spyOn(store, 'modifyRecord').mockRejectedValueOnce(failure)
+    await expect(auth.revoke(sid)).rejects.toBe(failure)
+    await auth.settled()
+  })
+
+  it('revokeAll and a raised generation invalidate every cookie', async () => {
+    const store = new RecordCredentials()
+    const auth = await createAuth(store)
+    const login = exchange(auth)
+    await auth.settled()
+    await auth.revokeAll()
+    expect(auth.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: login.cookie }))).toBe(false)
+
+    const again = await createAuth(store)
+    const second = exchange(again)
+    await again.settled()
+    const bumped = await BrowserAuth.create({}, credentials(store), 30, 1)
+    expect(bumped.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: second.cookie }))).toBe(false)
+    expect(bumped.sessions()).toEqual([])
   })
 
   it('fails loud on an invalid owner record instead of replacing it', async () => {
@@ -366,5 +428,58 @@ describe('BrowserAuth', () => {
 
     await expect(createAuth(new RecordCredentials(), Number.MAX_SAFE_INTEGER))
       .rejects.toThrow('host-authentication-token: cookieMaxAgeDays exceeds the safe timestamp range')
+  })
+
+  it('destroys tracked browser sockets on revoke and on revokeAll, and forgets sockets that closed', async () => {
+    const store = new RecordCredentials()
+    const auth = await createAuth(store)
+    const keep = exchange(auth)
+    const drop = exchange(auth)
+    await auth.settled()
+    const keepSocket = new FakeSocket()
+    const dropSocket = new FakeSocket()
+    const closed = new FakeSocket()
+    auth.trackSocket(sidOf(keep.cookie), keepSocket)
+    auth.trackSocket(sidOf(drop.cookie), dropSocket)
+    auth.trackSocket(sidOf(drop.cookie), closed)
+    closed.close()
+    await expect(auth.revoke(sidOf(drop.cookie))).resolves.toBe(true)
+    expect(dropSocket.destroy).toHaveBeenCalledOnce()
+    expect(keepSocket.destroy).not.toHaveBeenCalled()
+    expect(closed.destroy).not.toHaveBeenCalled()
+    await auth.revokeAll()
+    expect(keepSocket.destroy).toHaveBeenCalledOnce()
+  })
+
+  it('leaves an API cookie valid when a browser session is revoked', async () => {
+    const store = new RecordCredentials()
+    const auth = await createAuth(store)
+    const login = exchange(auth)
+    await auth.settled()
+    const connect = new URL(auth.authenticatedUrl('http://127.0.0.1:3080'))
+    const apiResponse = response()
+    auth.authorizeConnect(request(`${CONNECT_PATH}${connect.search}`), apiResponse.value, false, () => 'api-operator' as PeerId)
+    const apiCookie = apiResponse.state.headers?.['set-cookie']?.split(';', 1)[0]
+    if (apiCookie === undefined) throw new Error('connect did not set an API cookie')
+    await expect(auth.revoke(sidOf(login.cookie))).resolves.toBe(true)
+    expect(auth.authenticateApi(request('/', '127.0.0.1:3080', { cookie: apiCookie }))).toBe('api-operator')
+    expect(auth.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: login.cookie }))).toBe(false)
+  })
+
+  it('keeps a revocation written by one instance when another instance on the record persists later', async () => {
+    const store = new RecordCredentials()
+    const first = await createAuth(store)
+    const victim = exchange(first)
+    await first.settled()
+    const second = await createAuth(store)
+    exchange(second)
+    await second.settled()
+    await expect(first.revoke(sidOf(victim.cookie))).resolves.toBe(true)
+    await first.settled()
+    exchange(second)
+    await second.settled()
+    const restarted = await createAuth(store)
+    expect(restarted.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: victim.cookie }))).toBe(false)
+    expect(restarted.sessions().map(entry => entry.id)).not.toContain(sidOf(victim.cookie))
   })
 })

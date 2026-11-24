@@ -3,7 +3,7 @@ import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type { QuotaBillingSwitch, QuotaProviderView, QuotaResult } from '@deepseek-ai/dsh-api-quota-controller/types'
 import { ProviderQuotaController } from '../src/client/controller.ts'
-import type { UsageSwitch } from '../src/client/usage-prompt.ts'
+import { localUsagePromptStore, OPEN_WINDOW_HOLD_MS, usagePrompt, type UsageSwitch } from '../src/client/usage-prompt.ts'
 
 const provider = { id: 'fixture', name: 'Fixture' }
 const value: QuotaResult = { providerId: provider.id, providerName: provider.name, configured: true, ok: true }
@@ -106,6 +106,48 @@ describe('provider quota client requests', () => {
     expect(controller.switched.getSnapshot()).toEqual({ providerId: 'anthropic', resetAt: 1_700_000_000_000 })
   })
 
+  it('offers the switch back a day after a popover switch that names no reset, and keeps the offer across reload', async () => {
+    const now = Date.UTC(2026, 9, 15, 12, 0)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(now)
+    try {
+      const data = new Map<string, string>()
+      const storage = {
+        getItem: (key: string) => data.get(key) ?? null,
+        setItem: (key: string, text: string) => { data.set(key, text) },
+        removeItem: (key: string) => { data.delete(key) },
+      } as Storage
+      const remote = {
+        quota: { listProviders: async () => ({ ok: true as const, value: [provider] }), fetch: async () => ({ ok: true as const, value }) },
+        settings: { mutate: vi.fn(async () => ({ ok: true as const, value: {} })) },
+      }
+      const controller = new ProviderQuotaController(remote, localUsagePromptStore(storage))
+      await expect(controller.switchBilling(billing, 'api', 'anthropic')).resolves.toBeUndefined()
+      expect(controller.switched.getSnapshot()).toEqual({ providerId: 'anthropic', resetAt: now + OPEN_WINDOW_HOLD_MS })
+      const reloaded = new ProviderQuotaController(remote, localUsagePromptStore(storage)).switched.getSnapshot()!
+      expect(reloaded).toEqual({ providerId: 'anthropic', resetAt: now + OPEN_WINDOW_HOLD_MS })
+      const apiResult: QuotaResult = { providerId: 'anthropic', providerName: 'Anthropic', configured: true, ok: true, billing: { active: 'api', switch: billing } }
+      expect(usagePrompt([apiResult], { dismissed: new Set(), switched: reloaded, now: now + OPEN_WINDOW_HOLD_MS - 1 })).toBeUndefined()
+      expect(usagePrompt([apiResult], { dismissed: new Set(), switched: reloaded, now: now + OPEN_WINDOW_HOLD_MS })).toMatchObject({ kind: 'switch-back' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('completes a switch and a dismissal after the remote write when browser storage throws', async () => {
+    const failing = () => { throw new Error('quota exceeded') }
+    const partial: Partial<Storage> = { getItem: failing, setItem: failing, removeItem: failing }
+    const memory = localUsagePromptStore(partial as Storage)
+    const mutate = vi.fn(async () => ({ ok: true as const, value: {} }))
+    const remote = { quota: { listProviders: async () => ({ ok: true as const, value: [provider] }), fetch: async () => ({ ok: true as const, value }) }, settings: { mutate } }
+    const controller = new ProviderQuotaController(remote, memory)
+    await expect(controller.switchBilling(billing, 'api', 'anthropic', 7)).resolves.toBeUndefined()
+    expect(controller.switched.getSnapshot()).toEqual({ providerId: 'anthropic', resetAt: 7 })
+    expect(controller.state.getSnapshot()).toEqual({ status: 'ready', results: [value] })
+    expect(() => { controller.dismiss('limit|a|5h|1') }).not.toThrow()
+    expect(controller.dismissed.getSnapshot()).toEqual(['limit|a|5h|1'])
+  })
+
   it('switches back to the subscription by unsetting the key and clears the switch', async () => {
     const { controller, mutate, memory } = harness({ providerId: 'anthropic', resetAt: 1 })
     await expect(controller.switchBilling(billing, 'subscription', 'anthropic')).resolves.toBeUndefined()
@@ -136,5 +178,61 @@ describe('provider quota client requests', () => {
     controller.dismiss(key)
     expect(memory.saveDismissed).toHaveBeenCalledWith([key])
     expect(controller.dismissed.getSnapshot()).toEqual([key])
+  })
+})
+
+describe('provider quota overlapping loads', () => {
+  const listing = (...ids: string[]): RemoteResult<readonly QuotaProviderView[]> => ({ ok: true, value: ids.map(id => ({ id, name: id })) })
+  const resultFor = (id: string, tag: string): QuotaResult => ({ providerId: id, providerName: id, configured: true, ok: true, windows: { credits: { usedPercent: null, resetAt: null, valueLabel: tag } } })
+
+  it('ignores an older provider list that arrives after a newer refresh', async () => {
+    const { controller, listProviders, fetch } = harness()
+    const older = Promise.withResolvers<RemoteResult<readonly QuotaProviderView[]>>()
+    listProviders.mockReturnValueOnce(older.promise)
+    fetch.mockImplementation(async id => ({ ok: true, value: resultFor(id, 'v') }))
+    const first = controller.load()
+    listProviders.mockResolvedValueOnce(listing('new'))
+    await controller.refresh()
+    older.resolve(listing('removed'))
+    await first
+
+    expect(controller.providers.getSnapshot()).toEqual([{ id: 'new', name: 'new' }])
+    expect(controller.state.getSnapshot().results.map(result => result.providerId)).toEqual(['new'])
+    expect(fetch).not.toHaveBeenCalledWith('removed')
+  })
+
+  it('ignores older quota results that arrive after a newer refresh', async () => {
+    const { controller, fetch } = harness()
+    const older = Promise.withResolvers<RemoteResult<QuotaResult>>()
+    fetch.mockReturnValueOnce(older.promise)
+    const first = controller.load()
+    await vi.waitFor(() => { expect(fetch).toHaveBeenCalledOnce() })
+    fetch.mockResolvedValueOnce({ ok: true, value: resultFor('fixture', 'new') })
+    await controller.refresh()
+    older.resolve({ ok: true, value: resultFor('fixture', 'old') })
+    await first
+
+    expect(controller.state.getSnapshot()).toEqual({ status: 'ready', results: [resultFor('fixture', 'new')] })
+  })
+
+  it('publishes completed providers when one call never settles', async () => {
+    const remote = {
+      quota: {
+        listProviders: async () => listing('stuck', 'done'),
+        fetch: (id: string) => id === 'stuck' ? new Promise<RemoteResult<QuotaResult>>(() => undefined) : Promise.resolve({ ok: true as const, value: resultFor(id, 'v') }),
+      },
+      settings: { mutate: async () => ({ ok: true as const, value: {} }) },
+    }
+    const memory = { dismissed: (): readonly string[] => [], saveDismissed: vi.fn(), switched: (): undefined => undefined, saveSwitched: vi.fn() }
+    const controller = new ProviderQuotaController(remote, memory, 20)
+    await controller.load()
+
+    expect(controller.state.getSnapshot()).toEqual({
+      status: 'ready',
+      results: [
+        { providerId: 'stuck', providerName: 'stuck', configured: true, ok: false, error: 'Quota request timed out' },
+        resultFor('done', 'v'),
+      ],
+    })
   })
 })

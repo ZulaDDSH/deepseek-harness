@@ -130,7 +130,7 @@ function displayCrumbs(listing: DirectoryListing, homeLabel: string): DirectoryE
  * recorded in the directory-picker capability seam Agent Note).
  */
 function separatorOf(listing: DirectoryListing): '\\' | '/' {
-  return listing.home.includes('\\') ? '\\' : '/'
+  return !listing.home.startsWith('/') && listing.home.includes('\\') ? '\\' : '/'
 }
 
 /** The listed level as a directory part: its own path, separator-terminated (the root already is). */
@@ -639,7 +639,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         /* v8 ignore next -- same fence as navigate/select; the modal blocks superseding input */
         if (seq !== requestSeq.current) return
         setLoading(false)
-        setError(failureText(reason))
+        setError(t('browser.createdRelistFailed', { name, reason: failureText(reason) }))
       })
     }, (reason: unknown) => {
       if (generation !== openGeneration.current) return

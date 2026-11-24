@@ -174,3 +174,57 @@ it('reports failed Worker termination during canceled request cleanup', async ()
     await terminate()
   }
 })
+
+async function advanceUntil(settled: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 60 && !settled(); attempt++) {
+    await vi.advanceTimersByTimeAsync(1000)
+    await new Promise(resolve => setImmediate(resolve))
+  }
+}
+
+it('abandons a Worker that never becomes ready once its elapsed deadline passes', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    const opening = openBrowserWorker({ ...config('opening'), operationTimeoutMs: 1000 }, new AbortController().signal, warn)
+    const observed = expect(opening).rejects.toMatchObject({ name: 'StagehandTimeoutError', code: 'STAGEHAND_WORKER_FAILED', message: expect.stringContaining('timed out after 16000ms') as string })
+    await vi.advanceTimersByTimeAsync(16_000)
+    await observed
+    expect(state.workers[0]?.threadId).toBe(-1)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it.each([['tabs', { action: 'list' }], ['screenshot', {}]] as const)('closes the connection when a stalled %s call passes its deadline without cancellation', async (method, args) => {
+  const runtime = await openBrowserWorker({ ...config('stalled'), operationTimeoutMs: 1000 }, new AbortController().signal, warn)
+  runtimes.push(runtime)
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    const call = runtime.execute(method, args)
+    const observed = expect(call).rejects.toMatchObject({ name: 'StagehandTimeoutError', code: 'STAGEHAND_WORKER_FAILED', message: expect.stringContaining(`"${method}" timed out`) as string })
+    await vi.advanceTimersByTimeAsync(16_000)
+    await observed
+    expect(state.workers[0]?.threadId).toBe(-1)
+    await expect(runtime.execute('tabs', { action: 'list' })).rejects.toMatchObject(workerFailed(/Worker (is closed|exited)/u))
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('reports an undrained stalled call as a cleanup failure that names the timeout', async () => {
+  const runtime = await openBrowserWorker({ ...config('stalled-undrained'), operationTimeoutMs: 1000, shutdownGraceMs: 500 }, new AbortController().signal, warn)
+  runtimes.push(runtime)
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    let done = false
+    const observed = expect(runtime.execute('tabs', { action: 'list' }).finally(() => { done = true })).rejects.toMatchObject({
+      name: 'StagehandDrainError', code: 'STAGEHAND_CLEANUP_FAILED', message: expect.stringContaining('timed out after 16000ms') as string,
+    })
+    await advanceUntil(() => done)
+    await observed
+    expect(state.workers[0]?.threadId).toBe(-1)
+    await expect(runtime.close()).rejects.toMatchObject({ name: 'StagehandDrainError' })
+  } finally {
+    vi.useRealTimers()
+  }
+})

@@ -82,12 +82,16 @@ async function run(options: Options): Promise<number> {
     warn: (message) => { console.error(`warning: ${message}`) },
   })
   for (const [path, cached] of result.icons) writeIfChanged(join(dirname(output), path), readFileSync(cached))
+  const changed = writeIfChanged(output, `${JSON.stringify(result.index, null, 2)}\n`)
   const iconDir = join(dirname(output), 'icons')
+  const siblings = readdirSync(dirname(output))
+    .filter(name => name.endsWith('.json') && join(dirname(output), name) !== output)
+    .map(name => readFileSync(join(dirname(output), name), 'utf8'))
   for (const name of existsSync(iconDir) ? readdirSync(iconDir) : []) {
     const file = join(iconDir, name)
-    if (GENERATED_ICON.test(name) && !result.icons.has(`icons/${name}`) && lstatSync(file).isFile()) rmSync(file, { force: true })
+    if (GENERATED_ICON.test(name) && !result.icons.has(`icons/${name}`) && !siblings.some(text => text.includes(`icons/${name}`))
+      && lstatSync(file).isFile()) rmSync(file, { force: true })
   }
-  const changed = writeIfChanged(output, `${JSON.stringify(result.index, null, 2)}\n`)
   const plugins = result.index.plugins.length
   console.log(`${changed ? 'wrote' : 'unchanged'} ${output}: ${plugins} plugin(s), ${result.failures.length} failed source(s)`)
   return result.failures.length === 0 ? 0 : 1

@@ -7,7 +7,7 @@ import type { ConnectionInteractions } from './connect-protocol.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ClientRequest, RpcId as RpcIdType } from './rpc.ts'
 import { clientRequestSchema } from './rpc-schema.ts'
-import { bridge } from './http-bridge.ts'
+import { BUFFERED_BODY_BUDGET_FACTOR, BufferedBodyBudget, bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
 import { isRemoteAuthority, isTrustedApiRequest } from './api-request-trust.ts'
 import { API_PATH } from './api-path.ts'
 import { Peer } from './peer.ts'
@@ -70,10 +70,12 @@ export class HostConnectionService extends Service implements HostConnectionHand
    * Provide the Host half over the active HTTP server.
    * @param ctx - owning Connection plugin context.
    * @param trustedHosts - deployment authorities accepted by the Host/Origin fence.
+   * @param bodyBudget - Host-wide buffered-body budget shared by every bridged route.
    */
   constructor(
     ctx: Context,
     private readonly trustedHosts: readonly string[],
+    readonly bodyBudget = new BufferedBodyBudget(DEFAULT_MAX_REQUEST_BODY_BYTES * BUFFERED_BODY_BUDGET_FACTOR),
   ) {
     super(ctx, 'connection')
     this.owner = ctx
@@ -199,7 +201,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
       auth: 'required',
       handler: async (req, res, peer) => {
         if (peer === undefined || res.destroyed) return
-        await bridge(req, res, fetchHandler, peer)
+        await bridge(req, res, fetchHandler, peer, DEFAULT_MAX_REQUEST_BODY_BYTES, this.bodyBudget)
       },
     }
     return owner.effect(() => {

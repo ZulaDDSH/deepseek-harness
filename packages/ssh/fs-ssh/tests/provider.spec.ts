@@ -7,6 +7,7 @@ import { RemoteOperationError } from '@deepseek-ai/dsh-ssh/protocol'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { z } from 'zod'
 import { SshFileSystem } from '../src/index.ts'
+import { isOutcomeUnknown } from '../src/outcome.ts'
 
 type Dispatch = (method: string, params: unknown, signal?: AbortSignal) => Promise<unknown>
 const target: FsTarget = { targetKey: brandString<FsTargetKey>('/remote/work/file.txt'), displayPath: 'file.txt' }
@@ -28,7 +29,7 @@ async function setup() {
   const ctx = new Context()
   const fibers = [await ctx.plugin(WireConnection), await ctx.plugin(Policy), await ctx.plugin(SshFileSystem)]
   onTestFinished(async () => { for (const fiber of fibers.reverse()) await fiber.dispose() })
-  return { fs: ctx.fs, dispatch }
+  return { fs: ctx.fs as SshFileSystem, dispatch }
 }
 
 describe('SSH filesystem provider', () => {
@@ -239,4 +240,46 @@ it.each([
   const { fs, dispatch } = await setup()
   dispatch.mockResolvedValue(outcome)
   await expect(fs.moveFile(target, target, {})).rejects.toMatchObject({ code: 'FS_IO_ERROR' })
+})
+
+describe('uncertain mutation outcomes', () => {
+  const mutations = {
+    writeText: (fs: SshFileSystem, signal?: AbortSignal) => fs.writeText(target, 'x', undefined, signal),
+    editText: (fs: SshFileSystem, signal?: AbortSignal) => fs.editText(target, { oldText: 'a', newText: 'b' } as never, undefined, signal),
+    patchText: (fs: SshFileSystem, signal?: AbortSignal) => fs.patchText(target, [], undefined, signal),
+    deleteFile: (fs: SshFileSystem, signal?: AbortSignal) => fs.deleteFile(target, undefined, signal),
+    moveFile: (fs: SshFileSystem, signal?: AbortSignal) => fs.moveFile(target, target, {}, signal),
+  }
+
+  it.each(Object.keys(mutations) as (keyof typeof mutations)[])('flags a lost reply to %s as outcome unknown', async (name) => {
+    const { fs, dispatch } = await setup()
+    dispatch.mockRejectedValue(new Error('SSH connection lost; remote operation outcome and cleanup are unknown'))
+    const error = await mutations[name](fs).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ code: 'FS_IO_ERROR', outcomeUnknown: true })
+    expect(isOutcomeUnknown(error)).toBe(true)
+  })
+
+  it('keeps a typed remote refusal and an unread failure definite', async () => {
+    const { fs, dispatch } = await setup()
+    dispatch.mockRejectedValueOnce(new RemoteOperationError('stale', 'FS_STALE_VERSION'))
+    const refused = await fs.writeText(target, 'x').catch((caught: unknown) => caught)
+    expect(isOutcomeUnknown(refused)).toBe(false)
+    dispatch.mockRejectedValueOnce(new Error('connection lost'))
+    const read = await fs.readText(target).catch((caught: unknown) => caught)
+    expect(read).toMatchObject({ code: 'FS_IO_ERROR' })
+    expect(isOutcomeUnknown(read)).toBe(false)
+  })
+
+  it('reports a cancellation after dispatch as unknown and one before dispatch as definite', async () => {
+    const { fs, dispatch } = await setup()
+    const during = new AbortController()
+    dispatch.mockImplementationOnce(async () => { during.abort(); throw new Error('cancelled') })
+    const late = await fs.writeText(target, 'x', undefined, during.signal).catch((caught: unknown) => caught)
+    expect(late).toMatchObject({ code: 'FS_ABORTED', outcomeUnknown: true })
+    const before = AbortSignal.abort()
+    dispatch.mockRejectedValueOnce(new Error('aborted'))
+    const early = await fs.writeText(target, 'x', undefined, before).catch((caught: unknown) => caught)
+    expect(early).toMatchObject({ code: 'FS_ABORTED' })
+    expect(isOutcomeUnknown(early)).toBe(false)
+  })
 })

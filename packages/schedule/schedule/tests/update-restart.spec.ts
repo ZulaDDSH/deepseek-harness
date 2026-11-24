@@ -10,7 +10,7 @@ import { JsonStorageBackend } from '@deepseek-ai/dsh-storage-json'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createDailyScheduleRecord } from '../src/domain.ts'
 import type { ScheduleId } from '../src/types.ts'
-import type { ScheduleTask } from '../src/storage.ts'
+import { promptIdOf, type ScheduleTask } from '../src/storage.ts'
 import { boundTask, harness, seedTasks, storedUnit } from './harness.ts'
 
 const contexts: Context[] = []
@@ -65,7 +65,10 @@ it.each([true, false])('persists same-ID daily edits of a version-1 task with sa
   expect(saved).toEqual({ record: updated, target: { kind: 'session', sessionId }, involvedSessionIds: [sessionId],
     status: 'active', updatedAt: NOW, lastDelivery: receipt,
     deliveryHistory: withHistory
-      ? { records: [{ ...receipt, prompt: record.prompt }], earlierRecordsUnavailable: false, earlierRecordsPruned: false }
+      ? {
+        records: [{ ...receipt, promptId: promptIdOf(record.prompt) }], prompts: { [promptIdOf(record.prompt)]: record.prompt },
+        earlierRecordsUnavailable: false, earlierRecordsPruned: false,
+      }
       : { records: [receipt], earlierRecordsUnavailable: true, earlierRecordsPruned: false },
   })
   expect(saved).not.toHaveProperty('sessionId')

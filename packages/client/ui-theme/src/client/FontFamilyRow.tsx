@@ -3,9 +3,10 @@
  * per font role: title + role description + a text field holding the
  * comma-separated family list. Blur or Enter normalizes and commits the list;
  * an empty field restores the built-in stack. The field shows the persisted
- * list and resets whenever that list changes.
+ * list and resets whenever that list changes, except while it has focus.
  */
 import clsx from 'clsx'
+import { useState } from 'react'
 import { Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import { normalizeFontFamily, type FontRole } from '../theme-settings.ts'
@@ -33,9 +34,13 @@ export type FontFamilyRowComponentProps =
  * @returns the row element tree.
  */
 export function FontFamilyRow({ t, role, setFontFamily, useStore }: FontFamilyRowComponentProps) {
-  const value = useStore(s => s.fontFamilies[role])
+  const saved = useStore(s => s.fontFamilies[role])
+  const [pinned, setPinned] = useState<string | undefined>(undefined)
+  const value = pinned ?? saved
   const title = t(`fontFamily.${role}.title`)
   const commit = (input: HTMLInputElement): void => {
+    setPinned(undefined)
+    if (input.value === value) return
     input.value = normalizeFontFamily(input.value)
     setFontFamily(input.value)
   }
@@ -53,6 +58,7 @@ export function FontFamilyRow({ t, role, setFontFamily, useStore }: FontFamilyRo
         aria-label={title}
         spellCheck={false}
         autoComplete="off"
+        onFocus={() => { setPinned(saved) }}
         onBlur={(event) => { commit(event.currentTarget) }}
         maxLength={200}
         onKeyDown={(event) => {

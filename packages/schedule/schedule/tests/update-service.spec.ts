@@ -115,16 +115,20 @@ it('publishes no update after a failed write and permits a later save', async ()
   expect(changed).toHaveBeenCalledTimes(1)
 })
 
-it('orders an edit after the complete delivery commit and observes its changed revision', async () => {
+it('applies an edit made during the delivery flush and keeps it through the receipt commit', async () => {
   const test = await setup()
   const agent = agentFor(test.ctx, 'owner'); test.resolve.mockResolvedValue({ agent })
   const pending = gate(); test.flush.mockImplementationOnce(() => pending.promise)
   await vi.advanceTimersByTimeAsync(300_000)
   expect(agent.followup).toHaveBeenCalledTimes(1)
-  const editing = test.service.edit({ id: test.created.id, action: 'update', expectedUpdatedAt: test.created.updatedAt ?? null, patch: { title: 'Stale' } })
+  expect(await test.service.edit({ id: test.created.id, action: 'update', expectedUpdatedAt: test.created.updatedAt ?? null, patch: { title: 'Edited' } }))
+    .toMatchObject({ title: 'Edited', scheduledAt: '2026-09-16T00:05:00.000Z' })
   pending.resolve(undefined)
-  expect(await editing).toEqual({ id: test.created.id, code: 'schedule_conflict' })
-  expect(await test.service.view({ id: test.created.id })).toMatchObject({ title: 'Task', scheduledAt: '2026-09-16T00:10:00.000Z' })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(await test.service.view({ id: test.created.id })).toMatchObject({
+    title: 'Edited', scheduledAt: '2026-09-16T00:10:00.000Z', lastDelivery: { scheduledAt: '2026-09-16T00:05:00.000Z' },
+  })
+  expect(agent.followup).toHaveBeenCalledTimes(1)
 })
 
 it('normalizes an equivalent edit without re-anchoring the stored target', async () => {

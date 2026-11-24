@@ -304,13 +304,14 @@ export class SettingsFormModel<T> {
     this.saving = true
     this.failed = false
     this.publish()
+    const sent = new Map(this.staged)
     try {
-      const ops = plan.flatMap(item => item.op === undefined ? [] : [item.op])
-      let landed = !ops.length || await this.scope.mutate(ops, this.baseline?.revision)
-      if (!landed) { this.failed = true; return }
+      let landed = true
       for (const item of plan) if (item.run) landed = await item.run() && landed
-      if (landed) { this.staged.clear(); this.baseline = undefined }
+      const ops = plan.flatMap(item => item.op === undefined ? [] : [item.op])
+      if (landed && ops.length) landed = await this.scope.mutate(ops, this.baseline?.revision)
       this.failed = !landed
+      if (landed) this.settle(sent)
     } catch (_error) {
       this.failed = true
     } finally {
@@ -349,6 +350,11 @@ export class SettingsFormModel<T> {
       else plan.push({ field, op: { op: 'set', path: [field], value: write.value } })
     }
     return plan
+  }
+
+  private settle(sent: ReadonlyMap<string, StagedEdit>): void {
+    for (const [field, edit] of sent) if (this.staged.get(field) === edit) this.staged.delete(field)
+    this.baseline = this.staged.size === 0 ? undefined : this.scope.getSnapshot()
   }
 
   private stage(field: string, edit: StagedEdit): void {

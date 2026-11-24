@@ -297,15 +297,18 @@ describe('tree-wide messages', () => {
     const branch = await running(ctx, branchId)
     const leafId = await start(ctx, branch, 'leaf')
     await settled(ctx, leafId)
-    const observe = ctx.sessionQuery.observeSession.bind(ctx.sessionQuery)
-    const query = vi.spyOn(ctx.sessionQuery, 'observeSession').mockImplementation(async (...args) => {
-      const result = await observe(...args)
-      return args[0] !== branchId ? result : {
+    ctx.subagents.interrupt(branchId, { kind: 'ancestor', agent: parent })
+    await settled(ctx, branchId)
+    expect(ctx.agents.get(branchId)).toBeUndefined()
+    const inspect = ctx.sessionQuery.inspectSession.bind(ctx.sessionQuery)
+    const query = vi.spyOn(ctx.sessionQuery, 'inspectSession').mockImplementation(async (...args) => {
+      const result = await inspect(...args) as { present: boolean, link: { header: { parentSession?: SessionId } } }
+      return args[0] !== branchId ? result as never : {
         ...result,
         ...evidence === 'cyclic'
-          ? { header: { ...result.header, parentSession: leafId } }
-          : { projections: { ...result.projections!, values: { ...result.projections!.values, subagentCatalog: [] } } },
-      }
+          ? { link: { ...result.link, header: { ...result.link.header, parentSession: leafId } } }
+          : { present: false },
+      } as never
     })
     try {
       await expect(ctx.subagents.sendMessage(parent, leafId, [{ type: 'text', text: 'rejected' }], { signal }))
@@ -396,6 +399,24 @@ describe('agent names', () => {
     for (const started of [reviewer, unnamed]) {
       ctx.subagents.interrupt(started.childId, { kind: 'ancestor', agent: parent })
       await settled(ctx, started.childId)
+    }
+  })
+
+  it('reads the parent catalog for committed names once, however many children it creates', async () => {
+    const { ctx, parent } = await setup({ a: ['hang'], b: ['hang'], c: ['hang'], d: ['hang'] })
+    const reads = vi.spyOn(subagentManager(ctx)['host'], 'catalogChildrenOf')
+    const started = [
+      await startNamed(ctx, parent, 'a'),
+      await startNamed(ctx, parent, 'b', 'worker'),
+      await startNamed(ctx, parent, 'c'),
+      await startNamed(ctx, parent, 'd'),
+    ]
+    expect(started.map(entry => entry.name)).toEqual(['agent-1', 'worker', 'agent-2', 'agent-3'])
+    await expect(startNamed(ctx, parent, 'c', 'worker')).rejects.toMatchObject({ code: 'DUPLICATE_AGENT_NAME' })
+    expect(reads).toHaveBeenCalledTimes(1)
+    for (const child of started) {
+      ctx.subagents.interrupt(child.childId, { kind: 'ancestor', agent: parent })
+      await settled(ctx, child.childId)
     }
   })
 

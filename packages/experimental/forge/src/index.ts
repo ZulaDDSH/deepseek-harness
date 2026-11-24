@@ -213,10 +213,12 @@ export class ForgeService extends Service {
    * @throws when no provider serves the change request's forge, or with `signal.reason` when it aborts.
    */
   async markReady(ref: ChangeRequestRef, signal: AbortSignal): Promise<ForgeActionFailure | undefined> {
-    const failure = await this.invoke(this.registration(ref.repository.forge), signal,
-      (provider, operation) => provider.markReady(ref, operation))
-    this.refresh(ref)
-    return failure
+    try {
+      return await this.invoke(this.registration(ref.repository.forge), signal,
+        (provider, operation) => provider.markReady(ref, operation))
+    } finally {
+      this.refresh(ref)
+    }
   }
 
   /**
@@ -229,10 +231,12 @@ export class ForgeService extends Service {
    * @throws when no provider serves the change request's forge, or with `signal.reason` when it aborts.
    */
   async merge(ref: ChangeRequestRef, request: MergeRequest, signal: AbortSignal): Promise<ForgeActionFailure | undefined> {
-    const failure = await this.invoke(this.registration(ref.repository.forge), signal,
-      (provider, operation) => provider.merge(ref, request, operation))
-    this.refresh(ref)
-    return failure
+    try {
+      return await this.invoke(this.registration(ref.repository.forge), signal,
+        (provider, operation) => provider.merge(ref, request, operation))
+    } finally {
+      this.refresh(ref)
+    }
   }
 
   /**
@@ -578,13 +582,18 @@ export class ForgeService extends Service {
     run: (action: A, signal: AbortSignal) => Promise<ForgeActionFailure | undefined>,
   ): Promise<ForgeActionFailure | undefined> {
     // Null stands for a provider without the action, which the host was never asked about.
-    const failure = await this.invoke(this.registration(ref.repository.forge), signal, (provider, operation) => {
-      const action = pick(provider)
-      return action === undefined ? Promise.resolve(null) : run(action, operation)
-    })
-    if (failure === null) return { code: 'failed', message: `This provider ${missing}` }
-    this.refresh(ref)
-    return failure
+    let asked = false
+    try {
+      const failure = await this.invoke(this.registration(ref.repository.forge), signal, (provider, operation) => {
+        const action = pick(provider)
+        if (action === undefined) return Promise.resolve(null)
+        asked = true
+        return run(action, operation)
+      })
+      return failure === null ? { code: 'failed', message: `This provider ${missing}` } : failure
+    } finally {
+      if (asked) this.refresh(ref)
+    }
   }
 
   private provider(forge: string): ForgeProvider {

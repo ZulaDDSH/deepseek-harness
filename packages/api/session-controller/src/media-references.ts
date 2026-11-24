@@ -3,7 +3,7 @@
  * the composed filesystem provider. Paths and MIME types do not restrict access;
  * the connection service authenticates requests before this handler. A request
  * without the current `v` version is redirected, uncached, to the versioned URL,
- * whose response is cacheable indefinitely.
+ * whose response must be revalidated (ETag) before each reuse.
  * @module @deepseek-ai/dsh-api-session-controller/media-references
  */
 
@@ -20,8 +20,7 @@ const BASE_HEADERS = {
   'Content-Security-Policy': "sandbox; default-src 'none'",
 }
 const NO_STORE = { ...BASE_HEADERS, 'Cache-Control': 'private, no-store' }
-// A versioned URL names one file version, so its response never changes.
-const VERSIONED = { ...BASE_HEADERS, 'Cache-Control': 'private, max-age=31536000, immutable' }
+const VERSIONED = { ...BASE_HEADERS, 'Cache-Control': 'private, no-cache' }
 
 async function serveFile(request: Request, fs: FileSystem, maxBytes: number): Promise<Response> {
   const fail = (status: number, text: string): Response =>
@@ -41,8 +40,13 @@ async function serveFile(request: Request, fs: FileSystem, maxBytes: number): Pr
       const location = `?${new URLSearchParams({ path, v: info.version }).toString()}`
       return new Response(null, { status: 302, headers: { ...NO_STORE, Location: location } })
     }
+    const etag = `"${encodeURIComponent(info.version)}"`
+    if (request.headers.get('If-None-Match') === etag) {
+      return new Response(null, { status: 304, headers: { ...VERSIONED, ETag: etag } })
+    }
     const headers: Record<string, string> = {
       ...VERSIONED,
+      ETag: etag,
       'Content-Type': mime.lookup(target.displayPath) || 'application/octet-stream',
     }
     if (request.method === 'HEAD') {

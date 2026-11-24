@@ -333,6 +333,10 @@ export class LocalJobRegistry extends JobRegistry {
     return this.readJob(this.expect(id, caller))
   }
 
+  peek(id: JobId, caller?: SessionId): JobRead {
+    return this.readJob(this.expect(id, caller), false)
+  }
+
   readAt(id: JobId, from: number, caller?: SessionId): JobOutputRead {
     const job = this.expect(id, caller)
     if (!Number.isSafeInteger(from) || from < 0) {
@@ -479,12 +483,14 @@ export class LocalJobRegistry extends JobRegistry {
    * after settlement. A terminal read is the point the settled stream drops
    * to the settled cap: settlement kept every unconsumed byte for it.
    */
-  private readJob(job: TrackedJob): JobRead {
+  private readJob(job: TrackedJob, consume = true): JobRead {
     const read = job.ring.readFrom(job.modelCursor)
-    job.modelCursor = job.ring.total
     const result = isTerminal(job.status) && !job.resultDelivered ? job.result : undefined
-    if (result !== undefined) job.resultDelivered = true
-    if (isTerminal(job.status)) job.ring.trim(this.settledRetainBytes)
+    if (consume) {
+      job.modelCursor = job.ring.total
+      if (result !== undefined) job.resultDelivered = true
+      if (isTerminal(job.status)) job.ring.trim(this.settledRetainBytes)
+    }
     return {
       chunks: read.chunks,
       lossy: read.lossy,

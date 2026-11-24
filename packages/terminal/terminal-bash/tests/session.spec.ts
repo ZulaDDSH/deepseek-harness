@@ -482,6 +482,36 @@ describe('LocalPtySession readiness and output', () => {
     internal.closeEmulator()
   })
 
+  it('pauses the terminal stream while the emulator backlog is over its limit and resumes when it drains', async () => {
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config())
+    const writes: Array<{ data: string; done: () => void }> = []
+    const internal = session as unknown as {
+      emulator: { write(data: string, callback?: () => void): void }
+      emulatorWrites: Promise<void>
+      closeEmulator(): void
+    }
+    internal.emulator.write = (data, callback) => {
+      writes.push({ data, done: callback ?? (() => {}) })
+    }
+
+    terminal.emitData('first')
+    await Promise.resolve()
+    expect(terminal.output.isPaused()).toBe(false)
+    const limit = Math.max(1 << 20, 2 * config().scrollbackMaxBytes)
+    terminal.emitData('x'.repeat(limit + 1))
+    await new Promise(resolve => setImmediate(resolve))
+    expect(terminal.output.isPaused()).toBe(true)
+
+    writes[0]!.done()
+    await Promise.resolve()
+    expect(terminal.output.isPaused()).toBe(false)
+    expect(writes[1]!.data).toHaveLength(limit + 1)
+    writes[1]!.done()
+    await internal.emulatorWrites
+    internal.closeEmulator()
+  })
+
   it('lets queued terminal output run before the first post-write readiness poll', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
@@ -1820,7 +1850,7 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
       message: 'PTY cleanup failed (survivor)',
       cause: terminal.terminateError,
     })
-    expect((session as unknown as { emulatorClosed: boolean }).emulatorClosed).toBe(true)
+    expect(session['emulatorClosed']).toBe(true)
     expect(terminal.kills).toEqual([])
 
     terminal.terminateError = undefined

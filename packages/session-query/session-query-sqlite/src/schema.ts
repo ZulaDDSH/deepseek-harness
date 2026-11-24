@@ -10,6 +10,8 @@ export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 8
 /** SQLite application id protecting unrelated databases from derived resets. */
 export const SESSION_QUERY_SQLITE_APPLICATION_ID = 0x44534851
 
+const BUSY_TIMEOUT_MS = 5000
+
 /** Supported SQLite journal modes. */
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
@@ -91,6 +93,7 @@ export async function openSearchDatabase(path: string, journalMode: JournalMode)
   const { DatabaseSync } = await import('node:sqlite')
   const db = new DatabaseSync(actual)
   try {
+    db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`)
     const { application_id: applicationId } = db.prepare('PRAGMA application_id').get() as { application_id: number }
     const { user_version: version } = db.prepare('PRAGMA user_version').get() as { user_version: number }
     const userTables = listUserTables(db)

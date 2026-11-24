@@ -5,8 +5,9 @@
  * conversation reopened after a Host restart keeps its cards and comparisons.
  * @module @deepseek-ai/dsh-workspace-changes/store
  */
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { join, relative, isAbsolute, sep } from 'node:path'
 import type { WorkspaceChangesSummary } from './types.ts'
 
 /** Current on-disk record version; a record of another version is ignored. */
@@ -90,27 +91,49 @@ export function isStoredRecord(value: unknown): value is StoredRecord {
   return sources.every(isSources)
 }
 
-/**
- * The durable directory of one Session. The id is sanitized because it reaches
- * a path segment; distinct ids that sanitize alike are distinguished by a hash
- * of the original, so two Sessions never share a directory.
- * @param root - durable root.
- * @param sessionId - owning Session id.
- * @returns the absolute session directory.
- */
 export function sessionDirectory(root: string, sessionId: string): string {
-  const safe = sessionId.replaceAll(/[^A-Za-z0-9._-]/g, '_')
-  return safe === sessionId ? join(root, safe) : join(root, `${safe}-${hashOf(sessionId)}`)
+  const name = PLAIN_ID.test(sessionId) && !RESERVED_NAME.test(sessionId)
+    ? sessionId
+    : `~${createHash('sha256').update(sessionId).digest('hex').slice(0, 32)}`
+  const directory = join(root, name)
+  const inside = relative(root, directory)
+  if (inside !== name || isAbsolute(inside) || inside.includes(sep)) throw new Error(`session directory escapes the retention root: ${sessionId}`)
+  return directory
 }
 
-/** A short stable digest of one string, used only to disambiguate sanitized ids. */
-function hashOf(value: string): string {
+const PLAIN_ID = /^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$/
+const RESERVED_NAME = /^(?:con|prn|aux|nul|comd|lptd)(?:..*)?$/
+
+function legacySessionDirectory(root: string, sessionId: string): string {
+  const safe = sessionId.replaceAll(/[^A-Za-z0-9._-]/g, '_')
+  return safe === sessionId ? join(root, safe) : join(root, `${safe}-${legacyHash(sessionId)}`)
+}
+
+function legacyHash(value: string): string {
   let hash = 2166136261
   for (let index = 0; index < value.length; index++) {
     hash ^= value.charCodeAt(index)
     hash = Math.imul(hash, 16777619)
   }
   return (hash >>> 0).toString(36)
+}
+
+export async function migrateLegacyDirectory(root: string, sessionId: string): Promise<void> {
+  if (sessionId === '.' || sessionId === '..') return
+  const legacy = legacySessionDirectory(root, sessionId)
+  const current = sessionDirectory(root, sessionId)
+  if (legacy === current) return
+  try {
+    await rename(legacy, current)
+  } catch (error: unknown) {
+    const code = (error as { code?: unknown }).code
+    if (code !== 'ENOENT' && code !== 'EEXIST' && code !== 'ENOTEMPTY' && code !== 'EPERM') throw error
+  }
+}
+
+export async function ensurePrivateDirectory(path: string): Promise<void> {
+  await mkdir(path, { recursive: true, mode: 0o700 })
+  if (process.platform !== 'win32') await chmod(path, 0o700)
 }
 
 const recordsDirectory = (directory: string): string => join(directory, 'records')
@@ -124,11 +147,15 @@ const recordsDirectory = (directory: string): string => join(directory, 'records
  */
 export async function writeRecord(directory: string, seq: number, record: StoredRecord): Promise<void> {
   const records = recordsDirectory(directory)
-  await mkdir(records, { recursive: true })
+  await ensurePrivateDirectory(records)
   const target = join(records, `${String(seq)}.json`)
   const temporary = `${target}.tmp`
-  await writeFile(temporary, JSON.stringify(record))
+  await writeFile(temporary, JSON.stringify(record), { mode: 0o600 })
   await rename(temporary, target)
+}
+
+export async function removeRecord(directory: string, seq: number): Promise<void> {
+  await rm(join(recordsDirectory(directory), `${String(seq)}.json`), { force: true })
 }
 
 /**
@@ -208,7 +235,9 @@ async function footprintOf(path: string): Promise<SessionFootprint> {
  * @param now - current time in milliseconds.
  * @returns the removed session directory count.
  */
-export async function pruneRoot(root: string, policy: RetentionPolicy, now: number): Promise<number> {
+export async function pruneRoot(
+  root: string, policy: RetentionPolicy, now: number, isLive: (path: string) => boolean = () => false,
+): Promise<number> {
   let names
   try {
     names = await readdir(root, { withFileTypes: true })
@@ -225,6 +254,12 @@ export async function pruneRoot(root: string, policy: RetentionPolicy, now: numb
   let bytes = 0
   let kept = 0
   for (const session of sessions) {
+    if (!isLive(session.path)) continue
+    kept += 1
+    bytes += session.bytes
+  }
+  for (const session of sessions) {
+    if (isLive(session.path)) continue
     const expired = now - session.modifiedMs > policy.maxAgeMs
     const overCount = kept >= policy.maxSessions
     const overBytes = kept > 0 && bytes + session.bytes > policy.maxBytes
@@ -235,6 +270,11 @@ export async function pruneRoot(root: string, policy: RetentionPolicy, now: numb
     kept += 1
     bytes += session.bytes
   }
-  for (const path of doomed) await rm(path, { recursive: true, force: true })
-  return doomed.size
+  let removed = 0
+  for (const path of doomed) {
+    if (isLive(path)) continue
+    await rm(path, { recursive: true, force: true })
+    removed += 1
+  }
+  return removed
 }

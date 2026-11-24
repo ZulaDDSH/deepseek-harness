@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { Blob as NodeBlob } from 'node:buffer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { BrowserFileActions, exportName } from '../src/client/files.ts'
+import { BrowserFileActions, exportName, readOriginalBytes, REMOTE_IMAGE_BYTES, REMOTE_IMAGE_MS } from '../src/client/files.ts'
 import type { DesktopFileActions } from '../src/types.ts'
 import { Context } from '@deepseek-ai/cordis'
 import { apply as clientApply } from '../src/client/index.ts'
@@ -242,4 +242,70 @@ it('rejects unsupported clipboard sources and uses suggested MIME when a remote 
     await actions.copyImage({ url: 'https://example.com/untyped-image' })
     expect(write).toHaveBeenCalledTimes(2)
   } finally { actions.dispose() }
+})
+
+describe('remote image reads are bounded', () => {
+  it('refuses a chunked response over the byte budget and cancels its body', async () => {
+    const cancel = vi.fn()
+    const chunk = new Uint8Array(REMOTE_IMAGE_BYTES / 2 + 1)
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) { controller.enqueue(chunk) },
+      cancel,
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, headers: new Headers(), body })))
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const actions = new BrowserFileActions(undefined)
+    await expect(actions.save({ url: 'https://images.example/huge.png' }, 'download')).rejects.toThrow('too large')
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(click).not.toHaveBeenCalled()
+    actions.dispose()
+  })
+
+  it('refuses a declared length over the budget before reading the body', async () => {
+    const pull = vi.fn()
+    const headers = new Headers({ 'content-length': String(REMOTE_IMAGE_BYTES + 1) })
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, headers, body: new ReadableStream({ pull }, { highWaterMark: 0 }) })))
+    const actions = new BrowserFileActions(undefined)
+    await expect(actions.save({ url: 'https://images.example/declared.png' }, 'download')).rejects.toThrow('too large')
+    expect(pull).not.toHaveBeenCalled()
+    actions.dispose()
+  })
+
+  it('abandons a stalled body after the per-request deadline', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+        const signal = init.signal as AbortSignal
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) { signal.addEventListener('abort', () => { controller.error(signal.reason) }, { once: true }) },
+        })
+        return { ok: true, headers: new Headers(), body, blob: () => new Promise<Blob>(() => {}) }
+      }))
+      const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+      const actions = new BrowserFileActions(undefined)
+      let outcome: unknown = 'pending'
+      void actions.save({ url: 'https://images.example/stall.png' }, 'download').then(() => { outcome = 'saved' }, (error: unknown) => { outcome = error })
+      await vi.advanceTimersByTimeAsync(REMOTE_IMAGE_MS)
+      expect(outcome).toBeInstanceOf(Error)
+      expect(click).not.toHaveBeenCalled()
+      actions.dispose()
+    } finally { vi.useRealTimers() }
+  })
+})
+
+describe('original windows', () => {
+  it('refuses a file whose version changes between windows and one above the total limit', async () => {
+    const signal = new AbortController().signal
+    const changed = vi.fn(async (offset: number) => ({ absolutePath: '/w/a', version: offset === 0 ? 'v1' : 'v2', data: [1, 2], eof: offset > 0 }))
+    await expect(readOriginalBytes(changed, signal)).rejects.toThrow('changed')
+    const large = vi.fn(async (offset: number) => ({ absolutePath: '/w/b', version: 'v1', data: [1, 2, 3], eof: offset >= 3 }))
+    await expect(readOriginalBytes(large, signal, 4)).rejects.toThrow('too large')
+  })
+
+  it('concatenates windows until the end of file', async () => {
+    const signal = new AbortController().signal
+    const windows = [[1, 2], [3], []]
+    const read = vi.fn(async (offset: number) => ({ absolutePath: '/w/c', version: 'v', data: windows[offset === 0 ? 0 : offset === 2 ? 1 : 2] ?? [], eof: offset >= 2 }))
+    expect([...await readOriginalBytes(read, signal)]).toEqual([1, 2, 3])
+  })
 })

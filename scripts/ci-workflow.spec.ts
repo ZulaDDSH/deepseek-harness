@@ -591,7 +591,7 @@ describe('Weighted approval workflow', () => {
       'cancel-in-progress': false,
     })
     expect(job).toMatchObject({
-      if: "github.repository == 'deepseek-harness/deepseek-harness' && "
+      if: "github.repository == (vars.WEIGHTED_APPROVAL_REPOSITORY || 'deepseek-harness/deepseek-harness') && "
         + "(github.event_name != 'pull_request_target' || github.event.pull_request.state == 'open') && "
         + "(github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') && "
         + "(github.event_name != 'issue_comment' || (github.event.issue.pull_request && github.event.issue.state == 'open' &&\n"
@@ -606,6 +606,9 @@ describe('Weighted approval workflow', () => {
         ref: '${{ github.event.repository.default_branch }}',
         'persist-credentials': false,
       },
+    })
+    expect(steps.find(step => step.id === 'decision-token')).toMatchObject({
+      with: { owner: '${{ github.repository_owner }}', repositories: '${{ github.event.repository.name }}', 'permission-checks': 'write' },
     })
     const setupIndex = steps.findIndex(step => typeof step.uses === 'string' && step.uses.startsWith('actions/setup-python@'))
     expect(steps[setupIndex]?.if).toBe("steps.revoke.outputs.active == 'true'")
@@ -636,7 +639,7 @@ describe('Weighted approval workflow', () => {
       run: 'node .github/review-ownership/check-approval.mjs',
     })
     expect(recordJob).toMatchObject({
-      if: "github.repository == 'deepseek-harness/deepseek-harness' && github.event.pull_request.state == 'open'",
+      if: "github.repository == (vars.WEIGHTED_APPROVAL_REPOSITORY || 'deepseek-harness/deepseek-harness') && github.event.pull_request.state == 'open'",
       name: 'record weighted approval review event',
       'runs-on': 'ubuntu-latest',
       'timeout-minutes': 2,
@@ -648,6 +651,16 @@ describe('Weighted approval workflow', () => {
     expect(JSON.stringify(publisher).match(/secrets\.[A-Za-z0-9_]+/gu)).toEqual(['secrets.DSH_APPROVAL_APP_PRIVATE_KEY'])
     expect(JSON.stringify(reviewEvent)).not.toContain('github.token')
     expect(JSON.stringify(reviewEvent)).not.toContain('secrets.')
+  })
+})
+
+describe('Policy approve workflow', () => {
+  it('requests the check App token for the repository that triggered it', () => {
+    const steps = workflowJob(loadWorkflow('.github/workflows/pr-check-after-approve.yml'), 'approve').steps
+    if (!Array.isArray(steps)) throw new TypeError('the approve job must define steps')
+    expect(steps.find(step => isRecord(step) && step.id === 'token')).toMatchObject({
+      with: { owner: '${{ github.repository_owner }}', repositories: '${{ github.event.repository.name }}', 'permission-checks': 'write' },
+    })
   })
 })
 

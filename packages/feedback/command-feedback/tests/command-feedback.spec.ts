@@ -101,8 +101,8 @@ describe('@deepseek-ai/dsh-command-feedback registration', () => {
     expect(test.ctx.commands.list(test.agent)).toContainEqual({
       definitionId: '@deepseek-ai/dsh-command-feedback',
       name: 'feedback',
-      description: 'Record feedback about this session',
-      input: { hint: '<text>' },
+      description: 'Record feedback about this session; with session telemetry enabled this also sends the conversation so far to its collector unless --local is given',
+      input: { hint: '[--local] <text>' },
     })
     expect(test.ctx.commands.find(test.agent, 'feedback')).toMatchObject({ recordInput: false })
 
@@ -119,7 +119,20 @@ describe('sessionFeedback Host Remote', () => {
     expect(binding.namespace).toBe('sessionFeedback')
     expect(remoteMethods(test.ctx.sessionFeedback)).toEqual([
       { method: 'record', invocation: { kind: 'direct' } },
+      { method: 'sharing', invocation: { kind: 'direct' } },
     ])
+  })
+
+  it('reports the live telemetry sharing policy and destination, or none without a backend', async () => {
+    const test = await harness()
+    await expect(test.ctx.sessionFeedback.sharing()).resolves.toEqual({ sharing: 'none' })
+    const on = test.ctx.effect(() => test.ctx.provide('sessionTelemetry', { sharing: 'feedback-only', destination: 'https://collector.example.test' } as never))
+    await expect(test.ctx.sessionFeedback.sharing()).resolves.toEqual({ sharing: 'feedback-only', destination: 'https://collector.example.test' })
+    await on()
+    const off = test.ctx.effect(() => test.ctx.provide('sessionTelemetry', { sharing: 'disabled' } as never))
+    await expect(test.ctx.sessionFeedback.sharing()).resolves.toEqual({ sharing: 'disabled' })
+    await off()
+    await expect(test.ctx.sessionFeedback.sharing()).resolves.toEqual({ sharing: 'none' })
   })
 
   it('records a remark on the live Session without command bookkeeping', async () => {
@@ -154,6 +167,46 @@ describe('sessionFeedback Host Remote', () => {
 })
 
 describe('/feedback human command', () => {
+  it('discloses the telemetry release in the acknowledgement only while a telemetry backend is mounted', async () => {
+    const test = await harness()
+    const plain = await run(test, ' first')
+    expect(plain.text).not.toContain('telemetry')
+    const dispose = test.ctx.effect(() => test.ctx.provide('sessionTelemetry', {} as never))
+    try {
+      const mounted = await run(test, ' second')
+      expect(mounted.text).toBe(`Feedback recorded for session ${test.session.id}\nAnonymous user: ${USER_ID}.\nSession telemetry is enabled: this feedback releases the conversation so far to its configured collector.`)
+    } finally {
+      await dispose()
+    }
+  })
+
+  it('records --local feedback for the log only and says it was not shared', async () => {
+    const test = await harness()
+    const dispose = test.ctx.effect(() => test.ctx.provide('sessionTelemetry', {} as never))
+    try {
+      const local = await run(test, ' --local too private to share')
+      expect(local).toEqual({
+        kind: 'success',
+        text: `Feedback recorded locally for session ${test.session.id}; it was not shared with the telemetry collector.`,
+      })
+      expect(feedbackRecords(test.session)).toEqual([{ text: 'too private to share', localOnly: true }])
+      expect((await run(test, ' --local')).kind).toBe('error')
+      expect((await run(test, ' --local   ')).kind).toBe('error')
+      expect(feedbackRecords(test.session)).toHaveLength(1)
+      expect((await run(test, ' --localized remark')).kind).toBe('success')
+      expect(feedbackRecords(test.session)[1]).toEqual({ text: '--localized remark' })
+    } finally {
+      await dispose()
+    }
+  })
+
+  it('records a localOnly Remote request with the flag and no other change', async () => {
+    const test = await harness()
+    await test.ctx.sessionFeedback.record({ sessionId: test.session.id, text: 'keep here', localOnly: true })
+    await test.ctx.sessionFeedback.record({ sessionId: test.session.id, text: 'share', localOnly: false })
+    expect(feedbackRecords(test.session)).toEqual([{ text: 'keep here', localOnly: true }, { text: 'share' }])
+  })
+
   it('acknowledges feedback and records its payload exactly once in the domain event', async () => {
     const test = await harness()
     await expect(run(test, ' the diff view is unreadable')).resolves.toEqual({
@@ -240,7 +293,7 @@ describe('/feedback human command', () => {
     const test = await harness()
     const expected = {
       kind: 'error',
-      text: 'Feedback text is required. Usage: /feedback <text>',
+      text: 'Feedback text is required. Usage: /feedback [--local] <text>',
     }
     await expect(run(test)).resolves.toEqual(expected)
     await expect(run(test, '   \n\t ')).resolves.toEqual(expected)

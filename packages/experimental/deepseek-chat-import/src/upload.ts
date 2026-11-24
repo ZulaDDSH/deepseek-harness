@@ -124,7 +124,7 @@ function importStream(
           if (signal.aborted) {
             end()
           } else if (error instanceof ExportSourceError) {
-            send(outcomeLine(error.reason, error.message))
+            send(outcomeLine(error.reason, error.message, error.sessionIds))
             end()
           } else {
             // Not cancelled, so the body is still open.
@@ -187,8 +187,8 @@ function encodeLine(line: DeepseekChatImportLine): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(`${JSON.stringify(line)}\n`)
 }
 
-function outcomeLine(reason: DeepseekChatImportFailureReason, message: string): DeepseekChatImportLine {
-  return { type: 'outcome', outcome: { ok: false, error: { reason, message } } }
+function outcomeLine(reason: DeepseekChatImportFailureReason, message: string, sessionIds: readonly string[] = []): DeepseekChatImportLine {
+  return { type: 'outcome', outcome: { ok: false, error: { reason, message, ...sessionIds.length === 0 ? {} : { sessionIds: [...sessionIds] } } } }
 }
 
 function failure(reason: DeepseekChatImportFailureReason, message: string): Response {

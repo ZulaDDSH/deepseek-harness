@@ -132,14 +132,15 @@ describe('PermissionPresetService', () => {
     ctx.permissionPresets.set(session, AUTO_PRESET)
     expect(admissions).toBe(1)
     expect(session.snapshotEvents().map(event => [event.type, event.data])).toEqual([
-      ['permission/preset', { preset: AUTO_PRESET }],
+      ['permission/preset', { preset: AUTO_PRESET, intent: true }],
       ['sandbox/mode', { mode: 'danger-full-access' }],
+      ['permission/preset', { preset: AUTO_PRESET }],
     ])
     expect(ctx.permissionPresets.current(session)).toBe(AUTO_PRESET)
 
     ctx.permissionPresets.set(session, AUTO_PRESET)
     expect(admissions).toBe(2)
-    expect(session.snapshotEvents()).toHaveLength(2)
+    expect(session.snapshotEvents()).toHaveLength(3)
   })
 
   it('leaves the session untouched when dynamic admission rejects a selection', async () => {
@@ -168,15 +169,17 @@ describe('PermissionPresetService', () => {
 
     ctx.permissionPresets.set(session, 'danger-full-access')
     expect(session.snapshotEvents().slice(baselineLength).map(event => [event.type, event.data])).toEqual([
-      ['permission/preset', { preset: 'danger-full-access' }],
+      ['permission/preset', { preset: 'danger-full-access', intent: true }],
       ['approval/policy', { policy: 'never' }],
+      ['permission/preset', { preset: 'danger-full-access' }],
     ])
     expect(ctx.permissionPresets.current(session)).toBe('danger-full-access')
 
     ctx.permissionPresets.set(session, AUTO_PRESET)
-    expect(session.snapshotEvents().slice(baselineLength + 2).map(event => [event.type, event.data])).toEqual([
-      ['permission/preset', { preset: AUTO_PRESET }],
+    expect(session.snapshotEvents().slice(baselineLength + 3).map(event => [event.type, event.data])).toEqual([
+      ['permission/preset', { preset: AUTO_PRESET, intent: true }],
       ['approval/policy', { policy: 'ask' }],
+      ['permission/preset', { preset: AUTO_PRESET }],
     ])
     expect(ctx.permissionPresets.current(session)).toBe(AUTO_PRESET)
 
@@ -230,9 +233,10 @@ describe('PermissionPresetService', () => {
     const session = freshSession('sess-set')
     ctx.permissionPresets.set(session, 'danger-full-access')
     expect(session.snapshotEvents().map(e => [e.type, e.data])).toEqual([
-      ['permission/preset', { preset: 'danger-full-access' }],
+      ['permission/preset', { preset: 'danger-full-access', intent: true }],
       ['sandbox/mode', { mode: 'danger-full-access' }],
       ['approval/policy', { policy: 'never' }],
+      ['permission/preset', { preset: 'danger-full-access' }],
     ])
   })
 
@@ -251,10 +255,11 @@ describe('PermissionPresetService', () => {
     // the changed knob.
     session.append('sandbox/mode', { mode: 'read-only' })
     ctx.permissionPresets.set(session, 'danger-full-access')
-    const tail = session.snapshotEvents().slice(4)
+    const tail = session.snapshotEvents().slice(5)
     expect(tail.map(e => [e.type, e.data])).toEqual([
-      ['permission/preset', { preset: 'danger-full-access' }],
+      ['permission/preset', { preset: 'danger-full-access', intent: true }],
       ['sandbox/mode', { mode: 'danger-full-access' }],
+      ['permission/preset', { preset: 'danger-full-access' }],
     ])
   })
 
@@ -337,12 +342,13 @@ describe('new-session default', () => {
     const first = (await ctx.agents.create({ sessionId: brandString<SessionId>('first') })).agent.session
     expect(observed).toEqual([
       [],
-      ['permission/preset', 'sandbox/mode', 'approval/policy'],
+      ['permission/preset', 'sandbox/mode', 'approval/policy', 'permission/preset'],
     ])
     expect(first.snapshotEvents().map(event => [event.type, event.data])).toEqual([
-      ['permission/preset', { preset: 'workspace-write' }],
+      ['permission/preset', { preset: 'workspace-write', intent: true }],
       ['sandbox/mode', { mode: 'workspace-write' }],
       ['approval/policy', { policy: 'ask' }],
+      ['permission/preset', { preset: 'workspace-write' }],
     ])
 
     await configurations.get(ctx)!.update({
@@ -353,7 +359,7 @@ describe('new-session default', () => {
     expect(ctx.permissionPresets.current(first)).toBe('workspace-write')
     expect(ctx.permissionPresets.current(second)).toBe('danger-full-access')
     expect(second.snapshotEvents().map(event => event.type)).toEqual([
-      'permission/preset', 'sandbox/mode', 'approval/policy',
+      'permission/preset', 'sandbox/mode', 'approval/policy', 'permission/preset',
     ])
   })
 
@@ -401,7 +407,7 @@ describe('new-session default', () => {
 
     configurations.set(ctx, await liveConfig(ctx, PermissionPresetService))
     expect(existing.snapshotEvents().map(event => event.type)).toEqual([
-      'permission/preset', 'sandbox/mode', 'approval/policy',
+      'permission/preset', 'sandbox/mode', 'approval/policy', 'permission/preset',
     ])
     expect(ctx.permissionPresets.current(existing)).toBe('workspace-write')
   })
@@ -460,6 +466,36 @@ describe('new-session default', () => {
       type: 'approval/policy',
       data: { policy: 'ask' },
     })
+  })
+
+  it.each([
+    ['intent only', false],
+    ['intent and sandbox', true],
+  ])('completes a torn switch (%s) on resume', async (_label, sandboxWritten) => {
+    const ctx = await mountedStore()
+    const suffix = sandboxWritten ? 'sandbox' : 'intent'
+    const source = freshSession(`torn-source-${suffix}`)
+    source.append('permission/preset', { preset: 'danger-full-access', intent: true })
+    if (sandboxWritten) source.append('sandbox/mode', { mode: 'danger-full-access' })
+    const resumed = (await ctx.agents.create({ sessionId: brandString<SessionId>(`torn-resumed-${suffix}`), seed: source.snapshotEvents() })).agent.session
+    expect(ctx.permissionPresets.current(resumed)).toBe('danger-full-access')
+    expect(resumed.snapshotEvents().filter(event => event.type === 'approval/policy').at(-1)?.data).toEqual({ policy: 'never' })
+    expect(resumed.snapshotEvents().filter(event => event.type === 'permission/preset').at(-1)?.data).toEqual({ preset: 'danger-full-access' })
+  })
+
+  it('leaves a completed switch alone when a later writer changes the approval policy', async () => {
+    const ctx = await mountedStore()
+    const source = freshSession('completed-switch-source')
+    source.append('permission/preset', { preset: 'danger-full-access', intent: true })
+    source.append('sandbox/mode', { mode: 'danger-full-access' })
+    source.append('approval/policy', { policy: 'never' })
+    source.append('permission/preset', { preset: 'danger-full-access' })
+    source.append('approval/policy', { policy: 'ask' })
+    const resumed = (await ctx.agents.create({ sessionId: brandString<SessionId>('completed-switch-resumed'), seed: source.snapshotEvents() })).agent.session
+    expect(resumed.snapshotEvents().filter(event => event.type === 'approval/policy').at(-1)?.data).toEqual({ policy: 'ask' })
+    expect(resumed.snapshotEvents().filter(event => event.type === 'approval/policy').map(event => event.data)).toEqual([
+      { policy: 'never' }, { policy: 'ask' },
+    ])
   })
 
   it('fails to read a stored default outside the configured preset table until it is repaired', async () => {

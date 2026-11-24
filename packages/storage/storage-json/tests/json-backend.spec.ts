@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it, onTestFinished } from 'vitest'
@@ -41,6 +42,40 @@ describe('json backend specifics', () => {
       null,
       2,
     )}\n`)
+    await backend.close()
+  })
+
+  it('refuses a second host opening the same whole-document unit until the first closes', async () => {
+    const root = await freshRoot()
+    const first = new JsonStorageBackend(root)
+    const second = new JsonStorageBackend(root)
+    const unit = await first.kv.open(descriptor)
+    await unit.putRecord('t', 'k', 1)
+    await expect(second.kv.open(descriptor)).rejects.toMatchObject({ code: 'locked' })
+    await expect(second.kv.open(descriptor)).rejects.toThrow(/open in another host/)
+    await first.close()
+    const reopened = await second.kv.open(descriptor)
+    expect((await reopened.loadAll()).tables.t).toEqual({ k: 1 })
+    await second.close()
+  })
+
+  it('takes over the lock of a host process that exited', async () => {
+    const root = await freshRoot()
+    const child = spawnSync(process.execPath, ['-e', ''])
+    expect(child.pid).toBeGreaterThan(0)
+    await writeFile(join(root, 'shape.json.lock'), `${child.pid}\n`, 'utf8')
+    const backend = new JsonStorageBackend(root)
+    await backend.kv.open(descriptor)
+    await backend.close()
+    await expect(readFile(join(root, 'shape.json.lock'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('releases the lock when opening fails after acquiring it', async () => {
+    const root = await freshRoot()
+    await writeFile(join(root, 'shape.json'), 'not json at all', 'utf8')
+    const backend = new JsonStorageBackend(root)
+    await expect(backend.kv.open(descriptor)).rejects.toMatchObject({ code: 'malformed-medium' })
+    await expect(readFile(join(root, 'shape.json.lock'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     await backend.close()
   })
 

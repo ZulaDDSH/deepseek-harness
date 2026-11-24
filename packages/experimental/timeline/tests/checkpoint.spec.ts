@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Checkpoint, CHECKPOINT_BYTES } from '../src/checkpoint.ts'
-import { patchSchema } from '../src/records.ts'
+import { patchSchema, taskId } from '../src/records.ts'
 import { measureAll, patchTasks, prioritiesOf } from '../src/tasks.ts'
 import checkpoint from './checkpoint.timeline.json' with { type: 'json' }
 import manifest from '../package.json' with { type: 'json' }
@@ -151,5 +151,37 @@ describe('portable task-tree checkpoints', () => {
     expect(exportedFile).toMatchObject({ metadata: { pluginVersion: '99.0.0' } })
     expect(descriptive.toJson()).toEqual(Checkpoint.fromJson(checkpoint).toJson())
     expect(() => Checkpoint.fromJson({ ...checkpoint, requiredNewBehavior: true })).toThrow()
+  })
+})
+
+describe('checkpoint scheduling data', () => {
+  const plan = {
+    format: 'dsh-timeline-tree',
+    version: 1,
+    title: 'Estimated plan',
+    tasks: [
+      { id: 'group', title: 'Parallel group', mode: 'parallel' },
+      { id: 'short', parent: 'group', title: 'Short', remaining: 10 },
+      { id: 'long', parent: 'group', title: 'Long', remaining: 30 },
+      { id: 'finished', title: 'Finished', status: 'done' },
+    ],
+  }
+  it('keeps remaining estimates and parallel mode through export and import', () => {
+    const before = Checkpoint.fromJson(plan).restore('a', 1000).tree
+    const exported = Checkpoint.fromTree(before, [], 2000, 'source-session')
+    const file = JSON.parse(exported.toString()) as { tasks: Record<string, unknown>[] }
+    expect(file.tasks.find(item => item.id === 'long')).toMatchObject({ remaining: 30 })
+    expect(file.tasks.find(item => item.id === 'group')).toMatchObject({ mode: 'parallel' })
+    expect(file.tasks.find(item => item.id === 'finished')).not.toHaveProperty('remaining')
+    const group = taskId.parse('group')
+    const after = Checkpoint.fromString(exported.toString()).restore('b', 3000).tree
+    expect(after.tasks.find(item => item.id === 'long')?.remaining).toBe(30)
+    expect(measureAll(after.tasks).get(group)?.remaining).toBe(30)
+    expect(measureAll(after.tasks).get(group)?.remaining).toBe(measureAll(before.tasks).get(group)?.remaining)
+  })
+  it('omits defaults so older files restore unchanged', () => {
+    const file = Checkpoint.fromJson({ ...plan, tasks: [{ id: 'one', title: 'Plain' }] }).toJson()
+    expect(file.tasks[0]).not.toHaveProperty('remaining')
+    expect(file.tasks[0]).not.toHaveProperty('mode')
   })
 })

@@ -71,7 +71,7 @@ The two layouts share atomic publication but assign state ownership differently.
 
 - **`single` keeps memory authoritative.** Each write changes the in-memory unit, serializes its complete state, and atomically replaces `<unit>.json`. A batch delete publishes once. Serialization failures restore every affected in-memory value; uncertain I/O outcomes require reopening instead of continuing from that snapshot.
 - **`per-record` keeps the directory authoritative.** Each put or delete changes one `<unit>/<table>/<key>.json` document, and `loadAll()` rereads the tree. A batch delete renames the batch's documents out of the readable set, syncs the directory on POSIX, then unlinks the staged copies. A failed staging or sync restores the documents and syncs the restored directory. If that restoration or sync fails, the unit rejects with `unknown-state` and every later operation on it except `close()` rejects. Each document stamps the unit version and carries one record value.
-- **Publication is durable per call.** A write uses a temporary file, fsync, atomic `rename()` replacement, and a parent-directory fsync on POSIX. The domain layer's write chain supplies ordering across calls.
+- **Publication is durable per call.** A write uses a temporary file, fsync, atomic `rename()` replacement, and a parent-directory fsync on POSIX. The domain layer's write chain supplies ordering across calls. A failure after the rename (the parent-directory fsync) is not a rollback: the new document is already visible, so the write rejects with `StorageError` code `unknown-state`, the unit rejects every later call, and the domain quarantines until it is reopened and re-reads the file system.
 
 ### File formats
 
@@ -138,7 +138,7 @@ None — the backend never touches live request prefixes.
 These limits define when this backend is a poor fit or needs special operational care. They are current package constraints, not a task backlog.
 
 - **`single` rewrites the whole unit** — each write republishes the complete unit file; use `per-record` or route the domain to SQLite when this cost is too high.
-- **No cross-process write locking** — two processes writing the same unit can interleave replacements; writes to the same file use last-completion wins.
+- **Only whole-document units are exclusive** — opening a `single`-layout unit holds `<unit>.json.lock` (PID lock) until close, and a second host fails with `StorageError` code `locked`. A lock left by an exited process is taken over; a lock whose PID a live process reused stays until an operator removes it. `per-record` units take no lock, so two processes writing the same record use last-completion wins, and a running host never refreshes its copy from another host. Hosts on different machines or PID namespaces are not excluded.
 - **Windows rename without explicit write-through** — durability relies on libuv's `rename()` (`MoveFileExW` with replacement); the stricter Win32 write-through publish helper from the session-log backend is planned to move down here when the `log` facet lands.
 - **No crash-atomic `per-record` batch** — a crash before deletion resolves can leave a partial batch and `.deleting` residue. Completed deletions sync the staged directory changes on POSIX; cleanup residue is unreadable.
 

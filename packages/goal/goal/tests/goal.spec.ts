@@ -316,6 +316,31 @@ describe('GoalService creation and replay', () => {
 
 })
 
+describe('GoalService round refunds', () => {
+  it('returns the latest admitted round through a durable refund and keeps the activation', async () => {
+    const { ctx, agent, session } = await harness()
+    const created = ctx.goals.create(agent, { objective: 'refund', maxGoalRounds: 2 })
+    appendRound(session, created, 1)
+    const refunded = ctx.goals.refundRound(agent, created)
+    expect(refunded).toMatchObject({ revision: 2, roundsStarted: 0, phase: 'active', activation: 'armed' })
+    expect(foldGoal(session.snapshotEvents())).toMatchObject({ roundsStarted: 0, goal: { revision: 2 } })
+    appendRound(session, refunded, 1)
+    expect(ctx.goals.get(agent)).toMatchObject({ roundsStarted: 1 })
+    const refundEvent = session.snapshotEvents().find(event => event.type === 'goal/change' && event.data.operation === 'refund')
+    expect(refundEvent?.data).toMatchObject({ version: 2, refundedRound: 1, roundsStarted: 0 })
+  })
+
+  it('refuses a refund with no admitted round, a stale ref, or a completed goal', async () => {
+    const { ctx, agent, session } = await harness()
+    let goal = ctx.goals.create(agent, { objective: 'no round' })
+    expect(() => ctx.goals.refundRound(agent, goal)).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_TRANSITION' }))
+    appendRound(session, goal, 1)
+    expect(() => ctx.goals.refundRound(agent, { ...goal, revision: 9 })).toThrow(expect.objectContaining({ code: 'GOAL_STALE_REVISION' }))
+    goal = ctx.goals.complete(agent, goal)
+    expect(() => ctx.goals.refundRound(agent, goal)).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_TRANSITION' }))
+  })
+})
+
 describe('GoalService mutations', () => {
   it('adapts Remote creation and reuses business methods for later mutations', async () => {
     const { ctx, agent } = await harness()
@@ -661,12 +686,57 @@ describe('goal replay validation', () => {
   })
 
   it('rejects unsupported versions, operations, and extra top-level fields', () => {
-    expect(() => decodeGoalChange({ ...snapshotChange(), version: 2 })).toThrow('unsupported goal change version')
+    expect(() => decodeGoalChange({ ...snapshotChange(), version: 3 })).toThrow('unsupported goal change version')
+    expect(() => decodeGoalChange({ ...snapshotChange(), version: 2 })).toThrow('goal refund change must have')
+    expect(() => decodeGoalChange({ ...snapshotChange(), operation: 'refund' })).toThrow('operation is invalid')
     expect(() => decodeGoalChange({ ...snapshotChange(), operation: 'explode' })).toThrow('operation is invalid')
     expect(() => decodeGoalChange({ ...snapshotChange(), extra: true })).toThrow('snapshot change must have exactly')
     expect(() => decodeGoalChange({
       kind: 'goal/change', version: 1, operation: 'clear', cleared: { id: 'x', revision: 2 }, clearedAt: 1, extra: true,
     })).toThrow('clear change must have exactly')
+  })
+
+  function refundChange(current: GoalSnapshotChangeMeta, overrides: Record<string, unknown> = {}): GoalChangeMeta {
+    const { operation: _operation, version: _version, ...rest } = mutation(current, 'edit', current.goal.phase)
+    return decodeGoalChange({ ...rest, version: 2, operation: 'refund', roundsStarted: 0, refundedRound: 1, ...overrides }) as GoalChangeMeta
+  }
+
+  it('folds a refund of the latest round and admits the same round number again', () => {
+    const create = snapshotChange()
+    const session = Session.create(brandString<SessionId>('refund-fold'), oneChange(create))
+    appendRound(session, create.goal, 1)
+    appendChange(session, refundChange(create))
+    expect(foldGoal(session.snapshotEvents())).toMatchObject({ roundsStarted: 0, goal: { revision: 2 } })
+    appendRound(session, { id: create.goal.id, revision: 2 }, 1)
+    expect(foldGoal(session.snapshotEvents())).toMatchObject({ roundsStarted: 1 })
+  })
+
+  it('rejects refunds that are not exactly the latest admitted round of a non-complete goal', () => {
+    const create = snapshotChange()
+    const base = snapshotChange({ goal: { ...create.goal, maxGoalRounds: 3 } })
+    const refused = (overrides: Record<string, unknown>, message: string, rounds = 2): void => {
+      const session = Session.create(brandString<SessionId>(`refund-reject-${Math.random()}`), oneChange(base))
+      for (let round = 1; round <= rounds; round++) appendRound(session, base.goal, round)
+      appendChange(session, refundChange({ ...base, roundsStarted: rounds }, overrides))
+      expect(() => foldGoal(session.snapshotEvents())).toThrow(message)
+    }
+    const accepted = Session.create(brandString<SessionId>('refund-accept'), oneChange(base))
+    appendRound(accepted, base.goal, 1)
+    appendRound(accepted, base.goal, 2)
+    appendChange(accepted, refundChange({ ...base, roundsStarted: 2 }, { roundsStarted: 1, refundedRound: 2 }))
+    expect(foldGoal(accepted.snapshotEvents())).toMatchObject({ roundsStarted: 1 })
+    refused({ roundsStarted: 0, refundedRound: 1 }, 'exactly the latest admitted round')
+    refused({ roundsStarted: 2, refundedRound: 2 }, 'exactly the latest admitted round')
+    refused({ roundsStarted: 1, refundedRound: 3 }, 'exactly the latest admitted round')
+    refused({ roundsStarted: 0, refundedRound: 1 }, 'exactly the latest admitted round', 0)
+    expect(() => refundChange(base, { refundedRound: 0 })).toThrow('refundedRound')
+    expect(() => refundChange(base, { extra: true })).toThrow('goal refund change must have')
+    const complete = mutation(base, 'complete', 'complete', { roundsStarted: 1 })
+    const session = Session.create(brandString<SessionId>('refund-complete'), oneChange(base))
+    appendRound(session, base.goal, 1)
+    appendChange(session, complete)
+    appendChange(session, refundChange(complete, { roundsStarted: 0, refundedRound: 1 }))
+    expect(() => foldGoal(session.snapshotEvents())).toThrow('non-complete phase')
   })
 
   it('rejects invalid create and missing-current mutation sequences', () => {

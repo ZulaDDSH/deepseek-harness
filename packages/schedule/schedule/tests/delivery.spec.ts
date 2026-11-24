@@ -6,7 +6,7 @@ import { expect, it, vi } from 'vitest'
 import { createAfterScheduleRecord } from '../src/domain.ts'
 import type { ScheduleId } from '../src/types.ts'
 import { ScheduleRuntime } from '../src/runtime.ts'
-import type { ScheduleTask } from '../src/storage.ts'
+import { promptIdOf, type ScheduleTask } from '../src/storage.ts'
 import { boundTask } from './harness.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 
@@ -60,7 +60,8 @@ it('acknowledges the real synchronous inbox splice after flush without claiming 
         expect(tasks).toEqual([{
           ...seeded, status: 'ended', updatedAt: receipt.deliveredAt, lastDelivery: receipt,
           deliveryHistory: {
-            records: [{ ...receipt, prompt: 'Inbox only' }], earlierRecordsUnavailable: false, earlierRecordsPruned: false,
+            records: [{ ...receipt, promptId: promptIdOf('Inbox only') }], prompts: { [promptIdOf('Inbox only')]: 'Inbox only' },
+            earlierRecordsUnavailable: false, earlierRecordsPruned: false,
           },
         }])
         expect(agent.inbox.nextTurn).toEqual(inserted)
