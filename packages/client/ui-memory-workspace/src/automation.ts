@@ -1,8 +1,9 @@
 /** @module Memory policy, per-turn chat saves, first-message recall and status for the connected Memorix server. */
 import { createHash, randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
-import { link, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { link, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { basename, dirname, join, parse, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { McpHumanOperations } from '@deepseek-ai/dsh-mcp-client'
@@ -180,18 +181,56 @@ async function ensureEmptyRepository(root: string): Promise<void> {
   }
 }
 
-/** A legacy root belongs to the first folder that binds it; the marker is linked in complete, so a racing reader never sees it empty. */
+const MARKER_NAME = 'dsh-workspace'
+const ORPHAN_MARKER_AGE_MS = 60_000
+const MARKER_READ_ATTEMPTS = 5
+const MARKER_READ_RETRY_MS = 20
+
+function errorCode(error: unknown): unknown {
+  return error instanceof Error && 'code' in error ? error.code : undefined
+}
+
+async function removeOrphanMarkers(directory: string): Promise<void> {
+  const cutoff = Date.now() - ORPHAN_MARKER_AGE_MS
+  for (const name of await readdir(directory)) {
+    if (!name.startsWith(`${MARKER_NAME}.`)) continue
+    const file = join(directory, name)
+    const info = await stat(file).catch(() => undefined)
+    if (info !== undefined && info.mtimeMs < cutoff) await rm(file, { force: true })
+  }
+}
+
+async function markerNamesPath(marker: string, path: string): Promise<boolean> {
+  for (let attempt = 0; attempt < MARKER_READ_ATTEMPTS; attempt++) {
+    const content = await readFile(marker, 'utf8')
+    if (content !== '') return content === path
+    await sleep(MARKER_READ_RETRY_MS)
+  }
+  return false
+}
+
+/** A legacy root belongs to the first folder that binds it; only the plain-create fallback can expose an empty marker. */
 async function legacyRootClaimed(root: string, path: string): Promise<boolean> {
-  const marker = join(root, '.git', 'dsh-workspace')
-  if (!await stat(join(root, '.git')).then(() => true, () => false)) return false
+  const directory = join(root, '.git')
+  if (!await stat(directory).then(() => true, () => false)) return false
+  const marker = join(directory, MARKER_NAME)
+  await removeOrphanMarkers(directory).catch(() => undefined)
   const staged = `${marker}.${randomUUID()}`
   await writeFile(staged, path)
   try {
-    await link(staged, marker)
-    return true
-  } catch (error) {
-    if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
-    return await readFile(marker, 'utf8') === path
+    try {
+      await link(staged, marker)
+      return true
+    } catch (error) {
+      if (errorCode(error) === 'EEXIST') return await markerNamesPath(marker, path)
+    }
+    try {
+      await writeFile(marker, path, { flag: 'wx' })
+      return true
+    } catch (error) {
+      if (errorCode(error) !== 'EEXIST') throw error
+    }
+    return await markerNamesPath(marker, path)
   } finally {
     await rm(staged, { force: true })
   }

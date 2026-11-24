@@ -320,7 +320,7 @@ it('discloses the analytics data categories and what is never sent, in every dic
   for (const text of [en['productAnalytics.description'], zh['productAnalytics.description']]) expect(text).toMatch(/ID/)
   expect(en['productAnalytics.description']).toMatch(/Off by default/)
   expect(en['productAnalytics.description']).toMatch(/Prompts and replies are never included/)
-  expect(en['productAnalytics.description']).toMatch(/installer/)
+  expect(en['productAnalytics.description']).toMatch(/package name or version/)
   expect(en['productAnalytics.description']).not.toMatch(/API keys|tokens/)
   expect(en['productAnalytics.description']).toMatch(/already queued/)
   expect(zh['productAnalytics.description']).toMatch(/默认关闭/)

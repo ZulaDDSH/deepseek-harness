@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { createVolatile, updateVolatile, type Volatile } from '@deepseek-ai/cosmokit'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { link, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -21,7 +21,7 @@ function asText(value: unknown): string { return typeof value === 'string' ? val
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
-  return { ...actual, writeFile: vi.fn(actual.writeFile) }
+  return { ...actual, writeFile: vi.fn(actual.writeFile), link: vi.fn(actual.link) }
 })
 vi.mock('@deepseek-ai/dsh-native-command', () => ({ runNativeCommand: vi.fn(async () => ({ stdout: '', stderr: '' })) }))
 
@@ -589,6 +589,66 @@ describe('Memory policy and first-message recall', () => {
     expect(second.bindings).toEqual([legacy])
     expect(await readFile(join(legacy, '.git', 'dsh-workspace'), 'utf8')).toBe(realpathSync.native(workspace))
     expect((await readdir(join(legacy, '.git'))).filter(name => name.startsWith('dsh-workspace.'))).toEqual([])
+  })
+
+  describe('legacy root marker', () => {
+    async function legacyRoot(directory: string, workspace: string): Promise<string> {
+      const legacy = join(directory, 'dsh', 'memorix-roots', createHash('sha256')
+        .update(process.platform === 'win32' ? resolve(workspace).toLowerCase() : resolve(workspace)).digest('hex').slice(0, 8))
+      await mkdir(join(legacy, '.git'), { recursive: true })
+      await writeFile(join(legacy, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+      return legacy
+    }
+
+    it('claims the legacy root with a plain create when the file system refuses hard links', async () => {
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+      const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-nolink-'))
+      directories.push(workspace)
+      const { ctx, bindings, directory } = await fixture({ search: '' })
+      const legacy = await legacyRoot(directory, workspace)
+      vi.mocked(link).mockRejectedValue(Object.assign(new Error('not permitted'), { code: 'EPERM' }))
+      try {
+        await ctx.plugin(SystemPrompt)
+        inbox(ctx, session('one', { cwd: workspace }), 'first')
+        await assembled(ctx, 'one')
+      } finally {
+        vi.mocked(link).mockImplementation(actual.link)
+      }
+      expect(bindings).toEqual([legacy])
+      expect(await readFile(join(legacy, '.git', 'dsh-workspace'), 'utf8')).toBe(realpathSync.native(workspace))
+      expect((await readdir(join(legacy, '.git'))).filter(name => name.startsWith('dsh-workspace.'))).toEqual([])
+    })
+
+    it('waits for an empty marker to be filled before comparing it', async () => {
+      const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-empty-'))
+      directories.push(workspace)
+      const { ctx, bindings, directory } = await fixture({ search: '' })
+      const legacy = await legacyRoot(directory, workspace)
+      const marker = join(legacy, '.git', 'dsh-workspace')
+      await writeFile(marker, '')
+      setTimeout(() => { void writeFile(marker, realpathSync.native(workspace)) }, 40)
+      await ctx.plugin(SystemPrompt)
+      inbox(ctx, session('one', { cwd: workspace }), 'first')
+      await assembled(ctx, 'one')
+      expect(bindings).toEqual([legacy])
+    })
+
+    it('removes stale temporary markers on the next claim and keeps fresh ones', async () => {
+      const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-orphan-'))
+      directories.push(workspace)
+      const { ctx, directory } = await fixture({ search: '' })
+      const legacy = await legacyRoot(directory, workspace)
+      const stale = join(legacy, '.git', 'dsh-workspace.00000000-0000-4000-8000-000000000001')
+      const fresh = join(legacy, '.git', 'dsh-workspace.00000000-0000-4000-8000-000000000002')
+      await writeFile(stale, 'x')
+      await writeFile(fresh, 'x')
+      const old = new Date(Date.now() - 10 * 60_000)
+      await utimes(stale, old, old)
+      await ctx.plugin(SystemPrompt)
+      inbox(ctx, session('one', { cwd: workspace }), 'first')
+      await assembled(ctx, 'one')
+      expect((await readdir(join(legacy, '.git'))).filter(name => name.startsWith('dsh-workspace.'))).toEqual([basename(fresh)])
+    })
   })
 
   it('treats a Git repository at the home folder as no repository, as Memorix refuses to bind the home folder', async () => {
