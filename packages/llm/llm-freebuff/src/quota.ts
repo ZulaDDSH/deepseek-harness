@@ -219,7 +219,7 @@ export function createFreebuffQuotaSource(options: FreebuffQuotaOptions): QuotaS
   const now = options.now ?? Date.now
   const timeZone = options.timeZone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone)
   const identity = { providerId: PROVIDER, providerName: NAME }
-  let cached: { readonly at: number; readonly usage: Usage } | undefined
+  let cached: { readonly at: number; readonly token: string; readonly usage: Usage } | undefined
   let remembered: { readonly at: number; readonly token: string | undefined } | undefined
 
   const readToken = async (): Promise<string | undefined> => {
@@ -238,7 +238,11 @@ export function createFreebuffQuotaSource(options: FreebuffQuotaOptions): QuotaS
       cached = undefined
       return { ...identity, configured: false, ok: false, error: options.unconfigured ?? 'Not configured' }
     }
-    let entry = cached !== undefined && now() - cached.at < QUOTA_TTL_MS ? cached : undefined
+    const current = now()
+    let entry = cached !== undefined && cached.token === token && current - cached.at < QUOTA_TTL_MS
+      && (cached.usage.resetAt === null || current < cached.usage.resetAt)
+      ? cached
+      : undefined
     if (entry === undefined) {
       const response = await fetchImpl(SESSION_URL, {
         headers: { Authorization: `Bearer ${token}`, 'x-fb-timezone': timeZone() },
@@ -246,12 +250,15 @@ export function createFreebuffQuotaSource(options: FreebuffQuotaOptions): QuotaS
       })
       if (!response.ok) {
         const rejected = response.status === 401 || response.status === 403 ? '; sign in to Freebuff again' : ''
-        if (rejected !== '') remembered = undefined
+        if (rejected !== '') {
+          remembered = undefined
+          cached = undefined
+        }
         return { ...identity, configured: true, ok: false, error: `Freebuff usage API returned HTTP ${response.status}${rejected}` }
       }
       const usage = parseUsage(await response.json())
       if (usage === undefined) return { ...identity, configured: true, ok: false, error: 'Freebuff usage response had no daily hours' }
-      entry = { at: now(), usage }
+      entry = { at: now(), token, usage }
       cached = entry
     }
     return { ...identity, configured: true, ok: true, windows: quotaWindows(entry.usage, now()), asOf: entry.at }

@@ -59,8 +59,18 @@ class Mutex {
   async acquire(signal: AbortSignal): Promise<() => void> {
     const previous = this.tail
     let release!: () => void
-    this.tail = new Promise<void>((resolve) => { release = resolve })
-    await previous
+    const mine = new Promise<void>((resolve) => { release = resolve })
+    this.tail = Promise.all([previous, mine]).then(() => {})
+    let onAbort!: () => void
+    const aborted = new Promise<void>((resolve) => {
+      onAbort = resolve
+      signal.addEventListener('abort', onAbort, { once: true })
+    })
+    try {
+      await Promise.race([previous, aborted])
+    } finally {
+      signal.removeEventListener('abort', onAbort)
+    }
     if (signal.aborted) {
       release()
       signal.throwIfAborted()
@@ -125,7 +135,7 @@ export class FreebuffSession {
       this.running = false
       this.lastUsed = Date.now()
       if (!finished) {
-        if (request.signal.aborted) await this.interrupt()
+        if (request.signal.aborted && this.chatId !== undefined) await this.interrupt()
         else await this.kill()
       }
       this.armIdle()
@@ -232,7 +242,7 @@ export class FreebuffSession {
       request.signal.throwIfAborted()
       if (live.exited) throw new LlmError('Freebuff exited before it was ready.', 'STREAM_CLOSED')
       const state = classifyScreen(live.screen.text())
-      if (state.loginRequired) await this.signedOut()
+      if (state.loginRequired && !state.ready) await this.signedOut()
       if (state.trustPrompt) {
         if (!answered) {
           answered = true
@@ -342,7 +352,7 @@ export class FreebuffSession {
         return end
       }
       if (!state.busy) {
-        if (state.loginRequired) await this.signedOut()
+        if (state.loginRequired && !state.ready) await this.signedOut()
         if (state.blocker !== undefined) throw new LlmError(`Freebuff is waiting on the prompt "${state.blocker}".`, 'UNKNOWN')
       }
       if (!sawBusy && at < 0 && now - startedAt >= timing.startupTimeoutMs) {

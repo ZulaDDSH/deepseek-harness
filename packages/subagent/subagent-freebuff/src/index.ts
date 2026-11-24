@@ -126,10 +126,10 @@ class FreebuffProvider implements SubagentProvider {
       comSpec: process.env.ComSpec,
       spawnTerminal: terminalSpec => subprocess.spawnTerminal(terminalSpec),
       onError: (error, stopReason) => {
-        const tail = error instanceof FreebuffRunFailure && error.screenTail !== undefined
-          ? `\n${error.screenTail}`
-          : ''
-        logger.warn(`${PREFIX} "${this.name}": child run failed (${stopReason}): ${error.message}${tail}`)
+        logger.warn(`${PREFIX} "${this.name}": child run failed (${stopReason}): ${error.message}`)
+        if (error instanceof FreebuffRunFailure && error.screenTail !== undefined) {
+          logger.debug(`${PREFIX} "${this.name}": last screen rows\n${error.screenTail}`)
+        }
       },
     }
     return startFreebuffRun(request, spec)

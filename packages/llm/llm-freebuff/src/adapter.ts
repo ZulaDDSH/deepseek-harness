@@ -48,7 +48,7 @@ const CHAT_ID = /^(?![-.])[\w.-]+$/
 export function resumeOf(messages: readonly RequestMessage[]): FreebuffReplay | undefined {
   for (const message of messages.toReversed()) {
     if (message.role !== 'assistant' || message.source.provider !== PROVIDER) continue
-    const state = message.source.replayState as Partial<FreebuffReplay> | undefined
+    const state = (message.source.replayState as { response?: Partial<FreebuffReplay> } | undefined)?.response
     if (state?.kind === 'freebuff' && state.version === 1 && typeof state.chatId === 'string' && CHAT_ID.test(state.chatId)) {
       return { kind: 'freebuff', version: 1, chatId: state.chatId, ...typeof state.consumed === 'string' ? { consumed: state.consumed } : {} }
     }

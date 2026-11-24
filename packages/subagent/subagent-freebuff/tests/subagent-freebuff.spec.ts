@@ -177,6 +177,17 @@ describe('Freebuff provider driving the TUI', () => {
     })
   }, TEST_TIMEOUT_MS)
 
+  it('keeps screen rows out of the warning and logs them at debug level', async () => {
+    const { ctx } = await providerContext('exit')
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    const debug = vi.spyOn(ctx.logger, 'debug')
+    await expect(startAs(ctx, request())).rejects.toMatchObject({ code: 'FREEBUFF_RUN_FAILED' })
+    const failed = warn.mock.calls.map(([message]) => String(message)).filter(message => message.includes('child run failed'))
+    expect(failed).toHaveLength(1)
+    expect(failed[0]).not.toContain('\n')
+    expect(debug.mock.calls.some(([message]) => String(message).includes('last screen rows'))).toBe(true)
+  }, TEST_TIMEOUT_MS)
+
   it('puts the product error text from the transcript into the diagnostic', async () => {
     const { ctx } = await providerContext('error', { env: { FAKE_FREEBUFF_TRANSCRIPT: '1' } })
     const run = await startAs(ctx, request())
@@ -217,6 +228,15 @@ ${'Detailed reason. '.repeat(60)}End of refusal.`
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(result.output).toEqual([{ type: 'text', text: (expect.stringContaining('The footer says thinking... while a turn runs.') as string) }])
+    await run.dispose()
+  }, TEST_TIMEOUT_MS)
+
+  it('does not treat an answer that ends with a login hint as a signed-out screen', async () => {
+    const { ctx } = await providerContext('login-answer')
+    const run = await startAs(ctx, request())
+    const result = await run.result
+    expect(result.stopReason).toBe('completed')
+    expect(result.output).toEqual([{ type: 'text', text: (expect.stringContaining('Run this command to login:') as string) }])
     await run.dispose()
   }, TEST_TIMEOUT_MS)
 

@@ -29,7 +29,7 @@ describe('Freebuff model route', () => {
     const first = await collect(h, id, [userMessage('first')])
     const second = await collect(h, id, [
       userMessage('first'),
-      assistantMessage(first.text, first.finish.replayState?.response),
+      assistantMessage(first.text, first.finish.replayState),
       userMessage('second'),
     ])
     expect(second.text).toBe('echo: second')
@@ -45,7 +45,7 @@ describe('Freebuff model route', () => {
     expect(h.host.killed).toBe(1)
     const second = await collect(h, id, [
       userMessage('first'),
-      assistantMessage(first.text, first.finish.replayState?.response),
+      assistantMessage(first.text, first.finish.replayState),
       userMessage('second'),
     ])
     expect(second.text).toBe('echo: second')
@@ -269,9 +269,18 @@ describe('Freebuff startup and failure paths', () => {
   it('ignores replay state written by another route and resumes from the newest Freebuff reply', async () => {
     const h = await harness()
     const id = h.session('s1', h.workspace('proj'))
-    const foreign = { id: 'm', role: 'assistant', content: [], source: { kind: 'model', provider: 'other', model: 'x', replayState: { kind: 'freebuff', version: 1, chatId: 'zzz' } } }
-    const bad = assistantMessage('x', { kind: 'freebuff', version: 2, chatId: 'zzz' })
+    const foreign = { id: 'm', role: 'assistant', content: [], source: { kind: 'model', provider: 'other', model: 'x', replayState: { response: { kind: 'freebuff', version: 1, chatId: 'zzz' } } } }
+    const bad = assistantMessage('x', { response: { kind: 'freebuff', version: 2, chatId: 'zzz' } })
     const result = await collect(h, id, [userMessage('a'), foreign as never, bad, userMessage('b')])
+    expect(result.text).toBe('echo: b')
+    expect(h.host.spawns[0]!.argv).not.toContain('--continue')
+  })
+
+  it('ignores a bare replay object that is not wrapped in the response envelope', async () => {
+    const h = await harness()
+    const id = h.session('s1', h.workspace('proj'))
+    const bare = assistantMessage('x', { kind: 'freebuff', version: 1, chatId: 'zzz' })
+    const result = await collect(h, id, [userMessage('a'), bare, userMessage('b')])
     expect(result.text).toBe('echo: b')
     expect(h.host.spawns[0]!.argv).not.toContain('--continue')
   })

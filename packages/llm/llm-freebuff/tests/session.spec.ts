@@ -12,7 +12,7 @@ function chatOf(h: Harness, cwd: string): { chatId: string; rows: { id: string }
 }
 
 const replay = (chatId: string, consumed?: string): ReturnType<typeof assistantMessage> =>
-  assistantMessage('earlier', { kind: 'freebuff', version: 1, chatId, ...consumed === undefined ? {} : { consumed } })
+  assistantMessage('earlier', { response: { kind: 'freebuff', version: 1, chatId, ...consumed === undefined ? {} : { consumed } } })
 
 function request(cwd: string, signal: AbortSignal, prompt = 'hi'): TurnRequest {
   return { prompt, cwd, chatId: undefined, consumed: undefined, signal }
@@ -47,14 +47,54 @@ describe('Freebuff session guards', () => {
     expect(h.host.prompts).toEqual(['one'])
   })
 
-  it('cancels a turn that is still waiting for the terminal and tolerates a failed Escape write', async () => {
+  it('ends a terminal that never became ready when the turn is cancelled', async () => {
     const h = await harness()
-    h.host.script = { stuck: true, failEscape: true }
+    h.host.script = { stuck: true }
     const abort = new AbortController()
     setTimeout(() => { abort.abort() }, 100)
     const result = await collect(h, h.session('s1', h.workspace('proj')), [userMessage('go')], { signal: abort.signal })
     expect(result.finish.reason.kind).toBe('aborted')
+    expect(h.host.escapes).toBe(0)
+    expect(h.host.killed).toBeGreaterThan(0)
+  })
+
+  it('tolerates a failed Escape write when a bound chat is cancelled mid-turn', async () => {
+    const h = await harness()
+    h.host.script = { hold: true, failEscape: true }
+    const abort = new AbortController()
+    setTimeout(() => { abort.abort() }, 300)
+    const result = await collect(h, h.session('s1', h.workspace('proj')), [userMessage('go')], { signal: abort.signal })
+    expect(result.finish.reason.kind).toBe('aborted')
     expect(h.host.escapes).toBe(1)
+  })
+
+  it('ends the terminal instead of sending Escape when the abort comes before the chat is bound', async () => {
+    const h = await harness({ timing: { startupTimeoutMs: 5_000 } })
+    h.host.script = { silent: true }
+    const abort = new AbortController()
+    setTimeout(() => { abort.abort() }, 100)
+    const result = await collect(h, h.session('s1', h.workspace('proj')), [userMessage('go')], { signal: abort.signal })
+    expect(result.finish.reason.kind).toBe('aborted')
+    expect(h.host.prompts).toEqual(['go'])
+    expect(h.host.escapes).toBe(0)
+    expect(h.host.killed).toBeGreaterThan(0)
+  })
+
+  it('stops waiting for the spawn lock when the turn is aborted', async () => {
+    const h = await harness({ timing: { startupTimeoutMs: 5_000 } })
+    h.host.script = { silent: true }
+    const holder = new AbortController()
+    const waiter = new AbortController()
+    const first = collect(h, h.session('s1', h.workspace('one')), [userMessage('one')], { signal: holder.signal })
+    await delay(60)
+    setTimeout(() => { waiter.abort() }, 50)
+    const startedAt = Date.now()
+    const second = await collect(h, h.session('s2', h.workspace('two')), [userMessage('two')], { signal: waiter.signal })
+    expect(second.finish.reason.kind).toBe('aborted')
+    expect(Date.now() - startedAt).toBeLessThan(2_000)
+    expect(h.host.spawns).toHaveLength(1)
+    holder.abort()
+    expect((await first).finish.reason.kind).toBe('aborted')
   })
 
   it('answers terminal queries even when the reply cannot be written, and ignores output stream errors', async () => {
@@ -96,7 +136,7 @@ describe('Freebuff session guards', () => {
     const first = await collect(h, id, [userMessage('one')])
     await h.host.terminals[0]!.terminate()
     await delay(30)
-    const next = await collect(h, id, [userMessage('one'), assistantMessage(first.text, first.finish.replayState?.response), userMessage('two')])
+    const next = await collect(h, id, [userMessage('one'), assistantMessage(first.text, first.finish.replayState), userMessage('two')])
     expect(next.text).toBe('echo: two')
     expect(h.host.spawns).toHaveLength(2)
   })
@@ -161,6 +201,14 @@ describe('Freebuff mid-turn screens', () => {
     const h = await harness()
     h.host.script = { midLogin: true }
     expect(failureOf(await collect(h, h.session('s1', h.workspace('proj')), [userMessage('go')])).code).toBe('ACCOUNT_SIGN_IN_REQUIRED')
+  })
+
+  it('keeps an answer that ends with a login hint when the ready footer is on screen', async () => {
+    const h = await harness({ timing: { quietMs: 400 } })
+    h.host.script = { loginHint: true, replyDelayMs: 120 }
+    const result = await collect(h, h.session('s1', h.workspace('proj')), [userMessage('go')])
+    expect(result.finish.reason.kind).toBe('stop')
+    expect(result.text).toBe('echo: go')
   })
 
   it('names a blocking prompt that appears during the turn', async () => {

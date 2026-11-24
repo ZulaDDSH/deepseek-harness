@@ -146,6 +146,33 @@ describe('Freebuff quota source', () => {
     expect((await quota.fetch(fetchImpl)).ok).toBe(true)
   })
 
+  it('discards the cached usage once the daily reset time has passed', async () => {
+    let now = Date.parse('2026-11-23T23:58:00Z')
+    const { source: quota, fetchImpl } = source(session(), { now: () => now })
+    await quota.fetch(fetchImpl)
+    now = Date.parse('2026-11-23T23:59:59Z')
+    await quota.fetch(fetchImpl)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    now = Date.parse('2026-11-24T00:01:00Z')
+    await quota.fetch(fetchImpl)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not show the usage of a previous sign-in after the credential changes', async () => {
+    let now = NOW
+    const { source: quota, fetchImpl, readToken } = source(session(), { now: () => now })
+    await quota.configured()
+    now += 200_000
+    await quota.fetch(fetchImpl)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    const other = `other-${'y'.repeat(12)}-value`
+    readToken.mockResolvedValue(other)
+    now += 110_000
+    await quota.fetch(fetchImpl)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(fetchImpl.mock.calls[1]![1]!.headers).toMatchObject({ Authorization: `Bearer ${other}` })
+  })
+
   it('reads the credential once per TTL for fetch and configured together', async () => {
     let now = NOW
     const { source: quota, fetchImpl, readToken } = source(session(), { now: () => now })

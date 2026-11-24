@@ -85,6 +85,7 @@ function submit(task) {
     }
     if (mode === 'long') return doneFrame(task, Array.from({ length: 70 }, (_, index) => `long answer line ${index}`))
     if (mode === 'quote') return doneFrame(task, [answer, 'The footer says thinking... while a turn runs.'])
+    if (mode === 'login-answer') return doneFrame(task, [answer, 'Run this command to login:'])
     doneFrame(task, [answer])
   }, 1200)
 }
