@@ -208,6 +208,8 @@ export async function* readFileStreamVerbatim(
 }
 
 const VERIFIED_HOST_PATH_LIMIT = 512
+// constraint: fileHostPath is synchronous, so unverified files above this size get no host path; read them with readFileStream.
+export const MAX_SYNC_VERIFY_BYTES = 64 * 1024 * 1024
 const verifiedHostPathIdentities = new Map<string, string>()
 
 function storedFileIdentity(stat: Stats): string {
@@ -248,6 +250,7 @@ export function verifiedStoredFilePath(root: string, ref: FileAttachmentRef): st
   }
   const identity = storedFileIdentity(stat)
   if (verifiedHostPathIdentities.get(path) === identity) return path
+  if (stat.size > MAX_SYNC_VERIFY_BYTES) return undefined
   let digest: { sha256: string, bytes: number }
   try {
     digest = digestFileSync(path)

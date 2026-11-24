@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import sharp from 'sharp'
+import { MAX_SYNC_VERIFY_BYTES } from '../src/file-store.ts'
 import LocalAttachmentStore, {
   DEFAULT_NORMALIZED_IMAGE_MAX_BYTES,
   DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION,
@@ -48,6 +49,17 @@ describe('local attachment file handles', () => {
       await rm(path as string)
       expect(service.fileHostPath(ref)).toBeUndefined()
       expect(() => service.fileHostPath({ ...ref, attachmentId: brandString<AttachmentId>('invalid') })).toThrow()
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('withholds a host path for a file too large to verify synchronously', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-local-file-handle-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome: home })
+      const ref = await service.saveFile({ data: new Uint8Array(MAX_SYNC_VERIFY_BYTES + 1), name: 'big.bin' })
+      expect(service.fileHostPath(ref)).toBeUndefined()
     } finally {
       await rm(home, { recursive: true, force: true })
     }
