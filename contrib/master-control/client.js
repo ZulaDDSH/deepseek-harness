@@ -160,20 +160,20 @@ window.__ModuleLoader__.load({
       .dsh-control-mark { display:inline-grid; place-items:center; width:1.3rem; color:var(--mc-accent) }
       .dsh-control-bar h1 { font-size:1.05rem; line-height:1.3; font-weight:625; letter-spacing:-.025em; margin:0 }
       .dsh-control-grid { flex:1 1 0; min-height:0; display:grid; grid-template-rows:minmax(0,1fr);
-        grid-template-columns:minmax(0,1fr) clamp(17rem,35%,26rem) }
+        grid-template-columns:minmax(0,1fr) }
+      .dsh-control-grid[data-view]:not([data-view="chat"]) { grid-template-columns:minmax(0,1fr) clamp(17rem,35%,26rem) }
       .dsh-control-chat { display:flex; flex-direction:column; min-height:0; min-width:0; overflow:hidden }
       .dsh-control-chat [data-slot="conversation.input.permission"],
       .dsh-control-chat [data-slot="conversation.hero.agentPreset"] { display:none !important }
       .dsh-control-scroll { min-height:0; min-width:0; overflow-y:auto; overscroll-behavior-y:contain;
         border-left:1px solid var(--mc-line); background:var(--mc-rail); scrollbar-gutter:stable; scrollbar-width:thin;
         scrollbar-color:color-mix(in srgb,var(--mc-ink) 29%,var(--mc-rail)) var(--mc-rail) }
-      .dsh-control-nav { display:none; align-items:center; gap:.2rem; padding:.2rem; border:1px solid var(--mc-line);
+      .dsh-control-scroll[hidden] { display:none }
+      .dsh-control-nav { display:flex; flex-wrap:wrap; align-items:center; gap:.2rem; padding:.2rem; border:1px solid var(--mc-line);
         border-radius:.6rem; background:var(--mc-card) }
       @container (max-width: 760px) {
-        .dsh-control-nav { display:flex; flex-wrap:wrap }
-        .dsh-control-grid { grid-template-columns:minmax(0,1fr) }
-        .dsh-control-grid[data-view="chat"] .dsh-control-scroll,
-        .dsh-control-grid[data-view="sessions"] .dsh-control-chat { display:none }
+        .dsh-control-grid[data-view]:not([data-view="chat"]) { grid-template-columns:minmax(0,1fr) }
+        .dsh-control-grid[data-view]:not([data-view="chat"]) .dsh-control-chat { display:none }
         .dsh-control-scroll { border-left:0 }
       }
       .mc-button, .dsh-control-nav button { color:var(--mc-ink); background:transparent; font:inherit;
@@ -328,7 +328,7 @@ window.__ModuleLoader__.load({
           [next.model,next.provider,next.effortLabel].filter(Boolean).join(' · ')),
         editing && h(ModelEditor,{rpc,row,onClose,onSaved}))
     }
-    function Page({rpc, sessions, uiWorkspace, SessionProvider, renderFactorySlot}) {
+    function Page({rpc, sessions, uiWorkspace, SessionProvider, renderFactorySlot, renderSlot}) {
       const [state,setState] = React.useState(null)
       const [offset,setOffset] = React.useState(0)
       const [revision,refresh] = React.useReducer(n=>n+1,0)
@@ -341,6 +341,9 @@ window.__ModuleLoader__.load({
       const [bound,setBound] = React.useState(null)
       const [bindRevision,retryBinding] = React.useReducer(n=>n+1,0)
       const rosterScroll = React.useRef(null)
+      const panelsId = React.useId()
+      const showSessions = view === 'sessions'
+      const showReviews = view === 'reviews'
       React.useEffect(()=>{
         let active = true
         rpc.call(channel,'current',{}).then(result=>{
@@ -363,6 +366,7 @@ window.__ModuleLoader__.load({
         return ()=>{active=false; reference?.release()}
       },[sessions,sessionId,bindRevision])
       React.useEffect(()=>{
+        if (!showSessions) return
         let active = true
         let timer
         async function load() {
@@ -380,7 +384,7 @@ window.__ModuleLoader__.load({
         }
         void load()
         return ()=>{active=false;clearTimeout(timer)}
-      },[rpc,offset,revision])
+      },[rpc,offset,revision,showSessions])
       async function open() {
         setBusy(true); setChatError('')
         try {
@@ -398,16 +402,22 @@ window.__ModuleLoader__.load({
         setOffset(next)
         if (rosterScroll.current) rosterScroll.current.scrollTop = 0
       }
+      function togglePanel(next) {
+        setView(current=>current === next ? 'chat' : next)
+      }
       return h('div',{className:'dsh-control-shell'},
         h('div',{className:'dsh-control-bar'},
           h('div',{className:'dsh-control-brand'},
             h('span',{className:'dsh-control-mark','aria-hidden':true},glyph('M3 16V9m6 10V5m6 12V8m6 6v-4',20)),
             h('h1',null,'Master Control')),
           h('nav',{className:'dsh-control-nav','aria-label':'Master Control views'},
-            h('button',{type:'button','aria-pressed':view==='chat',onClick:()=>setView('chat')},'Chat'),
-            h('button',{type:'button','aria-pressed':view==='sessions',onClick:()=>setView('sessions')},'Sessions'))),
+            h('button',{type:'button','aria-pressed':view==='chat','aria-controls':panelsId+'-chat',onClick:()=>setView('chat')},'Chat'),
+            h('button',{type:'button','aria-pressed':showSessions,'aria-controls':panelsId+'-sessions',
+              onClick:()=>togglePanel('sessions')},'Workspace sessions'),
+            h('button',{type:'button','aria-pressed':showReviews,'aria-controls':panelsId+'-reviews',
+              onClick:()=>togglePanel('reviews')},'Review queue'))),
         h('div',{className:'dsh-control-grid','data-view':view},
-          h('section',{className:'dsh-control-chat','aria-label':'Control chat'},
+          h('section',{id:panelsId+'-chat',className:'dsh-control-chat','aria-label':'Control chat'},
             bound && bound.sessionId===sessionId
               ? h(SessionProvider,{session:bound.reference},
                 renderFactorySlot('conversation.content',{variant:'embedded',phase:'active',hero:false}))
@@ -417,7 +427,8 @@ window.__ModuleLoader__.load({
                   h('button',{className:'mc-button mc-primary',type:'button',disabled:busy || (sessionId && !chatError),onClick:open},
                     busy || (sessionId && !chatError) ? 'Opening…' : 'Open control chat'),
                   chatError && h('p',{className:'mc-failure',role:'alert'},chatError)))),
-          h('div',{className:'dsh-control-scroll',ref:rosterScroll,tabIndex:0,role:'region','aria-label':'Scrollable workspace sessions'},
+          h('div',{id:panelsId+'-sessions',className:'dsh-control-scroll',ref:rosterScroll,hidden:!showSessions,
+            tabIndex:0,role:'region','aria-label':'Scrollable workspace sessions'},
             h('section',{className:'mc-roster','aria-label':'Workspace sessions'},
               h('header',{className:'mc-heading'},
                 h('div',null,h('h2',null,'Workspace sessions'),
@@ -435,7 +446,13 @@ window.__ModuleLoader__.load({
                 h('span',null,(offset+1)+'–'+Math.min(offset+36,total)+' of '+total),
                 h('div',null,
                   h('button',{className:'mc-button',type:'button',disabled:offset===0,onClick:()=>changePage(offset-36)},'Previous'),
-                  h('button',{className:'mc-button',type:'button',disabled:offset+36>=total,onClick:()=>changePage(offset+36)},'Next')))))))
+                  h('button',{className:'mc-button',type:'button',disabled:offset+36>=total,onClick:()=>changePage(offset+36)},'Next'))))),
+          h('div',{id:panelsId+'-reviews',className:'dsh-control-scroll',hidden:!showReviews,tabIndex:0,role:'region',
+            'aria-label':'Review queue'},
+            showReviews && renderSlot('desktop-master-control.review-queue',{},{
+              fallback:h('section',{className:'mc-roster'},h('header',{className:'mc-heading'},h('h2',null,'Review queue')),
+                h('p',{className:'mc-roster-note'},'Enable the Auto Auditor plugin to see reviews here.')),
+            }))))
     }
     const Icon = () => glyph('M3 16V9m6 10V5m6 12V8m6 6v-4',18)
     return {
@@ -449,7 +466,10 @@ window.__ModuleLoader__.load({
           return ()=>style.remove()
         }, 'Master Control styles')
         ctx.slots.inject('main',()=>ctx.slots.register({name:'main',key:id,priority:seatPriority,
-          children:{'desktop-master-control.private-binding':{kind:'single',scope:'session-maybe'}},
+          children:{
+            'desktop-master-control.private-binding':{kind:'single',scope:'session-maybe'},
+            'desktop-master-control.review-queue':{kind:'single',scope:'root'},
+          },
           inject:()=>({rpc:ctx.get('connection').rpc,sessions:ctx.get('sessions'),uiWorkspace:ctx.get('uiWorkspace')})},Page))
         ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({name:'sidebar.panellist',id,order:-20,priority:seatPriority,label:()=> 'Master Control'},Icon))
       },

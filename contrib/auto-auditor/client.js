@@ -5,6 +5,14 @@ window.__ModuleLoader__.load({
     const {useState,useEffect,useReducer}=React
     const id='desktop-auto-auditor',channel='/desktop-auto-auditor'
     const labels={queued:'Queued',reviewing:'In review',ready:'Ready to push',changes_requested:'Changes requested',needs_run:'Run requested',failed:'Review failed'}
+    const queueStatuses={
+      needs_run:['Needs input','Run requested by Auto Auditor.',0],
+      failed:['Needs input','The audit failed. Open the review to see why.',0],
+      changes_requested:['Changes requested','Auto Auditor sent findings to the lead.',1],
+      ready:['Revision approved','Auto Auditor approved this commit.',2],
+      reviewing:['In review','Auto Auditor is reviewing this change.',3],
+      queued:['In review','Waiting for Auto Auditor.',3],
+    }
     const css=`
       .audit{--ink:var(--dsw-alias-label-primary,#eaecf1);--soft:var(--dsw-alias-label-secondary,#a5acb9);--fill:var(--dsw-alias-bg-layer-1,#22252a);--rule:color-mix(in srgb,var(--ink) 16%,transparent);--accent:var(--dsw-alias-link,#96aff7);color:var(--ink);background:var(--dsw-alias-bg-base,#17191d);display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;container-type:inline-size;font-size:.9rem}
       .audit *{box-sizing:border-box}.audit :is(h1,h2,h3,p,dl,dd){margin:0}.audit h1{font-size:1.22rem;letter-spacing:-.035em}.audit h2{font-size:1.15rem;letter-spacing:-.02em}.audit h3{font-size:.9rem}.audit p,.audit li{line-height:1.55;overflow-wrap:anywhere}
@@ -15,6 +23,13 @@ window.__ModuleLoader__.load({
       .audit code,.audit pre{font-family:ui-monospace,Consolas,monospace}.audit pre{overflow:auto;max-height:55vh;padding:.85rem;background:var(--fill);border-radius:.45rem;font-size:.78rem;line-height:1.5}.audit details summary{cursor:pointer;font-weight:600}.audit form,.audit .fields{display:grid;gap:.8rem;max-width:38rem}.audit label{display:grid;gap:.3rem;font-size:.85rem}.audit input,.audit textarea,.audit select{border:1px solid var(--rule);background:var(--fill);border-radius:.4rem;padding:.45rem .6rem;width:100%;min-width:0}.audit textarea{resize:vertical;min-height:4.6rem}.audit :focus-visible{outline:2px solid var(--accent);outline-offset:2px}.audit .long{white-space:pre-wrap}.audit .detail h2{overflow-wrap:anywhere}
       @container(max-width:690px){.audit .body{display:flex;flex-direction:column}.audit .queue{max-height:28%;flex-shrink:0;border-inline-end:0;border-bottom:1px solid var(--rule)}.audit .detail{flex:1}}
       .audit-icon{position:relative;display:inline-flex;align-items:center}.audit-icon small{position:absolute;inset-inline-start:62%;top:-.4em;background:var(--dsw-alias-button-info-fill,#465da0);color:var(--dsw-alias-label-on-color,white);border-radius:1em;padding:0 .23em;font:600 9px/1.2 system-ui}
+      .mc-review-queue .mc-review-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:.2rem .55rem}
+      .mc-review-queue .mc-review-meta :is(a,code){font-size:.73rem}
+      .mc-review-queue a{color:var(--mc-accent)}
+      .mc-review-queue .mc-review-title{white-space:normal;overflow-wrap:anywhere}
+      .mc-review-queue .mc-review-reason{margin:.38rem 0 0;color:var(--mc-muted);font-size:.77rem;overflow-wrap:anywhere}
+      .mc-review-queue .mc-status[data-status="ready"]::before{background:var(--dsw-alias-state-business-primary,#7ccca9);border:0}
+      .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"])::before{border-radius:1px;transform:rotate(45deg)}
     `
     async function call(rpc,method,args={}) {
       const result=await rpc.call(channel,method,args)
@@ -116,8 +131,37 @@ window.__ModuleLoader__.load({
         problem(action.error || row.error || data.error || current.error),
         row.status==='failed' && h('div',null,button('Retry review',()=>act('retry',{id:row.id}),{disabled:action.busy})))
     }
-    function Panel({rpc}) {
-      const [revision,refresh]=useReducer(n=>n+1,0),[selected,select]=useState(null),[view,setView]=useState('queue')
+    function ReviewQueue({rpc,showReview}) {
+      const [revision,refresh]=useReducer(n=>n+1,0)
+      const data=useData(rpc,'list',{},true,5000,revision)
+      const seen=new Set()
+      const rows=(data.value?.rows ?? []).filter(row=>{
+        if(!Object.hasOwn(queueStatuses,row.status)) return false
+        const key=JSON.stringify([row.leadId,row.pull || row.branch || row.id])
+        if(seen.has(key)) return false
+        seen.add(key)
+        return true
+      }).sort((first,second)=>queueStatuses[first.status][2]-queueStatuses[second.status][2])
+      return h('section',{className:'mc-roster mc-review-queue'},
+        h('header',{className:'mc-heading'},h('h2',null,'Review queue'),
+          button('Refresh',refresh,{className:'mc-button','aria-label':'Refresh review queue'})),
+        data.error && h('p',{className:'mc-roster-note mc-failure',role:'alert'},data.error),
+        rows.length ? h('ul',{className:'mc-sessions'},rows.map(row=>{
+          const [label,reason]=queueStatuses[row.status]
+          const pull=typeof row.pull==='string' && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/([1-9]\d*)$/.exec(row.pull)
+          return h('li',{key:row.id,className:'mc-session'},
+            h('div',{className:'mc-review-meta'},
+              h('span',{className:'mc-status','data-status':row.status},label),
+              pull && h('a',{href:row.pull,target:'_blank',rel:'noreferrer'},'PR #'+pull[1]),
+              h('code',{title:row.head},row.head.slice(0,8))),
+            button(row.goal,()=>showReview(row.id),{className:'mc-session-title mc-review-title',title:'View in Auto Auditor'}),
+            h('span',{className:'mc-workspace',title:row.leadTitle},row.leadTitle),
+            h('p',{className:'mc-review-reason'},reason))
+        })) : !data.error && h('p',{className:'mc-roster-note',role:'status'},
+          data.value ? 'No reviews yet. Ask a lead to send its PR to Auto Auditor.' : 'Loading reviews…'))
+    }
+    function Panel({rpc,takeReview}) {
+      const [revision,refresh]=useReducer(n=>n+1,0),[selected,select]=useState(()=>takeReview?.() ?? null),[view,setView]=useState('queue')
       const data=useData(rpc,'list',{},true,5000,revision)
       const last=React.useRef(null)
       if(data.value) last.current=data.value
@@ -143,11 +187,24 @@ window.__ModuleLoader__.load({
         h('path',{d:'M6 3.75h10l2.5 2.5v13.5H6zM9 9h6m-6 4 2 2 4-4',strokeLinecap:'round',strokeLinejoin:'round'})),
         count>0 && h('small',{'aria-label':count+' pending reviews'},count))
     }
-    return {inject:['slots','connection'],apply(ctx){
+    return {inject:['slots','connection','layout'],apply(ctx){
       ctx.effect(()=>{const style=document.createElement('style');style.textContent=css;document.head.append(style);return ()=>style.remove()},'Auto Auditor styles')
       const inject=()=>({rpc:ctx.get('connection').rpc})
+      let requestedReview
+      function takeReview() {
+        const review=requestedReview
+        requestedReview=undefined
+        return review
+      }
+      function showReview(reviewId) {
+        requestedReview=reviewId
+        ctx.get('layout').selectPanel(id)
+      }
       // The running renderer can retain the old client registration until its next launch.
-      ctx.slots.inject('main',()=>ctx.slots.register({name:'main',key:id,priority:-10,inject},Panel))
+      ctx.slots.inject('main',()=>ctx.slots.register({name:'main',key:id,priority:-10,inject:()=>({...inject(),takeReview})},Panel))
+      ctx.slots.inject('desktop-master-control.review-queue',()=>ctx.slots.register({
+        name:'desktop-master-control.review-queue',inject:()=>({...inject(),showReview}),
+      },ReviewQueue))
       ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({name:'sidebar.panellist',id,priority:-10,order:-19,label:()=> 'Auto Auditor',inject},Icon))
     }}
   },
