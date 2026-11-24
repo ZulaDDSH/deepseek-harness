@@ -507,6 +507,49 @@ describe('Memory policy and first-message recall', () => {
     expect(execFileSync('git', ['rev-parse', '--git-dir'], { cwd: root, encoding: 'utf8' }).trim()).toBe('.git')
   })
 
+  it('binds case-distinct non-Git folders to distinct project roots named by a 16-hex canonical hash', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'dsh-memory-case-'))
+    directories.push(base)
+    const upper = join(base, 'Alpha', 'project')
+    const lower = join(base, 'alpha', 'project')
+    const { ctx, bindings } = await fixture({ search: '' })
+    await ctx.plugin(SystemPrompt)
+    inbox(ctx, session('upper', { cwd: upper }), 'first')
+    await assembled(ctx, 'upper')
+    inbox(ctx, session('lower', { cwd: lower }), 'second')
+    await assembled(ctx, 'lower')
+    expect(bindings).toHaveLength(2)
+    expect(bindings[0]).not.toBe(bindings[1])
+    for (const root of bindings) expect(basename(String(root))).toMatch(/^[0-9a-f]{16}$/)
+  })
+
+  it('keeps an existing legacy project root for the folder that first binds it and gives a case-distinct sibling its own', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-legacy-'))
+    directories.push(workspace)
+    const sibling = join(workspace, 'sibling')
+    const { ctx, bindings, directory } = await fixture({ search: '' })
+    const legacyName = (path: string): string => createHash('sha256')
+      .update(process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)).digest('hex').slice(0, 8)
+    const legacy = join(directory, 'dsh', 'memorix-roots', legacyName(workspace))
+    await mkdir(join(legacy, '.git'), { recursive: true })
+    await writeFile(join(legacy, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+    await ctx.plugin(SystemPrompt)
+    inbox(ctx, session('owner', { cwd: workspace }), 'first')
+    await assembled(ctx, 'owner')
+    inbox(ctx, session('owner-again', { cwd: workspace }), 'again')
+    await assembled(ctx, 'owner-again')
+    expect(bindings).toEqual([legacy])
+    expect(await readFile(join(legacy, '.git', 'dsh-workspace'), 'utf8')).toBe(realpathSync.native(workspace))
+    const claimed = join(directory, 'dsh', 'memorix-roots', legacyName(sibling))
+    await mkdir(join(claimed, '.git'), { recursive: true })
+    await writeFile(join(claimed, '.git', 'dsh-workspace'), join(workspace, 'Sibling'))
+    inbox(ctx, session('sibling', { cwd: sibling }), 'other')
+    await assembled(ctx, 'sibling')
+    expect(bindings[1]).not.toBe(claimed)
+    expect(basename(String(bindings[1]))).toMatch(/^[0-9a-f]{16}$/)
+    expect(await readFile(join(claimed, '.git', 'dsh-workspace'), 'utf8')).toBe(join(workspace, 'Sibling'))
+  })
+
   it('treats a Git repository at the home folder as no repository, as Memorix refuses to bind the home folder', async () => {
     const home = await mkdtemp(join(tmpdir(), 'dsh-memory-home-'))
     directories.push(home)
@@ -582,13 +625,13 @@ describe('Memory policy and first-message recall', () => {
     expect(calls[0]?.entityName).toBe(workspaceEntity(CWD))
   })
 
-  it('resolves the workspace path once per recall search and once per save', async () => {
+  it('resolves the workspace path once per recall search and once per save, plus once when the workspace first binds', async () => {
     const { ctx, calls } = await fixture()
     await ctx.plugin(SystemPrompt)
     const resolved = vi.spyOn(realpathSync, 'native')
     inbox(ctx, session('s1'), 'fix the login bug')
     await assembled(ctx, 's1')
-    expect(resolved).toHaveBeenCalledTimes(1)
+    expect(resolved).toHaveBeenCalledTimes(2)
     resolved.mockClear()
     const target = session('s2')
     prompt(ctx, target, 'fix it')
@@ -684,7 +727,7 @@ describe('Memory policy and first-message recall', () => {
   })
 
   it('skips a recall search that expired while queued behind another Memorix operation', async () => {
-    const release = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<undefined>()
     const searched: unknown[] = []
     const { ctx, db } = await fixture({ call: async (name, args) => {
       if (name === 'memorix_session_start') return { content: [{ type: 'text', text: PROJECT_ROOT_TEXT }] }
@@ -699,7 +742,7 @@ describe('Memory policy and first-message recall', () => {
     prompt(ctx, chat, 'blocking save'); reply(ctx, chat, 'ok'); done(ctx, chat)
     inbox(ctx, chat, 'first message')
     expect(await assembled(ctx, 's1')).toContain('older fallback narrative')
-    release.resolve()
+    release.resolve(undefined)
     await vi.waitFor(() => { expect(db.prepare('SELECT COUNT(*) AS n FROM observations').get()?.n).toBe(2) })
     await new Promise(resolve => setTimeout(resolve, 100))
     expect(searched).toEqual([])

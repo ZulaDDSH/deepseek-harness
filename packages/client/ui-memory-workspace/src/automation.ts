@@ -1,7 +1,7 @@
 /** @module Memory policy, per-turn chat saves, first-message recall and status for the connected Memorix server. */
 import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
-import { mkdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, parse, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -115,8 +115,12 @@ export function workspaceEntity(cwd: string): string {
   return entityOf(canonicalWorkspace(cwd))
 }
 
+function workspaceRootName(path: string): string {
+  return createHash('sha256').update(path).digest('hex').slice(0, 16)
+}
+
 function entityOf(path: string): string {
-  return `dsh-workspace:${basename(path) || 'root'}-${createHash('sha256').update(path).digest('hex').slice(0, 16)}`
+  return `dsh-workspace:${basename(path) || 'root'}-${workspaceRootName(path)}`
 }
 
 function canonicalWorkspace(cwd: string): string {
@@ -176,9 +180,28 @@ async function ensureEmptyRepository(root: string): Promise<void> {
   }
 }
 
+/** A legacy root belongs to the first folder that binds it; the marker holds that folder's canonical path. */
+async function legacyRootClaimed(root: string, path: string): Promise<boolean> {
+  const marker = join(root, '.git', 'dsh-workspace')
+  if (!await stat(join(root, '.git')).then(() => true, () => false)) return false
+  try {
+    await writeFile(marker, path, { flag: 'wx' })
+    return true
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
+    return await readFile(marker, 'utf8') === path
+  }
+}
+
 async function memoryProjectRoot(cwd: string | undefined): Promise<string> {
   if (cwd !== undefined && await usableGitRoot(cwd)) return cwd
-  const root = dshHomePath('memorix-roots', cwd === undefined ? DOCUMENTS_ROOT : workspaceHash(cwd))
+  const base = dshHomePath('memorix-roots')
+  let root = join(base, DOCUMENTS_ROOT)
+  if (cwd !== undefined) {
+    const path = canonicalWorkspace(cwd)
+    const legacy = join(base, workspaceHash(cwd))
+    root = await legacyRootClaimed(legacy, path) ? legacy : join(base, workspaceRootName(path))
+  }
   await ensureEmptyRepository(root)
   return root
 }
@@ -507,7 +530,9 @@ export class MemoryAutomation {
     const workspace = workspaceEntities(session.header.cwd ?? '')
     let timer: NodeJS.Timeout | undefined
     const budget = new AbortController()
-    const expired = new Promise<undefined>((resolve) => { timer = setTimeout(() => { budget.abort(); resolve(undefined) }, RECALL_BUDGET_MS) })
+    const expired = new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => { budget.abort(); resolve(undefined) }, RECALL_BUDGET_MS)
+    })
     return Promise.race([this.recallNotes(session, query, budget.signal, workspace), expired]).then((text) => {
       if (text !== undefined) return text
       this.report(new Error(`memory search did not finish within ${RECALL_BUDGET_MS / 1000} s, so this chat starts with the latest notes`), 'recall')
@@ -566,7 +591,9 @@ export class MemoryAutomation {
     }
   }
 
-  private recent(session: SessionLike, provider: McpHumanOperations, database: string, names: readonly string[]): MemorixRecentObservation[] {
+  private recent(
+    session: SessionLike, provider: McpHumanOperations, database: string, names: readonly string[],
+  ): MemorixRecentObservation[] {
     const project = this.known.get(provider)?.get(session.header.cwd ?? DOCUMENTS_ROOT)
     if (project === undefined) return []
     const before = new Date().toISOString()
