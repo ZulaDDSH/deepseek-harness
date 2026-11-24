@@ -5,14 +5,14 @@ Schedule stores Host tasks independently of Session activation. One management A
 <a id="durable-tasks"></a>
 ## Durable tasks
 
-The plugin README owns the current [v2 task schema, v1 defaults, and persisted JSON example](../../packages/schedule/schedule/README.md#storage-format). The domain retains its name, routing, and whole-unit layout. All seven timing kinds remain authoritative; normalization preserves committed occurrences and does not convert Cron into RRULE.
+The plugin README owns the current [unit v3 envelope, the v2 task record schema, v1 defaults, and persisted JSON example](../../packages/schedule/schedule/README.md#storage-format). The domain retains its name, routing, and whole-unit layout. All seven timing kinds remain authoritative; normalization preserves committed occurrences and does not convert Cron into RRULE.
 
 Malformed storage, invalid rows, mismatched task keys, and unsupported versions reject before tasks activate. Failed opening leaves the medium unchanged. An absent file starts empty. Missing target Sessions remain visible in management; reading a task never activates its Session.
 
 <a id="storage-versioning"></a>
 ## Storage versioning
 
-The README defines [when tasks upgrade](../../packages/schedule/schedule/README.md#storage-format), SQLite's unchanged physical schema, mutation costs, and a future compatible v3. `compatibleVersions` admits old unit stamps for current decoding; normal edits and delivery persist current rows. Reads leave storage unchanged. The shared [domain version policy](storage.md#domain-versioning) applies to both JSON and SQLite.
+The README defines [when tasks upgrade](../../packages/schedule/schedule/README.md#storage-format), SQLite's unchanged physical schema, mutation costs, and a future compatible v4. A v3 write makes a v2 or v1 binary refuse the store. `compatibleVersions` admits old unit stamps for current decoding; normal edits and delivery persist current rows. Reads leave storage unchanged. The shared [domain version policy](storage.md#domain-versioning) applies to both JSON and SQLite.
 
 <a id="recurrence-rules"></a>
 ## Recurrence rules

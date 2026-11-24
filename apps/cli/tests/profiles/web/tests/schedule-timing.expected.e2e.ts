@@ -87,7 +87,7 @@ it('edits an existing task through built Remote bindings and keeps its identity 
     renamed = (edited as { value: ScheduleCatalogEntry }).value
     persisted = await readStore(root)
     const document = storedUnit(persisted)
-    expect(document.unit).toEqual({ name: 'schedule', version: 2 })
+    expect(document.unit).toEqual({ name: 'schedule', version: 3 })
     expect(document.global).toBeNull()
     expect(document.tables.tasks[id]!).toMatchObject({ record: { ...record, title: 'Renamed instruction' },
       target: { kind: 'session', sessionId }, status: 'active', updatedAt: renamed.updatedAt, lastDelivery: receipt })

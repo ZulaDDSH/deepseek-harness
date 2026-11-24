@@ -266,6 +266,24 @@ describe('Host Schedule timer', () => {
     expect(test.followup).toHaveBeenCalledTimes(2)
   })
 
+  it('drops the retry backoff of a deleted task so a recreated id starts fresh', async () => {
+    const id = brandString<ScheduleId>('recreated')
+    const make = () => task(createAfterScheduleRecord(id, 'Recreated', 1, Date.now() - 2000, 'Recreated'))
+    const tasks = [make()]
+    const test = await setup(tasks)
+    test.followup.mockImplementationOnce(() => { throw new Error('unavailable') })
+    test.runtime.requestDrive()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(test.followup).toHaveBeenCalledTimes(1)
+    tasks.splice(0)
+    test.runtime.requestDrive([])
+    await vi.advanceTimersByTimeAsync(0)
+    tasks.push(make())
+    test.runtime.requestDrive([])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(test.followup).toHaveBeenCalledTimes(2)
+  })
+
   it('doubles the retry delay while delivery keeps failing and caps it', async () => {
     const tasks = [task(createAfterScheduleRecord(brandString<ScheduleId>('down'), 'Still down', 1, Date.now() - 2000, 'Still down'))]
     const test = await setup(tasks)

@@ -85,7 +85,7 @@ One current JSON task has this envelope; the table key must equal `record.id`:
 
 ```json
 {
-  "unit": { "name": "schedule", "version": 2 },
+  "unit": { "name": "schedule", "version": 3 },
   "global": null,
   "tables": { "tasks": { "deploy-check": {
     "record": {

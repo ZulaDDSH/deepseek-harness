@@ -266,7 +266,10 @@ export class ScheduleRuntime {
     this.clearTimer()
     const due = await this.exclusive(() => {
       const scanNow = Date.now()
-      return this.tasks().filter(task => this.dispatchable(task) && this.eligibleAt(task) <= scanNow)
+      const tasks = this.tasks()
+      const live = new Set(tasks.map(task => task.record.id))
+      for (const id of this.retries.keys()) if (!live.has(id)) this.retries.delete(id)
+      return tasks.filter(task => this.dispatchable(task) && this.eligibleAt(task) <= scanNow)
     })
     const handled = new Set<ScheduleId>()
     for (const task of due) {
