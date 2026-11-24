@@ -124,7 +124,7 @@ describe('provider quota client requests', () => {
       const controller = new ProviderQuotaController(remote, localUsagePromptStore(storage))
       await expect(controller.switchBilling(billing, 'api', 'anthropic')).resolves.toBeUndefined()
       expect(controller.switched.getSnapshot()).toEqual({ providerId: 'anthropic', resetAt: now + OPEN_WINDOW_HOLD_MS })
-      const reloaded = new ProviderQuotaController(remote, localUsagePromptStore(storage)).switched.getSnapshot()
+      const reloaded = new ProviderQuotaController(remote, localUsagePromptStore(storage)).switched.getSnapshot()!
       expect(reloaded).toEqual({ providerId: 'anthropic', resetAt: now + OPEN_WINDOW_HOLD_MS })
       const apiResult: QuotaResult = { providerId: 'anthropic', providerName: 'Anthropic', configured: true, ok: true, billing: { active: 'api', switch: billing } }
       expect(usagePrompt([apiResult], { dismissed: new Set(), switched: reloaded, now: now + OPEN_WINDOW_HOLD_MS - 1 })).toBeUndefined()

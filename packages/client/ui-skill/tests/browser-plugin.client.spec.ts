@@ -609,7 +609,7 @@ describe('reference preview', () => {
 
 function setDirectory(sessions: TestSessions, id: string, directory: string | null) {
   sessions.list.update((draft) => {
-    draft.projectionsBySession[sid(id)] = { values: { workingDirectory: directory }, state: 'ready', error: null } as never
+    (draft.projectionsBySession as Record<string, unknown>)[sid(id)] = { values: { workingDirectory: directory }, state: 'ready', error: null } as never
   })
 }
 

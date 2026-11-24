@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useEffect, useMemo } from 'react'
 import { useMarkdownDelegate, type MarkdownDelegateFenceInfo, type MarkdownMenuTarget } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { OutlinePage } from '../src/client/chat/turn-rail-items.ts'
+import type { OutlinePage } from '../src/client/contract/outline.ts'
 import type {
   AssistantMessageNode, ChatFlowHookContext, ChatFlowOwnerProps, ChatFlowSlotProps,
   ChatNode, ChatNodeHookContext, ChatNodeOwnerProps, ChatSnapshot, UserBeforeOwnerProps,

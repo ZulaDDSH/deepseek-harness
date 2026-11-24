@@ -12,7 +12,7 @@ afterEach(cleanup)
 
 type TestProps = TeamModePaneProps & TeamModeToggleProps
 
-function props(enabled: boolean | undefined, selectTeamMode = vi.fn(async () => null as TeamSelectionFailure | null), child?: 'addressed' | 'listed', requestedModel: boolean | 'loading' = false): TestProps {
+function props(enabled: boolean | undefined, selectTeamMode = vi.fn(async (_enabled: boolean) => null as TeamSelectionFailure | null), child?: 'addressed' | 'listed', requestedModel: boolean | 'loading' = false): TestProps {
   return {
     sessionId: brandString<SessionId>('root'),
     useSession: (select: (value: { subagent: object | null }) => unknown) => select({ subagent: child === 'addressed' ? {} : null }),

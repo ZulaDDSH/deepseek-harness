@@ -245,7 +245,7 @@ it('reopens a browser EventSource the Host closed with an error status, with gro
   const sync = vi.fn(async () => {})
   provideModules(ctx, sync, vi.fn())
   vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
-  const sources: Array<{ readyState: number; onerror?: () => void; emit: (value: unknown) => void; closed: boolean }> = []
+  const sources: Array<{ readyState: number; onerror?: (() => void) | undefined; emit: (value: unknown) => void; closed: boolean }> = []
   vi.stubGlobal('EventSource', class {
     readyState = 0
     closed = false

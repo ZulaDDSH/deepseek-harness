@@ -27,7 +27,7 @@ function batch(id: string, displayUntil: string | null = '2099-01-01T00:00:00Z')
 
 function setup() {
   const read = vi.fn(async (): Promise<AccountNotificationBatch | null> => null)
-  const readContent = vi.fn(async (): Promise<AccountNotice | null> => null)
+  const readContent = vi.fn(async (_id: AccountNotificationId): Promise<AccountNotice | null> => null)
   const displayed = vi.fn(async (_id: AccountNotificationId): Promise<boolean> => true)
   const dismissed = vi.fn(async (_id: AccountNotificationId): Promise<boolean> => true)
   const clicked = vi.fn(async (_id: AccountNotificationId): Promise<boolean> => true)
