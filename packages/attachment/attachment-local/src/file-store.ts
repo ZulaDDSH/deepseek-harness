@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto'
 import type { Stats } from 'node:fs'
 import {
-  closeSync, createReadStream, existsSync, openSync, readSync, statSync,
+  closeSync, createReadStream, existsSync, fstatSync, openSync, readSync, statSync,
 } from 'node:fs'
 import { join } from 'node:path'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
@@ -216,54 +216,51 @@ function storedFileIdentity(stat: Stats): string {
   return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(':')
 }
 
-function digestFileSync(path: string): { sha256: string, bytes: number } {
-  const fd = openSync(path, 'r')
-  try {
-    const hash = createHash('sha256')
-    const buffer = Buffer.allocUnsafe(1 << 16)
-    let bytes = 0
-    for (;;) {
-      const read = readSync(fd, buffer, 0, buffer.length, null)
-      if (read === 0) break
-      hash.update(buffer.subarray(0, read))
-      bytes += read
-    }
-    return { sha256: hash.digest('hex'), bytes }
-  } finally {
-    closeSync(fd)
+function digestDescriptor(fd: number): { sha256: string; bytes: number } {
+  const hash = createHash('sha256')
+  const buffer = Buffer.allocUnsafe(1 << 16)
+  let bytes = 0
+  for (;;) {
+    const read = readSync(fd, buffer, 0, buffer.length, null)
+    if (read === 0) break
+    hash.update(buffer.subarray(0, read))
+    bytes += read
   }
+  return { sha256: hash.digest('hex'), bytes }
 }
 
 export function verifiedStoredFilePath(root: string, ref: FileAttachmentRef, maxVerifyBytes: number): string | undefined {
   const path = storedFilePath(root, ref)
   const sha256 = ensureFileReference(ref)
-  let stat: Stats
+  let fd: number
   try {
-    stat = statSync(path)
+    fd = openSync(path, 'r')
   } catch {
     verifiedHostPathIdentities.delete(path)
     return undefined
   }
-  if (!stat.isFile() || stat.size !== ref.bytes) {
-    verifiedHostPathIdentities.delete(path)
-    return undefined
-  }
-  const identity = storedFileIdentity(stat)
-  if (verifiedHostPathIdentities.get(path) === identity) return path
-  if (stat.size > maxVerifyBytes) return undefined
-  let digest: { sha256: string, bytes: number }
   try {
-    digest = digestFileSync(path)
+    const stat = fstatSync(fd)
+    if (!stat.isFile() || stat.size !== ref.bytes) {
+      verifiedHostPathIdentities.delete(path)
+      return undefined
+    }
+    const identity = storedFileIdentity(stat)
+    if (verifiedHostPathIdentities.get(path) === identity) return path
+    if (stat.size > maxVerifyBytes) return undefined
+    const digest = digestDescriptor(fd)
+    if (digest.bytes !== ref.bytes || digest.sha256 !== sha256 || storedFileIdentity(fstatSync(fd)) !== identity) {
+      verifiedHostPathIdentities.delete(path)
+      return undefined
+    }
+    rememberVerifiedIdentity(path, identity)
+    return path
   } catch {
     verifiedHostPathIdentities.delete(path)
     return undefined
+  } finally {
+    closeSync(fd)
   }
-  if (digest.bytes !== ref.bytes || digest.sha256 !== sha256) {
-    verifiedHostPathIdentities.delete(path)
-    return undefined
-  }
-  rememberVerifiedIdentity(path, identity)
-  return path
 }
 
 function rememberVerifiedIdentity(path: string, identity: string): void {
