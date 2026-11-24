@@ -9,7 +9,7 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { TeamError } from './error.ts'
 import { TeamJournal } from './journal.ts'
-import { teamProjectionDefinition, type TeamProjectionState } from './projection.ts'
+import { teamProjectionDefinition, type TeamProjectionState, type TeamState } from './projection.ts'
 import { TeamTaskBoard } from './task-board.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { TeamId, TeamMessageId, TeamMessageSnapshot, TeamTaskId } from './types.ts'
@@ -220,7 +220,7 @@ export class TeamService extends TypertRemoteService {
   }
 }
 
-function isAcknowledged(state: TeamProjectionState, message: TeamMessageSnapshot): boolean {
+function isAcknowledged(state: TeamState, message: TeamMessageSnapshot): boolean {
   return state.historicalDelivered.some(delivery =>
     delivery.messageId === message.id && delivery.targetId === message.targetId)
 }

@@ -151,7 +151,7 @@ export class OpenTelemetrySessionBackend extends SessionTelemetryBackend {
   private readonly provider: SessionLogReporter | undefined
   private readonly shutdownTimeoutMillis: number
   override readonly sharing: SessionTelemetrySharingStatus
-  override readonly destination?: string
+  declare readonly destination?: string
 
   constructor(ctx: Context, config: Config) {
     const mode = resolveMode(config.mode)

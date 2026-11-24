@@ -19,7 +19,8 @@ export type BrowserTimeZoneContext =
  */
 export function reportedBrowserTimeZone(message: UserMessage): string | undefined {
   const source = message.source
-  return (source.kind === 'user' || source.kind === 'retry')
+  const kind: string = source.kind
+  return (kind === 'user' || kind === 'retry')
     && 'rpcId' in source
     && typeof source.rpcId === 'string'
     && 'clientTimeZone' in source

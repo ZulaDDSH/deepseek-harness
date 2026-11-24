@@ -26,7 +26,7 @@ export class SessionLogModel implements ObservableSnapshot<readonly InspectorRow
   private working: InspectorRow[] = []
   private published: readonly InspectorRow[] = []
   private dirty = false
-  private readonly listeners = new Set<() => void>()
+  private readonly listeners = new Set<{ readonly listener: () => void }>()
   private cooldown: ReturnType<typeof setTimeout> | undefined
   private queued = false
   private readonly records = new Map<string, SnapshotStore<InspectorRecord | undefined>>()

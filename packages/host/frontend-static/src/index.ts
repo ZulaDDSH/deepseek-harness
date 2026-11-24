@@ -110,7 +110,7 @@ async function serveStatic(
   // it. `sep`, not '/': resolve() emits backslash paths on Windows, where a '/'
   // suffix would reject every legitimate subpath as traversal.
   if (target !== distRoot && !target.startsWith(distRoot + sep)) return new Response(null, { status: 403 })
-  let body: string | Uint8Array<ArrayBuffer>
+  let body: string | Uint8Array
   let headers: Record<string, string>
   try {
     if (renderIndex !== undefined) {

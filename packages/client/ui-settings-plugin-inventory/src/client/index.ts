@@ -12,7 +12,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-agent-preset/client'
 import { presetDisplayText } from '@deepseek-ai/dsh-agent-preset-registry/display'
 import { PluginInventorySettingsTab, type PluginInventorySettingsTabInjected } from './PluginInventorySettingsTab.tsx'
 import { en, ja, es, fr, de, ru, pt, zh, type PluginInventoryLocaleKey } from './locales.ts'
-import { HooksSettingsSection, type HooksSettingsSectionInjected } from './HooksSettingsSection.tsx'
+import { HooksSettingsSection } from './HooksSettingsSection.tsx'
 import { createHookWrites } from './hook-writes.ts'
 
 export type { PluginInventorySettingsTabInjected, PluginInventorySettingsTabProps } from './PluginInventorySettingsTab.tsx'

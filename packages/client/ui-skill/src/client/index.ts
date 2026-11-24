@@ -115,7 +115,7 @@ export function apply(ctx: ClientContext): void {
   }
 
   const directoryOf = (sessionId: SessionId): string | null | undefined =>
-    sessions.list.getSnapshot().projectionsBySession[sessionId]?.values.workingDirectory
+    (sessions.list.getSnapshot().projectionsBySession[sessionId]?.values as { readonly workingDirectory?: string | null } | undefined)?.workingDirectory
 
   const releaseUnobserved = (sessionId: SessionId, entry: CatalogFetch): boolean => {
     if (!released.has(sessionId) || lexiconListeners.has(sessionId)) return false

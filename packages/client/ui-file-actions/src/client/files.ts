@@ -25,8 +25,8 @@ export interface OriginalWindow {
 
 export async function readOriginalBytes(
   readWindow: (offset: number) => Promise<OriginalWindow>, signal: AbortSignal, limit = MAX_FILE_ACTION_BYTES,
-): Promise<Uint8Array> {
-  const chunks: Uint8Array[] = []
+): Promise<Uint8Array<ArrayBuffer>> {
+  const chunks: Uint8Array<ArrayBuffer>[] = []
   let total = 0
   let first: OriginalWindow | undefined
   for (;;) {
@@ -61,7 +61,7 @@ async function readBounded(response: Response, limit: number): Promise<Blob> {
     return blob
   }
   const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
+  const chunks: Uint8Array<ArrayBuffer>[] = []
   let total = 0
   for (;;) {
     const { done, value } = await reader.read()
