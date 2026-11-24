@@ -19,6 +19,10 @@ import { SessionTurns, memoryPolicy, recallText, scrub, turnRecord, workspaceEnt
 
 function asText(value: unknown): string { return typeof value === 'string' ? value : JSON.stringify(value) }
 
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, writeFile: vi.fn(actual.writeFile) }
+})
 vi.mock('@deepseek-ai/dsh-native-command', () => ({ runNativeCommand: vi.fn(async () => ({ stdout: '', stderr: '' })) }))
 
 const roots: Context[] = [], directories: string[] = [], databases: DatabaseSync[] = []
@@ -548,6 +552,43 @@ describe('Memory policy and first-message recall', () => {
     expect(bindings[1]).not.toBe(claimed)
     expect(basename(String(bindings[1]))).toMatch(/^[0-9a-f]{16}$/)
     expect(await readFile(join(claimed, '.git', 'dsh-workspace'), 'utf8')).toBe(join(workspace, 'Sibling'))
+  })
+
+  it('gives two Hosts racing to bind the same legacy root the same answer', async () => {
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+    const workspace = await mkdtemp(join(tmpdir(), 'dsh-memory-race-'))
+    directories.push(workspace)
+    const first = await fixture({ search: '' })
+    const second = await fixture({ search: '' })
+    const home = join(first.directory, 'dsh')
+    vi.stubEnv('DSH_HOME', home)
+    const legacy = join(home, 'memorix-roots', createHash('sha256')
+      .update(process.platform === 'win32' ? resolve(workspace).toLowerCase() : resolve(workspace)).digest('hex').slice(0, 8))
+    await mkdir(join(legacy, '.git'), { recursive: true })
+    await writeFile(join(legacy, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+    vi.mocked(writeFile).mockImplementation(async (path, data, options) => {
+      if (!String(path).includes('dsh-workspace')) return actual.writeFile(path, data, options)
+      if (typeof options === 'object' && options !== null && 'flag' in options && options.flag === 'wx') {
+        await actual.writeFile(path, '', options)
+        await new Promise((done) => { setTimeout(done, 100) })
+        return actual.writeFile(path, data)
+      }
+      await new Promise((done) => { setTimeout(done, 100) })
+      return actual.writeFile(path, data, options)
+    })
+    try {
+      await first.ctx.plugin(SystemPrompt)
+      await second.ctx.plugin(SystemPrompt)
+      inbox(first.ctx, session('one', { cwd: workspace }), 'first')
+      inbox(second.ctx, session('two', { cwd: workspace }), 'second')
+      await Promise.all([assembled(first.ctx, 'one'), assembled(second.ctx, 'two')])
+    } finally {
+      vi.mocked(writeFile).mockImplementation(actual.writeFile)
+    }
+    expect(first.bindings).toEqual([legacy])
+    expect(second.bindings).toEqual([legacy])
+    expect(await readFile(join(legacy, '.git', 'dsh-workspace'), 'utf8')).toBe(realpathSync.native(workspace))
+    expect((await readdir(join(legacy, '.git'))).filter(name => name.startsWith('dsh-workspace.'))).toEqual([])
   })
 
   it('treats a Git repository at the home folder as no repository, as Memorix refuses to bind the home folder', async () => {

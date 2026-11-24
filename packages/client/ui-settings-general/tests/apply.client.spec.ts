@@ -11,12 +11,14 @@ import { ok, type RemoteMock } from '@deepseek-ai/dsh-remote-mock'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-settings/types'
 import { createClientTest, type TestClient, webApp } from '@deepseek-ai/dsh-client-test-runtime/src/assembly/index.ts'
 import { graphFromRoster } from '@deepseek-ai/dsh-client-test-runtime/src/assembly/roster.ts'
+import z from '@deepseek-ai/schemastery'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { LOCALE_SETTINGS_NAMESPACE, LocaleSettingsSchema } from '@deepseek-ai/dsh-client-locale/src/locale-settings.ts'
 import { inject } from '../src/client/index.ts'
 import type { DeveloperToolsRowInjected } from '../src/client/DeveloperToolsRow.tsx'
 import { HostReleasePrompt, type HostReleasePromptInjected } from '../src/client/HostReleasePrompt.tsx'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
+import type { ProductAnalyticsRowInjected } from '../src/client/ProductAnalyticsRow.tsx'
 import type { DesktopChannelRowInjected, DesktopChannelToastInjected } from '../src/client/DesktopChannelRow.tsx'
 import type { DesktopChannelBridge } from '../src/types.ts'
 import { GeneralSection } from '../src/client/GeneralSection.tsx'
@@ -53,9 +55,9 @@ function localeView(preference: string, revision = 0): SettingsNamespaceView {
   }
 }
 
-async function client(mock: RemoteMock, start: () => Promise<TestClient>, hasDocument = false) {
+async function client(mock: RemoteMock, start: () => Promise<TestClient>, hasDocument = false, extra: SettingsNamespaceView[] = []) {
   const settings = mock.remote.settings
-  settings.describe.mockResolvedValue(ok({ writable: true, hasDocument, namespaces: [localeView('zh')] }))
+  settings.describe.mockResolvedValue(ok({ writable: true, hasDocument, namespaces: [localeView('zh'), ...extra] }))
   const c = await start()
   // The locale adopts the Host preference once the describe mirror holds the document.
   await c.ctx.configForms.describe().ensure()
@@ -73,6 +75,17 @@ function generalEntry(c: TestClient) {
 
 function generalLabel(c: TestClient): string | undefined {
   return resolveSlotLabel(generalEntry(c).options.label)
+}
+
+const AnalyticsSchema = z.object({ enabled: z.boolean().default(false) })
+
+function analyticsView(enabled: boolean, revision = 0): SettingsNamespaceView {
+  return { ns: 'product-analytics', schema: JSON.parse(JSON.stringify(AnalyticsSchema.toJSON())) as object, value: { enabled }, autoGenerate: false, applies: 'live', secrets: [], revision } as unknown as SettingsNamespaceView
+}
+
+function analyticsRowOf(c: TestClient) {
+  const row = c.ctx.slots.entries('settings.general.item').find(entry => entry.options.id === 'product-analytics')
+  return row === undefined ? undefined : (row.inject as unknown as () => ProductAnalyticsRowInjected)()
 }
 
 function developerToolsRowOf(c: TestClient): DeveloperToolsRowInjected {
@@ -182,6 +195,25 @@ describe('ui-settings-general apply', () => {
     expect(track).toHaveBeenCalledTimes(2)
     expect(track).toHaveBeenLastCalledWith('code_work_view_toggle', { is_enabled: false }, 300)
   })
+
+  it('offers the product analytics row only while the Host serves its form', async ({ mock, start }) => {
+    const { c } = await client(mock, start)
+    expect(analyticsRowOf(c)).toBeUndefined()
+  }, COLD_BOOT_TIMEOUT_MS)
+
+  it('shows analytics as off until the form loads, writes the enabled field, and throws when the Host refuses it', async ({ mock, start }) => {
+    const { c, settings } = await client(mock, start, false, [analyticsView(false)])
+    const row = analyticsRowOf(c)!
+    expect(row.hooks.productAnalytics.getSnapshot()).toBe(false)
+    settings.mutate.mockResolvedValueOnce(ok(analyticsView(true, 1)))
+    await row.setEnabled(true)
+    expect(settings.mutate).toHaveBeenLastCalledWith('product-analytics', [{ op: 'set', path: ['enabled'], value: true }], 0)
+    expect(row.hooks.productAnalytics.getSnapshot()).toBe(true)
+    settings.describe.mockResolvedValue(ok({ writable: true, hasDocument: false, namespaces: [localeView('zh'), analyticsView(true, 1)] }))
+    settings.mutate.mockResolvedValueOnce({ ok: false, error: new Error('refused') } as never)
+    await expect(row.setEnabled(false)).rejects.toThrow('Product analytics setting was not saved')
+    expect(row.hooks.productAnalytics.getSnapshot()).toBe(true)
+  }, COLD_BOOT_TIMEOUT_MS)
 
   it('registers the zh/en settings dictionaries and frees the seats when its row unloads', async ({ mock, start }) => {
     const { c, settings } = await client(mock, start)

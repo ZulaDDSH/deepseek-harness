@@ -357,6 +357,7 @@ export class DeepSeekAccount extends TypertRemoteService {
 
   private sharedNotificationRead(lifetime: AbortController, token: string,
     headers: Record<string, string>, signal: AbortSignal): Promise<AccountNotificationBatch> {
+    signal.throwIfAborted()
     const key = JSON.stringify(headers)
     let entry = this.notificationRead
     if (entry?.lifetime !== lifetime || entry.token !== token || entry.headers !== key) {

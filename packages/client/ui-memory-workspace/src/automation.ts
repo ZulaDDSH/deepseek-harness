@@ -1,7 +1,7 @@
 /** @module Memory policy, per-turn chat saves, first-message recall and status for the connected Memorix server. */
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { link, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, parse, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -180,16 +180,20 @@ async function ensureEmptyRepository(root: string): Promise<void> {
   }
 }
 
-/** A legacy root belongs to the first folder that binds it; the marker holds that folder's canonical path. */
+/** A legacy root belongs to the first folder that binds it; the marker is linked in complete, so a racing reader never sees it empty. */
 async function legacyRootClaimed(root: string, path: string): Promise<boolean> {
   const marker = join(root, '.git', 'dsh-workspace')
   if (!await stat(join(root, '.git')).then(() => true, () => false)) return false
+  const staged = `${marker}.${randomUUID()}`
+  await writeFile(staged, path)
   try {
-    await writeFile(marker, path, { flag: 'wx' })
+    await link(staged, marker)
     return true
   } catch (error) {
     if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
     return await readFile(marker, 'utf8') === path
+  } finally {
+    await rm(staged, { force: true })
   }
 }
 

@@ -32,7 +32,7 @@ Each card uses the server's plain-text title, body, and ordered primary or secon
 
 Each interaction is reported once without waiting or retrying; either boolean acknowledgement completes that attempt. A failed report logs a diagnostic without an account UI error or undoing the interaction. The server owns consumption: a later list may offer a closed card again. List failures keep the current cards.
 
-Switching language requests current cards through the content endpoint, including consumed cards, without another list query or display report. Content updates preserve card identity, order, and focus. Failed reads retain the previous text and log a diagnostic; replies for an older language, signed-out account, or closed card cannot restore stale content. At most four content requests run at once, and a newer language, a refresh, or sign-out cancels the superseded requests, including those already sent to the Host, so repeated changes leave one generation in flight.
+Switching language requests current cards through the content endpoint, including consumed cards, without another list query or display report. Content updates preserve card identity, order, and focus. Failed reads retain the previous text and log a diagnostic; replies for an older language, signed-out account, or closed card cannot restore stale content. At most four content requests run at once, and a newer language or sign-out cancels the superseded content requests, including those already sent to the Host, so repeated changes leave one generation in flight. A refresh or sign-out likewise cancels the superseded list read, so repeated refreshes leave one list read in flight.
 
 <a id="model-experience"></a>
 ## Model Experience

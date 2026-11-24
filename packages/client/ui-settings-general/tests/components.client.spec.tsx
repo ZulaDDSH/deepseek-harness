@@ -319,7 +319,9 @@ it('toggles product analytics, shows it off until the form loads, and keeps the 
 it('discloses the analytics data categories and what is never sent, in every dictionary', () => {
   for (const text of [en['productAnalytics.description'], zh['productAnalytics.description']]) expect(text).toMatch(/ID/)
   expect(en['productAnalytics.description']).toMatch(/Off by default/)
-  expect(en['productAnalytics.description']).toMatch(/Prompts, replies, API keys and account tokens are never included/)
+  expect(en['productAnalytics.description']).toMatch(/Prompts and replies are never included/)
+  expect(en['productAnalytics.description']).toMatch(/installer/)
+  expect(en['productAnalytics.description']).not.toMatch(/API keys|tokens/)
   expect(en['productAnalytics.description']).toMatch(/already queued/)
   expect(zh['productAnalytics.description']).toMatch(/默认关闭/)
 })

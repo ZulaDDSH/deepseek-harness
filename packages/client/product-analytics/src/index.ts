@@ -146,7 +146,6 @@ export default class ProductAnalytics extends TypertRemoteService {
       this.ctx.productTelemetry.emit({
         ...event, body: event.eventName,
         attributes: {
-          // oxlint-disable-next-line typescript/no-unnecessary-condition -- the RPC boundary may omit attributes.
           ...boundAttributes(event.attributes ?? {}),
           ...metadata,
           ...missing === '' ? {} : { missing_fields: missing },

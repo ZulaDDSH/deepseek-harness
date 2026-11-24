@@ -756,3 +756,11 @@ it.each(['list', 'content', 'display'] as const)('discards a successful %s respo
     if (body.locked) { await reader.cancel(); reader.releaseLock() }
   }
 })
+
+it('sends no list request for a caller whose signal is already aborted', async () => {
+  const f = await fixture()
+  await f.grant('test-account-token')
+  expect(await f.account.getNotifications(clientMetadata('en'), AbortSignal.abort())).toBeNull()
+  await settleRequests()
+  expect(f.requests.filter(request => request.url === '/api/v0/users/notifications/list')).toHaveLength(0)
+})
