@@ -83,7 +83,7 @@
     {"digest":"04a82341d195c6689a3a954612b76b371a7ea140c6ad486146a8bedbef8cc227","names":[],"sources":[]},
     {"digest":"05053387afaf98f89ac4ca0f9814db74deaf13b9fd5d5ca38fc882b12e411c16","names":[],"sources":[]},
     {"digest":"05205074b24d8340cfd7995f6cb64779c7f1241490954700115601e264178877","names":[],"sources":[]},
-    {"digest":"058fc9a6b4fbd5d43437c3a64170002070dfc98e18d87de294b564ae446ca8ae","names":["packages/subagent/subagent/src/catalog.ts#SubagentCatalogEvent"],"sources":["packages/subagent/subagent/src/catalog.ts:38"]},
+    {"digest":"058fc9a6b4fbd5d43437c3a64170002070dfc98e18d87de294b564ae446ca8ae","names":["packages/subagent/subagent/src/catalog.ts#SubagentCatalogEvent"],"sources":["packages/subagent/subagent/src/catalog.ts:40"]},
     {"digest":"05a2796621b1ee6c03ef7abe560b25116bb4da4d592312117242a78415a32b04","names":[],"sources":[]},
     {"digest":"05d2ae1e0c7f8770f83f9a09047afb39a335d8ac986df3193659aa1e581472cf","names":["packages/interaction/user-approval/src/index.ts#ApprovalPolicy"],"sources":["packages/interaction/user-approval/src/index.ts:69"]},
     {"digest":"0657d3ca5ac4e7bf79b00bcf860b1c7159d01a9da137497221ec2f1776e365f7","names":["packages/core/session/src/types.ts#SessionSeq"],"sources":["packages/core/session/src/types.ts:33"]},

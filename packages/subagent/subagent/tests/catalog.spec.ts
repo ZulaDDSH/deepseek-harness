@@ -11,7 +11,8 @@ import {
 } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
-  catalogNames,
+  catalogChild,
+  catalogHasName,
   establishExternalCatalogChild,
   subagentCatalogProjectionDefinition,
 } from '../src/catalog.ts'
@@ -30,6 +31,17 @@ function fold(events: readonly SessionEvent[]): SubagentCatalogState {
   let state = subagentCatalogProjectionDefinition.init(header, SessionLogOffset(0))
   for (const event of events) state = subagentCatalogProjectionDefinition.apply(state, event)
   return state
+}
+
+function namedFact(seq: number, childId: string, name: string): SessionEvent<'subagent/catalog'> {
+  return {
+    type: 'subagent/catalog',
+    seq: SessionSeq(seq),
+    time: 0,
+    data: {
+      version: 3, childId: brandString<SessionId>(childId), childCreatedAt: seq, mode: 'external', name,
+    },
+  }
 }
 
 function fact(
@@ -243,7 +255,7 @@ describe('external catalog membership', () => {
 })
 
 describe('named catalog membership', () => {
-  it('reuses version-6 unnamed checkpoints and folds only the named suffix', async () => {
+  it('reuses version-8 checkpoints and folds only the named suffix', async () => {
     const ctx = new Context()
     try {
       await ctx.plugin(SessionProjectionRegistry)
@@ -263,9 +275,8 @@ describe('named catalog membership', () => {
         { type: 'subagent/catalog', seq: SessionSeq(4), time: 0,
           data: { version: 3, childId: brandString<SessionId>('auditor'), childCreatedAt: 5, mode: 'external', name: 'auditor' } },
       ]
-      const checkpoint = { subagentCatalog: { ver: 7, seq: SessionSeq(2), val: {
-        inheritedEventCount: 0, head: { tail: historical.map(event => event.data), blocks: [] },
-      } } }
+      const val = JSON.parse(JSON.stringify(fold(historical))) as SubagentCatalogState
+      const checkpoint = { subagentCatalog: { ver: 8, seq: SessionSeq(2), val } }
       expect(ctx.sessionProjections.restoreFloor(checkpoint)).toBe(2)
       expect(ctx.sessionProjections.viewCheckpoint(checkpoint).subagentCatalog).toEqual([
         { id: 'legacy-local', createdAt: 1, mode: 'continuable', label: 'Legacy' },
@@ -277,12 +288,79 @@ describe('named catalog membership', () => {
       expect(apply.mock.calls.map(([, event]) => event)).toEqual(suffix)
       const full = ctx.sessionProjections.restore({}, [...historical, ...suffix], SessionLogOffset(0), header, SessionLogOffset(0))
       expect(restored).toEqual(full)
-      expect(restored.checkpoint['subagentCatalog']!.ver).toBe(7)
+      expect(restored.checkpoint['subagentCatalog']!.ver).toBe(8)
+      expect(catalogChild(fold([...historical, ...suffix]), brandString<SessionId>('reviewer'))).toEqual({ name: 'reviewer' })
       expect(restored.snapshot.values.subagentCatalog?.map(entry => 'name' in entry ? entry.name : undefined))
         .toEqual([undefined, undefined, undefined, 'reviewer', 'auditor'])
     } finally {
       await ctx.fiber.dispose()
     }
+  })
+
+  it('discards a version-7 checkpoint that lacks the child index and refolds the full log', async () => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SessionProjectionRegistry)
+      await ctx.sessionProjections.register(subagentCatalogProjectionDefinition)
+      const events = [
+        fact(0, 'legacy-local', 1, { mode: 'continuable', label: 'Legacy' }),
+        namedFact(1, 'reviewer', 'reviewer'),
+      ]
+      const legacy = { subagentCatalog: { ver: 7, seq: SessionSeq(0), val: {
+        inheritedEventCount: 0, head: { tail: [events[0]!.data], blocks: [] },
+      } } }
+      expect(ctx.sessionProjections.restoreFloor(legacy)).toBe(0)
+      expect(ctx.sessionProjections.viewCheckpoint(legacy).subagentCatalog).toBeUndefined()
+      const restored = ctx.sessionProjections.restore(legacy, events, SessionLogOffset(0), header, SessionLogOffset(0))
+      expect(restored.checkpoint['subagentCatalog']!.ver).toBe(8)
+      expect(restored.snapshot.values.subagentCatalog?.map(entry => entry.id)).toEqual(['legacy-local', 'reviewer'])
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('answers child, name, and default-ordinal lookups from a restored row without reading the ordered list', () => {
+    const total = 3000
+    const events = Array.from({ length: total }, (_, index) => index % 2 === 0
+      ? namedFact(index, `child-${index}`, `agent-${index / 2 + 1}`)
+      : fact(index, `child-${index}`, index, { mode: 'one-shot' }))
+    const restored = subagentCatalogProjectionDefinition.stateSchema.parse(JSON.parse(JSON.stringify(fold(events))))
+    const head = new Proxy({}, { get() { throw new Error('catalog list scanned') } })
+    const keyed = { ...restored, head: head as never }
+    expect(catalogChild(keyed, brandString<SessionId>('child-0'))).toEqual({ name: 'agent-1' })
+    expect(catalogChild(keyed, brandString<SessionId>('child-1'))).toEqual({ name: undefined })
+    expect(catalogChild(keyed, brandString<SessionId>(`child-${total - 2}`))).toEqual({ name: `agent-${total / 2}` })
+    expect(catalogChild(keyed, brandString<SessionId>('child-absent'))).toBeUndefined()
+    expect(catalogHasName(keyed, `agent-${total / 2}`)).toBe(true)
+    expect(catalogHasName(keyed, `agent-${total / 2 + 1}`)).toBe(false)
+    expect(keyed.agentOrdinal).toBe(total / 2)
+  })
+
+  it('advances the default-name ordinal only across a contiguous committed prefix', () => {
+    let state = fold([namedFact(0, 'a', 'agent-2'), namedFact(1, 'b', 'reviewer')])
+    expect(state.agentOrdinal).toBe(0)
+    state = subagentCatalogProjectionDefinition.apply(state, namedFact(2, 'c', 'agent-1'))
+    expect(state.agentOrdinal).toBe(2)
+    state = subagentCatalogProjectionDefinition.apply(state, namedFact(3, 'd', 'agent-4'))
+    expect(state.agentOrdinal).toBe(2)
+  })
+
+  it('shares every index node off the appended child path', () => {
+    const state = fold(Array.from({ length: 2000 }, (_, index) => namedFact(index, `child-${index}`, `worker-${index}`)))
+    const next = subagentCatalogProjectionDefinition.apply(state, namedFact(2000, 'child-2000', 'worker-2000'))
+    for (const key of ['children', 'names'] as const) {
+      const changed = Object.keys(next[key]).filter(slot => next[key][slot] !== state[key][slot])
+      expect(changed.length).toBeLessThanOrEqual(1)
+    }
+    expect(catalogChild(state, brandString<SessionId>('child-2000'))).toBeUndefined()
+    expect(catalogChild(next, brandString<SessionId>('child-2000'))).toEqual({ name: 'worker-2000' })
+  })
+
+  it('rejects a checkpoint whose index entry sits off its hash path', () => {
+    const state = JSON.parse(JSON.stringify(fold([namedFact(0, 'child-0', 'reviewer')]))) as { names: Record<string, unknown> }
+    const [slot, leaf] = Object.entries(state.names)[0]!
+    state.names = { [slot === '0' ? '1' : '0']: leaf }
+    expect(subagentCatalogProjectionDefinition.stateSchema.safeParse(state).success).toBe(false)
   })
 
   it('checkpoints and restores a catalog far beyond the recursive nesting limit', () => {
@@ -314,6 +392,8 @@ describe('named catalog membership', () => {
     ])
     expect(subagentCatalogProjectionDefinition.wire.viewSchema.parse(view)).toEqual(view)
     expect(subagentCatalogProjectionDefinition.wire.viewSchema.safeParse([{ ...view[1], name: 'Bad name' }]).success).toBe(false)
-    expect(catalogNames(view)).toEqual(new Set(['reviewer', 'auditor']))
+    expect(['historical', 'reviewer', 'auditor', 'absent'].map(id => catalogChild(state, brandString<SessionId>(id))))
+      .toEqual([{ name: undefined }, { name: 'reviewer' }, { name: 'auditor' }, undefined])
+    expect(['reviewer', 'auditor', 'historical'].map(name => catalogHasName(state, name))).toEqual([true, true, false])
   })
 })
