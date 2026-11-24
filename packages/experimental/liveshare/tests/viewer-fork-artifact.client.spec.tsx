@@ -143,7 +143,7 @@ describe('Assembled liveshare viewer page branching a share', () => {
     // verbs — no rename, no archive, and no branch of the branch — so its row menu keeps only Copy
     // Session ID, while the shared Session's row still offers the one verb this page may use there.
     expect(screen.queryByRole('button', { name: /^Access mode/u })).toBeNull()
-    const appearance = ['Color', 'Default', 'Red', 'Orange', 'Green', 'Blue', 'Purple', 'Icon']
+    const swatches = ['Default', 'Red', 'Orange', 'Green', 'Blue', 'Purple']
     /**
      * Check one row's menu after asynchronous preparation, including shortcut-bearing labels.
      * @param row - Session row to read.
@@ -158,13 +158,14 @@ describe('Assembled liveshare viewer page branching a share', () => {
         expect(items[index]?.textContent).toMatch(new RegExp(`^${label}`, 'u'))
       })
       await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }) })
+      await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }) })
       await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull() })
     }
-    await expectMenu(childRow, [...appearance, 'Copy Session ID'])
+    await expectMenu(childRow, ['Color', 'Icon', 'Copy Session ID', ...swatches])
     const sourceRow = document.querySelector<HTMLElement>('[role="treeitem"][data-row-key="session:fx-alpha"]')
     if (sourceRow === null) throw new Error('shared Session row is not listed')
     expect(sourceRow).not.toBe(childRow)
-    await expectMenu(sourceRow, [...appearance, 'Fork session', 'Copy Session ID'])
+    await expectMenu(sourceRow, ['Color', 'Icon', 'Fork session', 'Copy Session ID', ...swatches])
 
     const childId = childRow.dataset.rowKey?.replace(/^session:/u, '')
     if (childId === undefined) throw new Error('scripted Owner child is not listed')
@@ -204,7 +205,7 @@ describe('Assembled liveshare viewer page branching a share', () => {
     // share's own answer names.
     expect(document.body.textContent).toContain('The owner set this share to read only')
     // No Session on the page offers a verb any more: the grant that carried them is gone.
-    await expectMenu(sourceRow, [...appearance, 'Copy Session ID'])
+    await expectMenu(sourceRow, ['Color', 'Icon', 'Copy Session ID', ...swatches])
     expect(document.contains(sourceRow)).toBe(true)
 
     // Opening the shared Session again shows no branch action at all: the grant this page held is
@@ -225,7 +226,7 @@ describe('Assembled liveshare viewer page branching a share', () => {
         .toBeGreaterThan(0)
     }, { timeout: 15_000 })
     // The sidebar row follows the same answer, and shows it again on the Session it belongs to.
-    await expectMenu(sourceRow, [...appearance, 'Fork session', 'Copy Session ID'])
+    await expectMenu(sourceRow, ['Color', 'Icon', 'Fork session', 'Copy Session ID', ...swatches])
     // Negative control: restoring source branching never revives a revoked child, and the child states
     // the fork verdict rather than the view tier's note, which would claim a reach it lost.
     await act(async () => { fireEvent.click(childRow) })

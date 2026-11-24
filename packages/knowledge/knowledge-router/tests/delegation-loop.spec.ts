@@ -81,10 +81,10 @@ async function setup(options: { learning?: boolean; maxDepth?: number } = {}): P
   const root = mkdtempSync(join(tmpdir(), 'dsh-knowledge-delegate-'))
   roots.push(root)
   await ctx.plugin(JsonlSessionPersistence, { root })
+  await ctx.plugin(TestSessionQuery)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentRuntime, { maxDepth: options.maxDepth ?? 4 })
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
-  await ctx.plugin(TestSessionQuery)
   await ctx.plugin(control)
   await ctx.plugin(KnowledgeRouter, {
     mode: 'assisted',

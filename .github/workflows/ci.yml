@@ -125,8 +125,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: ./.github/actions/code-notes
-        with:
-          token: ${{ secrets.CODE_NOTES_TOKEN }}
 
       # Redirect the Node compile cache (enabled by pnpm and TypeScript) off
       # the root partition's /tmp before the first pnpm call in this lane.
@@ -199,8 +197,6 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/code-notes
-        with:
-          token: ${{ secrets.CODE_NOTES_TOKEN }}
 
       - name: Restore coverage duration history
         uses: actions/cache/restore@v6.1.0

@@ -140,8 +140,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/code-notes
-        with:
-          token: ${{ secrets.CODE_NOTES_TOKEN }}
 
       - uses: pnpm/action-setup@v5.0.0
 

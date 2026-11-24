@@ -2,8 +2,9 @@ name: Checkout code notes
 description: Check out ZulaDDSH/CodeNotes and point DSH_CODE_NOTES_DIR at its Deepseek Harness folder.
 inputs:
   token:
-    description: Token with read access to ZulaDDSH/CodeNotes (secret CODE_NOTES_TOKEN).
-    required: true
+    description: Token used to read ZulaDDSH/CodeNotes, which is public.
+    required: false
+    default: ${{ github.token }}
 runs:
   using: composite
   steps:

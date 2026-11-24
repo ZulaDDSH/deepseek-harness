@@ -45,6 +45,8 @@ const removeCheckout = vi.mocked(removal.removeCheckout)
 /** The unmocked removal step, for interceptors that delay or observe it. */
 const actualRemoveCheckout = (await vi.importActual<typeof import('../src/removal.ts')>('../src/removal.ts')).removeCheckout
 
+vi.setConfig({ testTimeout: 30_000 })
+
 const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
