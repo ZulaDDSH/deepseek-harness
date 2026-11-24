@@ -190,7 +190,7 @@ async function serveRoute(ctx: Context, route: WebRoute): Promise<{ readonly ori
 
 /** Exchange the token plugin's launch URL for the separate HTTP fixture's origin. */
 async function browserCookie(ctx: Context, origin: string): Promise<string> {
-  await ctx.plugin(Token, { cookieMaxAgeDays: 30 }).await()
+  await ctx.plugin(Token, { cookieMaxAgeDays: 30, sessionGeneration: 0 }).await()
   const auth = await BrowserAuth.create(ctx[Context.root], ctx.credentials, 30)
   const target = new URL(auth.authenticatedUrl(origin))
   let setCookie: string | undefined

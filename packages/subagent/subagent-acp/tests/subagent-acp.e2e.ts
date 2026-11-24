@@ -70,6 +70,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
       command: childLaunch.command,
       args: childLaunch.args,
       permission: 'reject',
+      allowRestrictedParent: false,
       env: childLaunch.env as Record<string, string>,
     })
 
@@ -104,6 +105,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('ACP backend with-key e2e (drive 
       args: childLaunch.args,
       // The child needs to act (run bash), so approve its permission prompts.
       permission: 'allow',
+      allowRestrictedParent: false,
       env: childLaunch.env as Record<string, string>,
     })
 

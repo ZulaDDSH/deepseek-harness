@@ -122,7 +122,7 @@ function fakeResponse(): {
 async function mountConnection(ctx: Context, config?: ConnectionConfig & { cookieMaxAgeDays?: number }) {
   const connection = ctx.plugin({ inject: [...inject], apply }, config)
   await connection.await()
-  const token = ctx.plugin(Token, { cookieMaxAgeDays: config?.cookieMaxAgeDays ?? 30 })
+  const token = ctx.plugin(Token, { cookieMaxAgeDays: config?.cookieMaxAgeDays ?? 30, sessionGeneration: 0 })
   await token.await()
   return {
     await: async () => {},

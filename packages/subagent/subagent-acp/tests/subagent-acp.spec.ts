@@ -1282,6 +1282,7 @@ describe('dsh-subagent-acp', () => {
       command: process.execPath,
       args: [mockServer],
       permission: 'reject',
+      allowRestrictedParent: false,
       env: { MOCK_TRAP_SIGTERM: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready },
       // The graces are wall-clock budgets for the managed scope's teardown on a
       // shared host. At 150ms the hosted image escalated while the scope could
@@ -1319,7 +1320,7 @@ describe('dsh-subagent-acp', () => {
       await mountWorkingDirectoryFixture(ctx)
       await ctx.plugin(SubagentRuntime)
       await ctx.plugin(LocalSubprocessRuntime)
-      await expect(ctx.plugin(acp, { providerName: 'acp', command: 'true', args: [], permission: 'reject', env: {}, ...bad }))
+      await expect(ctx.plugin(acp, { providerName: 'acp', command: 'true', args: [], permission: 'reject', env: {}, allowRestrictedParent: false, ...bad }))
         .rejects.toThrow(new RegExp(`subagent-acp: dispose(?:Eof)?GraceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`))
       await ctx.fiber.dispose()
     }
@@ -1336,6 +1337,7 @@ describe('dsh-subagent-acp', () => {
       command: '/nonexistent/acp-agent-binary',
       args: [],
       permission: 'reject',
+      allowRestrictedParent: false,
       env: {},
     })
     await expect(startExternalActivation(ctx, 'acp', request())).rejects.toThrow(
@@ -1570,7 +1572,7 @@ describe('dsh-subagent-acp', () => {
     await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(LocalSubprocessRuntime)
-    const fiber = await ctx.plugin(acp, { providerName: 'acp', command: 'x', args: [], permission: 'reject', env: {} })
+    const fiber = await ctx.plugin(acp, { providerName: 'acp', command: 'x', args: [], permission: 'reject', env: {}, allowRestrictedParent: false })
     expect(ctx.subagents.getProvider('acp')).toBeDefined()
     await fiber.dispose()
     expect(ctx.subagents.getProvider('acp')).toBeUndefined()

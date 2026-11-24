@@ -29,7 +29,7 @@ export function provideBrowserCredentials(ctx: Context): void {
 export async function browserCookie(ctx: Context): Promise<string> {
   const existing = browserCookies.get(ctx)
   if (existing !== undefined) return existing
-  await ctx.plugin(Token, { cookieMaxAgeDays: 30 }).await()
+  await ctx.plugin(Token, { cookieMaxAgeDays: 30, sessionGeneration: 0 }).await()
   const auth = await BrowserAuth.create(ctx[Context.root], ctx.credentials, 30)
   const target = new URL(auth.authenticatedUrl(`http://127.0.0.1:${String(ctx.webServer.port)}`))
   let setCookie: string | undefined

@@ -55,7 +55,7 @@ async function mounted(secure = false, before?: (ctx: Context) => void) {
         providers.push(provider)
         return () => { providers.splice(providers.indexOf(provider), 1) }
       })
-      await Token.apply(scope, { cookieMaxAgeDays: 30 })
+      await Token.apply(scope, { cookieMaxAgeDays: 30, sessionGeneration: 0 })
     },
   })
   await fiber.await()
