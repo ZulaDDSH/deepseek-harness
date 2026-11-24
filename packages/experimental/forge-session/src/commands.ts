@@ -22,7 +22,8 @@ const HEREDOC_OPERATOR = /(?<!<)<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1/g
 const EXECUTING_CONSUMER = /(?:^|[\s`(])(?:\S*\/)?(?:bash|sh|zsh|dash|ksh|ssh|pwsh|powershell|python[\d.]*|node|perl|ruby|php|deno|bun|eval|source|xargs|\.)(?=[\s;&|)`]|$)/
 const SHELL_KEYWORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{', 'time', 'command', 'exec', 'nohup'])
 const SHELL_INTERPRETERS = new Set(['bash', 'sh', 'zsh', 'dash'])
-const SCRIPT_FLAG = /^-[a-z]*c[a-z]*$/
+const SHORT_OPTIONS = /^-[a-z]+$/
+const OPTIONS_WITH_ARGUMENT = new Set(['-o', '+o', '-O', '+O', '--rcfile', '--init-file'])
 const PUSH_TARGET_LINE = /^To (\S+)$/
 const PUSH_REF_LINE = /^ [ +*=] (\[[^\]]+\]|\S+) +\S+ -> (\S+)(?: \(.*\))?$/
 
@@ -186,8 +187,8 @@ function createsChangeRequest(command: string): boolean {
 function interpreterScript(words: readonly string[], start: number): string | undefined {
   for (let index = start; index < words.length; index++) {
     const word = words[index] ?? ''
-    if (SCRIPT_FLAG.test(word)) return words[index + 1]
-    if (word === '-o' || word === '+o') index++
+    if (SHORT_OPTIONS.test(word) && word.includes('c')) return words[index + 1]
+    if (OPTIONS_WITH_ARGUMENT.has(word)) index++
     else if (!/^[-+]/.test(word)) return undefined
   }
   return undefined

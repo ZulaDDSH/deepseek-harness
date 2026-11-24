@@ -45,6 +45,8 @@ describe('commandEvidence', () => {
     ["bash -c 'gh pr create --fill'", created],
     ["bash -e -c 'gh pr create --fill'", created],
     ["bash -o pipefail -c 'gh pr create --fill'", created],
+    ["bash -O extglob -c 'gh pr create --fill'", created],
+    ["bash --rcfile rc -c 'gh pr create --fill'", created],
     ['sh -lc "cd repo && gh pr create"', created],
     ['if git diff --quiet; then gh pr create --fill; fi', created],
     ['{ gh pr create --fill; }', created],
@@ -79,6 +81,12 @@ describe('commandEvidence', () => {
     'echo bash && cat <<EOF\ngh pr create\nEOF',
   ])('ignores %j', (command) => {
     expect(commandEvidence(command)).toBeUndefined()
+  })
+
+  it('classifies a long run of option letters in linear time', () => {
+    const started = performance.now()
+    expect(commandEvidence(`bash -${'c'.repeat(80_000)}! gh pr create`)).toBeUndefined()
+    expect(performance.now() - started).toBeLessThan(500)
   })
 })
 
