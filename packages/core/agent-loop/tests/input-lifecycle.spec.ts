@@ -170,15 +170,17 @@ it('retries a failed idle wait from the failed step without appending to the clo
   try {
     await expect(handle.dispose()).rejects.toThrow('idle wait failed')
     expect(ctx.agents.get(agent.id)).toBeUndefined()
+    expect(idle).toHaveBeenCalledTimes(1)
     const events = agent.session.snapshotEvents().length
     await expect(handle.dispose()).resolves.toBeUndefined()
+    expect(idle).toHaveBeenCalledTimes(2)
     expect(agent.session.snapshotEvents().length).toBe(events)
   } finally {
     idle.mockRestore()
   }
 })
 
-it('keeps reporting a queue-clear failure on every later dispose without repeating the cancel', async () => {
+it('retries a failed queue clear on the next dispose and keeps the Session open until it succeeds', async () => {
   const { ctx, agent, handle } = await harness()
   agent.inject(input('pending'))
   let failures = 1
@@ -192,10 +194,9 @@ it('keeps reporting a queue-clear failure on every later dispose without repeati
   })
   try {
     await expect(handle.dispose()).rejects.toThrow('queue clear failed')
-    const events = agent.session.snapshotEvents().length
-    await expect(handle.dispose()).rejects.toThrow('queue clear failed')
-    expect(agent.session.snapshotEvents().length).toBe(events)
     expect(failures).toBe(0)
+    await expect(handle.dispose()).resolves.toBeUndefined()
+    await expect(handle.dispose()).resolves.toBeUndefined()
   } finally {
     stopRejecting()
   }

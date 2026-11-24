@@ -674,7 +674,7 @@ describe('dsh-workflow-ptc', { timeout: 120_000 }, () => {
       expect(result.value).toBe('fine')
       expect(result.cleanupFailures).toEqual([expect.stringContaining('async-dispose-child (call 1): ')])
       expect(result.cleanupFailures![0]).toContain('async teardown refused')
-      expect(disposals).toBe(9)
+      expect(disposals).toBe(6)
     })
   })
 

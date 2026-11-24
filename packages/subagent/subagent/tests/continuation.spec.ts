@@ -589,7 +589,7 @@ describe('continuable activation capacity', () => {
     })
     releaseRun.resolve(undefined)
     await expect(started.dispose()).resolves.toBeUndefined()
-    expect(closingIdleWaits).toBe(2)
+    expect(closingIdleWaits).toBe(3)
     expect(ended).toHaveBeenCalledTimes(1)
   })
 })
