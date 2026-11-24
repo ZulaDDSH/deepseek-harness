@@ -39,3 +39,10 @@
 - id: tool-fs
   config:
     applyPatch: true
+
+# Constraint: the recorded corpus replays native tool calls.
+- id: tool-executor-ptc
+  disabled: true
+
+- id: tool-executor-native
+  disabled: false

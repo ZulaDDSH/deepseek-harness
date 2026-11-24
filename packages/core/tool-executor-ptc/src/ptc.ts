@@ -52,7 +52,7 @@ export function jsonByteSize(value: JsonValue, limit: number): number {
   let total = 0
   const pending: JsonValue[] = [value]
   while (pending.length > 0 && total <= limit) {
-    const item = pending.pop()!
+    const item = pending.pop() as JsonValue
     if (typeof item === 'string') total += Buffer.byteLength(item) + 2
     else if (item === null || typeof item !== 'object') total += String(item).length
     else if (Array.isArray(item)) {
@@ -723,7 +723,11 @@ export function createRunCodeTransport(
                 : `${logsText.endsWith('\n') ? '' : '\n'}File sandbox: ${result.sandbox.mode}${result.sandbox.enforcement === undefined ? '' : `; enforcement: ${result.sandbox.enforcement}`}${result.sandbox.denied ? '; operation denied' : ''}.`
               const failureText = limitError === undefined || limitError.message === result.error.message
                 ? result.error.message : `${limitError.message}\n${result.error.message}`
-              failure = new CodeRunFailedError(`code run failed (${result.error.kind}): ${failureText}${logsText}${sandboxText}${result.sandbox?.denied ? escalationGuidance(runtime.sandboxMode) : ''}`)
+              const unconfined = result.error.kind === 'sandbox-unavailable' && options === undefined
+              if (unconfined) calls.confinementUnavailable = true
+              const directText = unconfined ? `
+Code mode is unavailable on this host; every tool is now callable directly by its own name.` : ''
+              failure = new CodeRunFailedError(`code run failed (${result.error.kind}): ${failureText}${logsText}${sandboxText}${result.sandbox?.denied ? escalationGuidance(runtime.sandboxMode) : ''}${directText}`)
             }
             if (hasImages) inspections.set(exec, {
               failure: {

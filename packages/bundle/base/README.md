@@ -69,6 +69,10 @@ The bundle mounts [MCP resources](../../mcp/mcp-resources/README.md) once. Confi
 
 On macOS and Linux you get the bash shell tools; on Windows you get the PowerShell twins instead, so exactly one shell stack is available per machine. The safety behavior is identical on every platform. A Windows host that prefers the unconfined PowerShell executor can switch the shell rows in its profile patch — the switch must disable both PowerShell rows and re-enable both bash rows, otherwise the profile fails to load.
 
+### Tool execution
+
+The base enables the PTC executor and its Node runtime, so models call one `run_code` tool and reach every other tool as a binding inside the program; each nested call keeps its own approvals, hooks and sandbox policy. The `tool-executor-native` row ships disabled. Swap the two `disabled` flags, or pass [`native.yml`](../../../apps/cli/config/examples/native.yml) with `--patch`, to expose each tool schema directly; one scope never accepts both executors. The `acp` profile and `sdk-minimal` stay native.
+
 ### Changing the defaults
 
 To change what a profile built on this core provides — a different default model, a stricter permission mode, extra or fewer tools — edit your profile's `cordis.patch.yml` or add a later bundle. Each patch entry replaces the target's whole configuration, so restate every setting you want to keep. Keep the sandboxed filesystem provider as the single file-write path: adding the plain filesystem provider on top of it makes the profile fail to load.

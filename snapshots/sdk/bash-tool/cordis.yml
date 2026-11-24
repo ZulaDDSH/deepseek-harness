@@ -27,3 +27,10 @@
 - id: session-log-deepseek
   config:
     enabled: false
+
+# Constraint: the recorded corpus replays native tool calls.
+- id: tool-executor-ptc
+  disabled: true
+
+- id: tool-executor-native
+  disabled: false

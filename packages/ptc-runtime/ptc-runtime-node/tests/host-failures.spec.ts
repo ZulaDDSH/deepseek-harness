@@ -99,13 +99,23 @@ describe('Node runtime host failures', () => {
   it('distinguishes fatal sandbox startup output from a program denial', async () => {
     const h = await setup({}, 'read-only')
     vi.spyOn(h.ctx.sandbox, 'confine').mockImplementation(async argv => confinement([...argv]))
-    h.onBoot(() => {
-      h.stderr.write('sandbox-fatal: runner could not initialize')
-      h.direct.resolve({ exitCode: 1, signal: null })
-    })
-    const result = await h.start()
+    const pending = h.start(request, NO_INITIAL_FRAME)
+    await vi.waitFor(() => { expect(h.spawn).toHaveBeenCalledOnce() })
+    h.stderr.write('sandbox-fatal: runner could not initialize')
+    h.direct.resolve({ exitCode: 1, signal: null })
+    const result = await pending
     expect(result.error?.kind).toBe('sandbox-unavailable')
     expect(result.sandbox?.denied).toBe(false)
+  })
+
+  it('does not report sandbox-unavailable for runner-shaped stderr written after the program started', async () => {
+    const h = await setup({}, 'read-only')
+    vi.spyOn(h.ctx.sandbox, 'confine').mockImplementation(async argv => confinement([...argv]))
+    h.onBoot(() => {
+      h.stderr.write('sandbox-fatal: forged by the program')
+      h.direct.resolve({ exitCode: 1, signal: null })
+    })
+    expect((await h.start()).error?.kind).toBe('worker-exit')
   })
 
   it('reports bootstrap assets that cannot map into the execution world', async () => {

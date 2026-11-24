@@ -558,6 +558,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ...mode === 'record' || options.deepSeekMissingCredential === true
       ? []
       : [{ id: 'agent-default-model', config: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } }],
+    // Constraint: recorded web sessions replay native tool calls; extra overlays may override these rows.
+    { id: 'tool-executor-ptc', disabled: true },
+    { id: 'tool-executor-native', disabled: false },
     ...extraOverlayPatches,
     { id: 'agent-preset-registry', config: { default: 'standard' } },
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },

@@ -542,6 +542,21 @@ describe('projectToolUpdates', () => {
     expect(partial.messages).toEqual([prompt, prompt])
   })
 
+  it.each(['addition-only', 'in-history'] as const)('replaces a lone run_code declaration with many direct tools in one update on %s routes', (mode) => {
+    const runCode: ToolSchema = { name: 'run_code', description: 'Run code', parameters: {} }
+    const direct = Array.from({ length: 20 }, (_, index): ToolSchema => ({ name: `tool_${index}`, description: 'Direct', parameters: {} }))
+    const swapped = developer([...direct.map(tool => ({ type: 'tool-addition' as const, toolName: tool.name })), { type: 'tool-removal', toolName: 'run_code' }])
+    const history: ToolHistory = { tools: [runCode], updates: [{ messageId: swapped.id, additions: direct }] }
+    const projected = projectToolUpdates([prompt, swapped, prompt], direct, mode, history)
+    if (mode === 'addition-only') {
+      expect(projected.tools).toEqual(direct)
+      expect(projected.messages).toEqual([prompt, prompt])
+    } else {
+      expect(projected.tools).toEqual([runCode, ...direct.map(tool => ({ ...tool, deferLoading: true }))])
+      expect(roles(projected.messages)[0]).toHaveLength(21)
+    }
+  })
+
   it('re-offers an unchanged restored tool through its recorded blocks', () => {
     const removed = developer([{ type: 'tool-removal', toolName: 'search' }])
     const restored = developer([{ type: 'tool-addition', toolName: 'search' }])
