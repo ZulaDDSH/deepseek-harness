@@ -23,13 +23,13 @@ export function apply(ctx: Context): void {
   const controller = createNotificationController({
     locale: ctx.locale.getSnapshot().active,
     pollIntervalMs: config.notificationPollIntervalMs,
-    read: async (locale) => {
-      const result = await ctx.remote.account.getNotifications(ctx.accountUi.clientMetadata(locale))
+    read: async (locale, signal) => {
+      const result = await ctx.remote.account.getNotifications(ctx.accountUi.clientMetadata(locale), signal)
       if (!result.ok) throw new Error('account notification read failed')
       return result.value
     },
-    readContent: async (id, locale) => {
-      const result = await ctx.remote.account.getNotificationContent(id, ctx.accountUi.clientMetadata(locale))
+    readContent: async (id, locale, signal) => {
+      const result = await ctx.remote.account.getNotificationContent(id, ctx.accountUi.clientMetadata(locale), signal)
       if (!result.ok) throw new Error('account notification content read failed')
       return result.value
     },

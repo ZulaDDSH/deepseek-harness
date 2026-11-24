@@ -1076,16 +1076,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'balance outcome, or null if signed out or the grant changed during the query.',
       },
       {
-        signature: '@Remote async getNotifications(client: AccountClientMetadata): Promise<AccountNotificationBatch | null>',
+        signature: '@Remote async getNotifications(client: AccountClientMetadata, signal: AbortSignal): Promise<AccountNotificationBatch | null>',
         description: 'Query unconsumed account notifications in server order without reading profile data.',
-        parameters: [{ name: 'client', description: 'identity of the requesting UI for this call; its language selects the server-authored message.' }],
-        returns: 'notifications with their next query delay, or null if signed out or the grant changed during the query.',
+        parameters: [{ name: 'client', description: 'identity of the requesting UI for this call; its language selects the server-authored message.' }, { name: 'signal', description: 'caller lifetime; cancelling it stops waiting and, once no caller waits, the account request.' }],
+        returns: 'notifications with their next query delay, or null if signed out, the grant changed, or the call was cancelled.',
       },
       {
-        signature: '@Remote async getNotificationContent(id: AccountNotificationId, client: AccountClientMetadata): Promise<AccountNotification | null>',
+        signature: '@Remote async getNotificationContent(id: AccountNotificationId, client: AccountClientMetadata, signal: AbortSignal): Promise<AccountNotification | null>',
         description: 'Query localized content of a notification, including one already consumed.',
-        parameters: [{ name: 'id', description: 'notification whose content is requested.' }, { name: 'client', description: 'identity of the requesting UI; its language selects the localized content.' }],
-        returns: 'content without changing consumption, or null if signed out or the grant changed.',
+        parameters: [{ name: 'id', description: 'notification whose content is requested.' }, { name: 'client', description: 'identity of the requesting UI; its language selects the localized content.' }, { name: 'signal', description: 'caller lifetime; cancelling it stops the account request.' }],
+        returns: 'content without changing consumption, or null if signed out, the grant changed, or the call was cancelled.',
       },
       {
         signature: '@Remote async reportNotificationEvent(id: AccountNotificationId, event: AccountNotificationEvent, client: AccountClientMetadata): Promise<boolean>',

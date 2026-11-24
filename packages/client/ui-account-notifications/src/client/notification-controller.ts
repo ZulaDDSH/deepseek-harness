@@ -30,15 +30,21 @@ export interface NotificationControllerOptions {
   readonly pollIntervalMs: number
   /** UI language in effect when the controller starts. */
   readonly locale: string
-  /** Read the signed-in account's unconsumed notifications. @returns the batch, or null when no account is signed in. */
-  read: (locale: string) => Promise<AccountNotificationBatch | null>
+  /**
+   * Read the signed-in account's unconsumed notifications.
+   * @param locale - language captured for this request.
+   * @param signal - aborted when the poll that owns the read is replaced or ends.
+   * @returns the batch, or null when no account is signed in.
+   */
+  read: (locale: string, signal: AbortSignal) => Promise<AccountNotificationBatch | null>
   /**
    * Query localized content for an existing card without changing consumption.
    * @param id - notification requested by stable identity.
    * @param locale - language captured for this request.
+   * @param signal - aborted when a newer language generation or the end of the lifecycle supersedes the request.
    * @returns content, or null when the account changed; failures reject.
    */
-  readContent: (id: AccountNotificationId, locale: string) => Promise<AccountNotification | null>
+  readContent: (id: AccountNotificationId, locale: string, signal: AbortSignal) => Promise<AccountNotification | null>
   /**
    * Report one notification interaction.
    * @param id - notification the user interacted with.
@@ -82,6 +88,7 @@ export interface NotificationController {
 interface NotificationPoll {
   intervalMs: number
   timer?: ReturnType<typeof setTimeout>
+  readonly request: AbortController
 }
 
 const CONTENT_CONCURRENCY = 4
@@ -108,6 +115,7 @@ export function createNotificationController(options: NotificationControllerOpti
   let scope: object | undefined
   let locale = options.locale
   let contentGeneration = 0
+  let contentRequests: AbortController | undefined
   /** Notice currently published to the sidebar, including the expiration checked at display time. */
   let current: readonly AccountNotice[] = []
   let poll: NotificationPoll | undefined
@@ -166,6 +174,9 @@ export function createNotificationController(options: NotificationControllerOpti
     const scopeAtCall = scope
     if (scopeAtCall === undefined || current.length === 0) return
     const generation = ++contentGeneration
+    contentRequests?.abort()
+    const requests = new AbortController()
+    contentRequests = requests
     const requestedLocale = locale
     const isCurrent = (): boolean => scope === scopeAtCall && generation === contentGeneration
     const pending = [...current]
@@ -173,8 +184,8 @@ export function createNotificationController(options: NotificationControllerOpti
     const worker = async (): Promise<void> => {
       for (let notice = pending.shift(); notice !== undefined && isCurrent(); notice = pending.shift()) {
         let update: AccountNotice | null
-        try { update = await options.readContent(notice.id, requestedLocale) }
-        catch (_error) { failed = true; continue }
+        try { update = await options.readContent(notice.id, requestedLocale, requests.signal) }
+        catch (_error) { failed ||= !requests.signal.aborted; continue }
         if (update === null || !isCurrent()) continue
         const fresh: AccountNotice = update
         setCurrent(current.map(value => value.id === fresh.id
@@ -195,7 +206,7 @@ export function createNotificationController(options: NotificationControllerOpti
   async function runRead(pollAtRead: NotificationPoll): Promise<void> {
     const requestedLocale = locale
     let batch: AccountNotificationBatch | null
-    try { batch = await options.read(requestedLocale) }
+    try { batch = await options.read(requestedLocale, pollAtRead.request.signal) }
     catch (_error) {
       if (poll !== pollAtRead) return
       console.error('[deepseek-account] notification read failed; retaining cards and retrying on the next poll')
@@ -213,11 +224,12 @@ export function createNotificationController(options: NotificationControllerOpti
 
   const stopPolling = (): void => {
     if (poll?.timer !== undefined) clearTimeout(poll.timer)
+    poll?.request.abort()
     poll = undefined
   }
   const restartPolling = (): Promise<void> => {
     stopPolling()
-    poll = { intervalMs: options.pollIntervalMs }
+    poll = { intervalMs: options.pollIntervalMs, request: new AbortController() }
     return runRead(poll)
   }
 
@@ -239,6 +251,7 @@ export function createNotificationController(options: NotificationControllerOpti
     stopPolling()
     scope = undefined
     contentGeneration++
+    contentRequests?.abort()
     reported.clear()
     setCurrent([])
   }
@@ -257,6 +270,7 @@ export function createNotificationController(options: NotificationControllerOpti
       if (value === locale) return
       locale = value
       contentGeneration++
+      contentRequests?.abort()
       await refreshContent()
     },
     shown(id) {

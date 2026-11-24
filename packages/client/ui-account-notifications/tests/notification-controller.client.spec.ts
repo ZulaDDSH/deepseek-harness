@@ -26,8 +26,10 @@ function batch(id: string, displayUntil: string | null = '2099-01-01T00:00:00Z')
 }
 
 function setup() {
-  const read = vi.fn(async (): Promise<AccountNotificationBatch | null> => null)
-  const readContent = vi.fn(async (_id: AccountNotificationId): Promise<AccountNotice | null> => null)
+  const read = vi.fn(async (_locale: string, _signal: AbortSignal): Promise<AccountNotificationBatch | null> => null)
+  const readContent = vi.fn(
+    async (_id: AccountNotificationId, _locale: string, _signal: AbortSignal): Promise<AccountNotice | null> => null,
+  )
   const displayed = vi.fn(async (_id: AccountNotificationId): Promise<boolean> => true)
   const dismissed = vi.fn(async (_id: AccountNotificationId): Promise<boolean> => true)
   const clicked = vi.fn(async (_id: AccountNotificationId): Promise<boolean> => true)
@@ -129,7 +131,7 @@ it('does not resume polling after sign-out while a list reply is refreshing lang
   await controller.setLocale('zh')
   response.resolve(batch('first'))
   await vi.advanceTimersByTimeAsync(0)
-  expect(readContent).toHaveBeenCalledWith('first', 'zh')
+  expect(readContent).toHaveBeenCalledWith('first', 'zh', expect.any(AbortSignal))
   controller.end()
   content.resolve(notification('first'))
   await vi.advanceTimersByTimeAsync(TIMING.pollIntervalMs * 2)
@@ -547,7 +549,7 @@ it('refreshes a consumed card in place on language changes without another list 
     const actions = [{ label: '知道了', style: 'secondary', target: { type: 'dismiss' } }] as const
     readContent.mockResolvedValue(notification('first', { title: '通知', body: '新的中文内容', actions }))
     await controller.setLocale('zh')
-    expect(readContent).toHaveBeenCalledExactlyOnceWith('first', 'zh')
+    expect(readContent).toHaveBeenCalledExactlyOnceWith('first', 'zh', expect.any(AbortSignal))
     expect(latest()).toMatchObject({ id: 'first', title: '通知', body: '新的中文内容', actions })
     expect(read).toHaveBeenCalledTimes(1)
     controller.shown('first' as AccountNotificationId)
@@ -628,7 +630,7 @@ it('localizes notifications returned by a list request started before the langua
     readContent.mockResolvedValueOnce(notification('first', { body: '当前语言内容' }))
     response.resolve(batch('first', null))
     await vi.advanceTimersByTimeAsync(0)
-    expect(readContent).toHaveBeenCalledExactlyOnceWith('first', 'zh')
+    expect(readContent).toHaveBeenCalledExactlyOnceWith('first', 'zh', expect.any(AbortSignal))
     expect(latest()?.body).toBe('当前语言内容')
   } finally { response.resolve(null); controller.end() }
 })
@@ -866,4 +868,68 @@ it('reads at most four localized cards at once and publishes each update as it a
   expect(peak).toBe(4)
   expect(stacks.at(-1)?.map(notice => notice.body)).toEqual(ids.map(id => `zh ${id}`))
   controller.end()
+})
+
+it.each(['refresh', 'end'] as const)('aborts the superseded list read on %s and leaves the new read live', async (change) => {
+  const { controller, read } = setup()
+  const signals: AbortSignal[] = []
+  read.mockImplementation((_locale, signal) => {
+    signals.push(signal)
+    return new Promise<AccountNotificationBatch | null>(() => undefined)
+  })
+  controller.begin()
+  expect(signals).toHaveLength(1)
+  expect(signals[0]?.aborted).toBe(false)
+  if (change === 'refresh') {
+    void controller.refresh()
+    expect(signals).toHaveLength(2)
+    expect(signals[0]?.aborted).toBe(true)
+    expect(signals[1]?.aborted).toBe(false)
+  } else {
+    controller.end()
+    expect(signals[0]?.aborted).toBe(true)
+  }
+})
+
+it('repeated refreshes leave at most one list read un-aborted', async () => {
+  const { controller, read } = setup()
+  const signals: AbortSignal[] = []
+  read.mockImplementation((_locale, signal) => {
+    signals.push(signal)
+    return new Promise<AccountNotificationBatch | null>(() => undefined)
+  })
+  controller.begin()
+  for (let count = 0; count < 5; count++) void controller.refresh()
+  expect(signals).toHaveLength(6)
+  expect(signals.filter(signal => !signal.aborted)).toHaveLength(1)
+})
+
+it.each(['language', 'end'] as const)('aborts stalled content reads of the superseded generation on %s', async (change) => {
+  const { controller, read, readContent, stacks } = setup()
+  const ids = ['a', 'b', 'c', 'd', 'e', 'f']
+  read.mockResolvedValue({ ...batch('a', null), notifications: ids.flatMap(id => batch(id, null).notifications) })
+  controller.begin()
+  await vi.waitFor(() => { expect(stacks.at(-1)).toHaveLength(ids.length) })
+  const signals: AbortSignal[] = []
+  readContent.mockImplementation((_id, _locale, signal) => {
+    signals.push(signal)
+    return new Promise<AccountNotice | null>((_resolve, reject) => { signal.addEventListener('abort', () => { reject(new Error('aborted')) }) })
+  })
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  const first = controller.setLocale('zh')
+  expect(signals).toHaveLength(4)
+  if (change === 'language') {
+    const second = controller.setLocale('ja')
+    expect(signals.slice(0, 4).every(signal => signal.aborted)).toBe(true)
+    expect(signals).toHaveLength(8)
+    const third = controller.setLocale('fr')
+    expect(signals.filter(signal => !signal.aborted)).toHaveLength(4)
+    controller.end()
+    await Promise.all([first, second, third])
+  } else {
+    controller.end()
+    expect(signals.every(signal => signal.aborted)).toBe(true)
+    await first
+  }
+  expect(errors).not.toHaveBeenCalled()
 })

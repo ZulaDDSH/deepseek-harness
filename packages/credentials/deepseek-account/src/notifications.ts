@@ -4,6 +4,7 @@ import type { AccountNotification, AccountNotificationBatch, AccountNotification
 import { PlatformAuthError, requestNotificationContent, requestNotificationEvent, requestNotifications } from './protocol.ts'
 
 const MIN_NEXT_POLL_SECONDS = 10
+const MAX_NOTIFICATIONS = 50
 
 const action = z.object({
   label: z.string(),
@@ -57,6 +58,7 @@ export async function readNotifications(origin: string, token: string,
   const value = parse(list, await requestNotifications(origin, token, signal, headers))
   const seen = new Set<string>()
   const notifications = value.notifications.flatMap((entry, index) => {
+    if (seen.size >= MAX_NOTIFICATIONS) return []
     const parsed = notification.safeParse(entry)
     if (!parsed.success) {
       console.error('[deepseek-account] skipping unsupported notification', {

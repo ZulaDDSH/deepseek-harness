@@ -345,17 +345,19 @@ Account login, credentials, and client-safe Remote operations.
 /**
  * Query unconsumed account notifications in server order without reading profile data.
  * @param client - identity of the requesting UI for this call; its language selects the server-authored message.
- * @returns notifications with their next query delay, or null if signed out or the grant changed during the query.
+ * @param signal - caller lifetime; cancelling it stops waiting and, once no caller waits, the account request.
+ * @returns notifications with their next query delay, or null if signed out, the grant changed, or the call was cancelled.
  */
-@Remote async getNotifications(client: AccountClientMetadata): Promise<AccountNotificationBatch | null>
+@Remote async getNotifications(client: AccountClientMetadata, signal: AbortSignal): Promise<AccountNotificationBatch | null>
 
 /**
  * Query localized content of a notification, including one already consumed.
  * @param id - notification whose content is requested.
  * @param client - identity of the requesting UI; its language selects the localized content.
- * @returns content without changing consumption, or null if signed out or the grant changed.
+ * @param signal - caller lifetime; cancelling it stops the account request.
+ * @returns content without changing consumption, or null if signed out, the grant changed, or the call was cancelled.
  */
-@Remote async getNotificationContent(id: AccountNotificationId, client: AccountClientMetadata): Promise<AccountNotification | null>
+@Remote async getNotificationContent(id: AccountNotificationId, client: AccountClientMetadata, signal: AbortSignal): Promise<AccountNotification | null>
 
 /**
  * Report a notification interaction; the backend decides consumption.
