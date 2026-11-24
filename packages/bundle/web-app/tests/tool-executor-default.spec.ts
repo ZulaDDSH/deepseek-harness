@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { EntryOptions, PatchOptions } from '@deepseek-ai/cordis-plugin-include'
+import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { composeEntries, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { expect, it } from 'vitest'
+
+type Row = ReturnType<typeof composeEntries>[number]
 
 const repo = fileURLToPath(new URL('../../../../', import.meta.url))
 const bundles = join(repo, 'packages/bundle')
@@ -15,7 +17,7 @@ function bundlePatches(name: string): PatchOptions[] {
   return [manifest.dsh.bundle.patch].flat().flatMap(file => loadOverlayPatches('executor default', join(dir, file)))
 }
 
-function compose(bundle: string, ...overlays: string[]): EntryOptions[] {
+function compose(bundle: string, ...overlays: string[]): Row[] {
   return composeEntries([
     bundlePatches('base'),
     ...bundle === 'base' ? [] : [bundlePatches(bundle)],
@@ -23,12 +25,12 @@ function compose(bundle: string, ...overlays: string[]): EntryOptions[] {
   ])
 }
 
-function enabled(rows: readonly EntryOptions[], id: string): boolean {
+function enabled(rows: readonly Row[], id: string): boolean {
   const row = rows.find(candidate => candidate.id === id)
   return row !== undefined && row.disabled !== true
 }
 
-const executors = (rows: readonly EntryOptions[]) => ({
+const executors = (rows: readonly Row[]) => ({
   native: enabled(rows, 'tool-executor-native'),
   ptc: enabled(rows, 'tool-executor-ptc'),
   runtime: enabled(rows, 'ptc-runtime'),
