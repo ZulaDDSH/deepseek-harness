@@ -648,6 +648,17 @@ describe('Memory policy and first-message recall', () => {
     expect(hungWarn).toHaveBeenCalledWith(expect.stringContaining('did not finish within 3 s'))
   }, 15_000)
 
+  it('includes legacy workspace entities in the empty-search fallback', async () => {
+    const { ctx, db } = await fixture()
+    await ctx.plugin(SystemPrompt)
+    const legacy = `dsh-workspace:${basename(CWD)}-${createHash('sha256').update(process.platform === 'win32' ? resolve(CWD).toLowerCase() : resolve(CWD)).digest('hex').slice(0, 8)}`
+    expect(legacy).not.toBe(workspaceEntity(CWD))
+    const insert = db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, projectId, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
+    insert.run(legacy, 'Turn 1: old', 'legacy fallback narrative', 'dsh-session:old:1:turn:1', 'fixture', '2020-01-01T00:00:00.000Z')
+    inbox(ctx, session('s1'), 'first message')
+    expect(await assembled(ctx, 's1')).toContain('legacy fallback narrative')
+  })
+
   it('keeps another project\'s notes of the same entity out of the empty-search fallback', async () => {
     const { ctx, db } = await fixture()
     await ctx.plugin(SystemPrompt)

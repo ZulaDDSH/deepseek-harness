@@ -511,7 +511,7 @@ export class MemoryAutomation {
     return Promise.race([this.recallNotes(session, query, budget.signal, workspace), expired]).then((text) => {
       if (text !== undefined) return text
       this.report(new Error(`memory search did not finish within ${RECALL_BUDGET_MS / 1000} s, so this chat starts with the latest notes`), 'recall')
-      return this.recentNotes(session, workspace.current)
+      return this.recentNotes(session, workspace.names)
     }, (error: unknown) => {
       this.report(error, 'recall')
       return ''
@@ -534,7 +534,7 @@ export class MemoryAutomation {
       if (!budget.aborted) this.report(error, 'recall')
     }
     this.requireEnabled()
-    return recallText(rows.length > 0 ? rows : this.recent(session, provider, database, workspace.current), this.config.memoryCharacters)
+    return recallText(rows.length > 0 ? rows : this.recent(session, provider, database, workspace.names), this.config.memoryCharacters)
   }
 
   private async lookup(session: SessionLike, query: string, signal: AbortSignal): Promise<string> {
@@ -554,25 +554,28 @@ export class MemoryAutomation {
     }
   }
 
-  private async recentNotes(session: SessionLike, entityName: string): Promise<string> {
+  private async recentNotes(session: SessionLike, names: readonly string[]): Promise<string> {
     try {
       const provider = await this.host.provider()
       const database = this.host.database(provider)
       this.requireEnabled()
-      return recallText(this.recent(session, provider, database, entityName), this.config.memoryCharacters)
+      return recallText(this.recent(session, provider, database, names), this.config.memoryCharacters)
     } catch (error) {
       this.report(error, 'recall')
       return ''
     }
   }
 
-  private recent(session: SessionLike, provider: McpHumanOperations, database: string, entityName: string): MemorixRecentObservation[] {
-    const project = this.known.get(provider)?.get(session.header.cwd ?? '')
+  private recent(session: SessionLike, provider: McpHumanOperations, database: string, names: readonly string[]): MemorixRecentObservation[] {
+    const project = this.known.get(provider)?.get(session.header.cwd ?? DOCUMENTS_ROOT)
     if (project === undefined) return []
-    return memorixRecent(database, {
-      entityName, project, excludeTopicPrefix: `dsh-session:${session.id}:`,
-      before: new Date().toISOString(), limit: RECALL_DIGESTS,
-    })
+    const before = new Date().toISOString()
+    return names
+      .flatMap(entityName => memorixRecent(database, {
+        entityName, project, excludeTopicPrefix: `dsh-session:${session.id}:`, before, limit: RECALL_DIGESTS,
+      }))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, RECALL_DIGESTS)
   }
 
   private async search(provider: McpHumanOperations, session: SessionLike, cwd: string, query: string,
