@@ -1,0 +1,55 @@
+diff --git a/package/dist/adapter.js b/package/dist/adapter.js
+--- a/package/dist/adapter.js
++++ b/package/dist/adapter.js
+@@ -45 +45 @@
+-        return { id: provider, name: 'Claude Code session' };
++        return { id: provider, name: 'Claude subscription (Claude Code)' };
+diff --git a/package/dist/auth-process.js b/package/dist/auth-process.js
+--- a/package/dist/auth-process.js
++++ b/package/dist/auth-process.js
+@@ -1,0 +2 @@
++import { findClaudeExecutable } from './official-session.js';
+@@ -16 +17,2 @@
+-    const child = spawnImpl(command.executable, command.args, {
++    const executable = command.executable === 'claude' ? findClaudeExecutable(command.env.PATH) : command.executable;
++    const child = spawnImpl(executable, command.args, {
+diff --git a/package/dist/auth.js b/package/dist/auth.js
+--- a/package/dist/auth.js
++++ b/package/dist/auth.js
+@@ -14,0 +15,6 @@
++    'USERPROFILE',
++    'APPDATA',
++    'LOCALAPPDATA',
++    'ProgramFiles',
++    'ProgramFiles(x86)',
++    'ProgramData',
+@@ -106 +112 @@
+-            parsed = JSON.parse(readFileSync(file, 'utf8'));
++            parsed = JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+diff --git a/package/dist/catalog.js b/package/dist/catalog.js
+--- a/package/dist/catalog.js
++++ b/package/dist/catalog.js
+@@ -35 +35 @@
+-        displayName: 'Claude Code session',
++        displayName: 'Claude subscription (Claude Code)',
+diff --git a/package/dist/official-session.js b/package/dist/official-session.js
+--- a/package/dist/official-session.js
++++ b/package/dist/official-session.js
+@@ -2 +2,2 @@
+-import { dirname, join } from 'node:path';
++import { delimiter, dirname, isAbsolute, join } from 'node:path';
++import { homedir } from 'node:os';
+@@ -407,3 +408,10 @@
+-    const directories = (pathValue ?? '').split(':').filter((entry) => entry.trim() !== '');
+-    for (const directory of directories) {
+-        const candidate = join(directory, 'claude');
++    const windows = process.platform === 'win32';
++    const directories = (pathValue ?? '').split(delimiter).map(entry => entry.trim().replace(/^"|"$/g, ''));
++    if (windows) {
++        const local = process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local');
++        directories.push(join(homedir(), '.local', 'bin'),
++            join(local, 'Microsoft', 'WinGet', 'Links'),
++            join(local, 'Microsoft', 'WinGet', 'Packages', 'Anthropic.ClaudeCode_Microsoft.Winget.Source_8wekyb3d8bbwe'));
++    }
++    for (const directory of directories.filter(isAbsolute)) {
++        const candidate = join(directory, windows ? 'claude.exe' : 'claude');
