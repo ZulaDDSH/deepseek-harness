@@ -114,6 +114,7 @@ export class SessionManager {
   private listMutations: SessionListMutation[] | null = null
   private readonly addresses = new Map<SessionId, SubagentAddress>()
   private readonly projectionLoads = new Map<SessionId, ProjectionLoad>()
+  private readonly queuedRefreshes = new Set<SessionId>()
   private readonly projectionInflight = new Map<SessionId, ProjectionInflight>()
 
 
@@ -652,10 +653,27 @@ export class SessionManager {
       else if (!store.append(change.key, change.append.from, change.append.items, seq)) gapped = true
     }
     if (gapped) {
-      this.projectionLoads.delete(frame.sessionId)
-      void this.refreshProjections(frame.sessionId)
+      this.refreshAfterGap(frame.sessionId)
     }
     this.notifier.markDirty()
+  }
+
+  private refreshAfterGap(sessionId: SessionId): void {
+    this.projectionLoads.delete(sessionId)
+    const inflight = this.projectionInflight.get(sessionId)
+    if (inflight === undefined) {
+      void this.refreshProjections(sessionId)
+      return
+    }
+    if (this.queuedRefreshes.has(sessionId)) return
+    this.queuedRefreshes.add(sessionId)
+    const again = (): void => {
+      this.queuedRefreshes.delete(sessionId)
+      if (this.disposed) return
+      this.projectionLoads.delete(sessionId)
+      void this.refreshProjections(sessionId)
+    }
+    void inflight.promise.then(again, again)
   }
 
   private replaceControlBaseline(baseline: SessionControlBaseline): void {

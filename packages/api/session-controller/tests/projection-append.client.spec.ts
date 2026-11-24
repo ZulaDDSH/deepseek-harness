@@ -1,4 +1,4 @@
-import { describe, expect, onTestFinished } from 'vitest'
+import { describe, expect, onTestFinished, vi } from 'vitest'
 import type { SessionControlFrame } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { SessionSeq } from '@deepseek-ai/dsh-session/types'
@@ -74,5 +74,19 @@ describe('manager append routing', () => {
     manager.handleControlFrame(frame(3, [{ key: 'subagentCatalog', append: { from: 5, items: [entry('x')] } }]))
     expect(remote.session.projections).toHaveBeenCalledWith({ sessionId: SID }, expect.anything())
     expect(manager.projectionValues(SID)?.subagentCatalog).toBeUndefined()
+  })
+
+  it('queues one more read when a gap arrives while a projection read is in flight', async ({ remote }) => {
+    const first = Promise.withResolvers<ReturnType<typeof ok>>()
+    remote.session.projections.mockReturnValueOnce(first.promise as never).mockResolvedValue(ok(null) as never)
+    const manager = makeManager(remote)
+    manager.handleControlFrame(frame(3, [{ key: 'subagentCatalog', append: { from: 5, items: [entry('x')] } }]))
+    manager.handleControlFrame(frame(4, [{ key: 'subagentCatalog', append: { from: 7, items: [entry('y')] } }]))
+    manager.handleControlFrame(frame(5, [{ key: 'subagentCatalog', append: { from: 9, items: [entry('z')] } }]))
+    expect(remote.session.projections).toHaveBeenCalledTimes(1)
+    first.resolve(ok(null))
+    await vi.waitFor(() => { expect(remote.session.projections).toHaveBeenCalledTimes(2) })
+    await Promise.resolve()
+    expect(remote.session.projections).toHaveBeenCalledTimes(2)
   })
 })
