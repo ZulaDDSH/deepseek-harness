@@ -1100,3 +1100,49 @@ packages/client/ui-workspace/package.json:dsh.client.inject includes the command
 ## packages/client/ui-settings-models/src/client/ModelsSection.tsx:Loaded
 
 `packages/client/ui-settings-models/src/client/ModelsSection.tsx:Loaded` renders one sign-in card in each `llm-pi-ai` row when the page has authorization operations, and hides the editor's own card (`ProviderEditor.tsx:ProviderEditor` prop `hideSignIn`) for exactly those rows through the shared `rowSignIn` value. A row of another namespace has no row card, so its editor keeps its own. `SignInCard.tsx:SignInCard` offers "Use an API key instead" only when `onUseApiKey` is passed; the row card passes `toggleEditor(target, open, true)`, which opens that row's editor (clearing the saved notice and closing the add card as the Edit button does) and records `keyFocusFor` and `keyFocusAsk`. The editor receives `focusKeyRequest` only for the asking row, and `ProviderEditor.tsx:ProviderEditor` focuses its key field in an effect keyed on that value, so the request works both when the editor mounts and when it is already open. `keyFocusAsk` increments on every toggle so a second ask repeats the focus; `keyFocusFor` is cleared by an Edit toggle and by `closeAdd`, so a later open without the card never focuses the field. `toggleEditor` closes the add card first because closing either card would discard the other's draft.
+
+## packages/client/ui-primitives/src/useMenuSubmenu.ts:useMenuSubmenu
+
+`packages/client/ui-primitives/src/useMenuSubmenu.ts:useMenuSubmenu` opens a submenu parent's child panel as soon as that row takes focus, and `packages/client/ui-primitives/src/Menu.tsx:Menu` focuses the first row of an auto-focus menu. A Session row menu therefore opens with the Color child already shown: its `menuitem` list is the parent rows (Color, Icon, then verbs) followed by the portaled Color swatches. The first Escape only collapses that child (`useMenuSubmenu.returnToParent`); a second Escape closes the menu. The viewer artifact specs `packages/experimental/liveshare/tests/viewer-shell-artifact.client.spec.tsx`, `viewer-fork-artifact.client.spec.tsx` and `viewer-write-artifact.client.spec.tsx` assert that order and send two Escapes.
+
+## packages/client/ui-workspace/src/client/rows/Rows.tsx:ProjectRowItem
+
+`packages/client/ui-workspace/src/client/rows/Rows.tsx:ProjectRowItem` renders its actions button through `renderFactorySlot('contextMenu.button', ...)` with a workspace target; the browser no longer calls `WorkspaceBrowserInjected.openWorkspaceMenu` from a row. `packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx` (Workspace tree grouping) therefore asserts the factory call, and the press-to-open behaviour belongs to `packages/client/ui-context-menu/src/client/Button.tsx`.
+
+## packages/client/ui-theme/src/styles/design-platform.css:--dsw-specific-menu
+
+`packages/client/ui-theme/src/styles/design-platform.css:--dsw-specific-menu` on `html[data-platform='darwin'] body[data-ds-dark-theme]` is `rgba(48, 49, 54, 0.94)`, matching the dark `--dsw-menu-surface-fill` hue after the charcoal-to-bluish palette change; `packages/client/ui-theme/tests/elevation-styles.client.spec.ts` asserts that value.
+
+## packages/subagent/subagent/src/continuation-messages.ts:createSettlementMessage
+
+`packages/subagent/subagent/tests/continuation.spec.ts` "reports a turn that failed before reaching its first step" expects the settlement notice to carry the child's recorded failure (`continuation-messages.ts:createSettlementMessage` emits `Its failure: <diagnostic>` from `failure-diagnostic.ts:failureDiagnosticOf`); that notice line is a master feature the upstream test lacked.
+
+`packages/subagent/tool-subagent/src/model-selection.ts:requestedAgentOptions` clears the configured and inherited reasoning effort for an explicit provider and model pair without an effort, even when the route is unchanged (documented in the tool-subagent README); `tests/model-selection.spec.ts` "compares explicit routes with the latest logged parent selection" and `tests/tool-subagent.spec.ts` "merges model overrides over provider-owned route defaults before preflight" therefore expect no `reasoningEffort`.
+
+`packages/subagent/tool-subagent/src/list-models.ts:registerListSubagentModels` carries the upstream discovery description ("Query when choosing an explicit child route or reasoning effort."); the mount-order guidance test matches that sentence.
+
+`packages/subagent/subagent/src/manager.ts:SubagentManager.trackStartup` hands `prepareContinuable` a derived `AbortSignal.any` signal, never the caller's own, so `tests/tool-subagent.spec.ts` "isolates a cancelled continuable preparation from a concurrent sibling" tells the cancelled preparation apart by `signal.aborted` after the abort instead of by signal identity.
+
+`packages/workflow/workflow-ptc/src/host.ts:roleRouteOf` rejects a role combined with a route with "omit provider and model", because a workflow child request carries no `reasoning_effort`; the host test asserts that text.
+
+`packages/subagent/tool-subagent-control/src/index.ts:send_message` takes `agent` (a name, `lead`, or a Session id), not `agent_id`; `packages/knowledge/knowledge-router/tests/delegation-loop.spec.ts` passes `agent`.
+
+## packages/llm/token-meter/tests/token-meter.spec.ts:TokenMeter configuration and registration
+
+`packages/llm/token-meter/tests/token-meter.spec.ts:TokenMeter configuration and registration` expects the Session's checkpoint rows from before the plugin fiber disposed, unchanged after a later event, and no rows for a Session created after disposal. `packages/session/session-projection/src/index.ts:SessionProjectionRegistry.checkpoint` keeps a released unit's last cell, so the former empty-checkpoint expectation was a conflict leftover from the token-meter and released-checkpoint changes.
+
+`packages/mcp/mcp-client/tests/generation.spec.ts:unregisters tools when disposal interrupts the registration result` keeps the real `buildChildEnv` export when it mocks `../src/transport.ts`, because `packages/mcp/mcp-client/src/connection.ts:startConnection` calls it on every stdio generation; a factory without it fails the connection attempt before tools register, and the test waits for a disposal that is never scheduled.
+
+`packages/mcp/mcp-client/tests/loader-composition.spec.ts:filters tool schemas and omits server instructions from YAML config` mocks a stdio transport with `start`, `send` and `close`, because `packages/mcp/mcp-client/src/generation.ts:McpGeneration.connect` wraps those methods; a bare `vi.fn()` transport made the connection attempt throw and the plugin loaded with no tools.
+
+`packages/mcp/mcp-client/tests/reconnect.spec.ts:bounds disposal during connect when the transport never reports closure` expects `transport closure could not be confirmed` when the transport never reports closure, as `packages/mcp/mcp-client/src/connection.ts:startConnection` (dispose) logs; `cleanup incomplete` is now reserved for confirmed closure with a cleanup error.
+
+`packages/experimental/worktree/tests/archive.spec.ts:removes the checkout after the Session moved elsewhere` and `packages/experimental/client-ui-forge/tests/lens-panel.host.spec.ts:forgePanel lenses over local changes` run real git repositories and subprocesses (about 2.5 s per archive test on CI; the archive test in question archives, restores and archives again). They raise the per-test timeout to 30 s like the other worktree and forge host specs.
+
+## packages/knowledge/knowledge-router/tests/delegation-loop.spec.ts:setup
+
+`packages/knowledge/knowledge-router/tests/delegation-loop.spec.ts:setup` mounts `TestSessionQuery` (from `packages/subagent/tool-subagent-control/tests/test-session-query.ts`) because `packages/subagent/tool-subagent-control/src/index.ts:send_message` resolves its target through the `sessionQuery` service and fails with `SUBAGENT_CONTROL_QUERY_UNAVAILABLE` without it. `@deepseek-ai/dsh-session-query` is therefore a devDependency of knowledge-router.
+
+## packages/experimental/client-ui-forge/tests/lens-panel.host.spec.ts:OLD_SIDES
+
+`packages/experimental/client-ui-forge/tests/lens-panel.host.spec.ts:OLD_SIDES` runs one local-diff scope per test. The former single test did five `localDiff` plus lens reads in sequence (about 16 s on a Windows developer machine, over its 30 s budget on a loaded Linux CI runner); each scope now takes about 3 to 4 s and keeps its own 30 s budget. It was slow, not hung: it passes locally and every Git call returns.

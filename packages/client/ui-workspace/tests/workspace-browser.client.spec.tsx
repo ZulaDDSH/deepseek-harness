@@ -2824,18 +2824,20 @@ describe('Workspace tree grouping', () => {
   const child = { ...workspace('child', ['child-session'], 'Child'), path: '/projects/team/child' }
   const section = (title: string) => screen.getByText(title).closest<HTMLElement>('[class*="groupSection"]')!
 
-  it('collapses a parent, opens its registry menu, and paints a nested chat from its stored color', () => {
-    const b = mount({ useWorkspaces: hook(workspaceState([root, team])),
+  it('collapses a parent, offers its menu through the factory, and paints a nested chat from its stored color', () => {
+    const renderFactorySlot = vi.fn(renderMenuButton)
+    mount({ renderFactorySlot, useWorkspaces: hook(workspaceState([root, team])),
       useSessions: hook(sessionState([summary('root-session', 2), summary('team-session', 1)])),
       useAppearance: hook({ workspaces: {}, sections: {}, sessions: { 'team-session': { color: 'red' } } }) })
     fireEvent.click(screen.getByText('Projects'))
     expect(screen.queryByText('Team')).toBeNull()
     fireEvent.click(screen.getByText('Projects'))
-    fireEvent.click(screen.getByRole('button', { name: '工作区“Projects”的操作' }))
-    expect(b.props.openWorkspaceMenu).toHaveBeenLastCalledWith(wid('root'), '/projects', 'Projects', { x: 0, y: 0 }, 'toggle')
+    expect(renderFactorySlot).toHaveBeenCalledWith('contextMenu.button', {
+      target: { kind: 'workspace', value: { workspaceId: wid('root'), path: '/projects', displayTitle: 'Projects' } },
+      label: '工作区“Projects”的操作', className: rowCss.iconButton,
+    })
     fireEvent.click(screen.getByText('Team'))
     expect((screen.getByText('team-session').closest('[role="treeitem"]') as HTMLElement).style.color).toBe('rgb(240, 68, 56)')
-    b.view.unmount()
   })
 
   it('ends a section-enabled blank-target drag without filing the nested chat', () => {
