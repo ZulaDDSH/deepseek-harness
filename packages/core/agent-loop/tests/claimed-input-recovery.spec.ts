@@ -222,7 +222,30 @@ describe('claimed input recovery', () => {
     expect(admittedTexts(agent)).toContain('wake 1')
   })
 
-  it('counts consecutive restores: a held claim resets the count of its prompt', async () => {
+  it('discards a prompt whose request preparation fails on every wake', async () => {
+    const adapter = new MockAdapter([textResponse('unused')])
+    const ctx = await harness(adapter)
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('request-always-fails'), { provider: 'mock', model: 'mock' })
+    collectErrors(ctx)
+    const discarded: string[] = []
+    ctx.on('agent/inbox/discarded', ({ message }) => { discarded.push(...message.content.map(block => block.type === 'text' ? block.text : '')) })
+    ctx.on('agent/request', async (_event, next) => {
+      void next
+      throw new Error('request preparation failed')
+    })
+
+    agent.followup(prompt('poison'))
+    await agent.whenIdle()
+    for (let wake = 1; wake <= 12 && discarded.length === 0; wake++) {
+      agent.followup(prompt(`wake ${wake}`))
+      await agent.whenIdle()
+    }
+
+    expect(discarded).toEqual(['poison'])
+    expect(pendingTexts(agent)).not.toContain('poison')
+  })
+
+  it('resets the consecutive restore count when a claim is held, within the total bound', async () => {
     const adapter = new MockAdapter([textResponse('unused')])
     const ctx = await harness(adapter)
     const agent = await ctx.agentLoop.create(brandString<SessionId>('consecutive-restores'), { provider: 'mock', model: 'mock' })

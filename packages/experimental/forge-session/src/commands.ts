@@ -33,6 +33,23 @@ const GH_VALUE_LONG_OPTIONS = new Set([
 ])
 const GH_VALUE_SHORT_OPTIONS = new Set('aBbFHlmprTtR')
 const MAX_NESTING = 32
+const WRAPPERS = new Map([
+  ['sudo', { values: new Set(['-u', '-g', '-h', '-p', '-C', '-D', '-R', '-T', '-U', '-r', '-t', '--user', '--group', '--host', '--prompt', '--chdir']), positional: 0 }],
+  ['doas', { values: new Set(['-u', '-C']), positional: 0 }],
+  ['timeout', { values: new Set(['-s', '-k', '--signal', '--kill-after']), positional: 1 }],
+  ['nice', { values: new Set(['-n', '--adjustment']), positional: 0 }],
+  ['ionice', { values: new Set(['-c', '-n', '-p', '-P', '-u']), positional: 0 }],
+  ['stdbuf', { values: new Set(['-i', '-o', '-e']), positional: 0 }],
+  ['setsid', { values: new Set<string>(), positional: 0 }],
+  ['nohup', { values: new Set<string>(), positional: 0 }],
+  ['xargs', { values: new Set(['-I', '-L', '-n', '-P', '-s', '-d', '-E', '-a', '-l']), positional: 0 }],
+])
+const ENV_VALUE_OPTIONS: ReadonlySet<string> = new Set(['-u', '-C', '-S', '--unset', '--chdir', '--split-string'])
+const SSH_VALUE_OPTIONS: ReadonlySet<string> = new Set([
+  '-B', '-b', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-l', '-m', '-O', '-o', '-p', '-Q', '-R', '-S', '-W', '-w',
+])
+const FIND_EXEC_OPTIONS: ReadonlySet<string> = new Set(['-exec', '-execdir', '-ok', '-okdir'])
+const POWERSHELL_COMMAND_OPTION = /^-c(?:om(?:m(?:a(?:n(?:d)?)?)?)?)?$/i
 const PUSH_TARGET_LINE = /^To (\S+)$/
 const PUSH_REF_LINE = /^ [ +*=] (?<summary>\[[^\]]+\]|\S+) +\S+ -> (?<destination>\S+)(?: \(.*\))?$/
 const PORCELAIN_REF_LINE = /^[ +*=]\t[^:\t]*:(?<destination>\S+)\t(?<summary>.*)$/
@@ -184,18 +201,29 @@ function commandForms(command: string): CommandForms {
     const bodies = substitutionBodies(text)
     if (bodies === undefined) return
     for (const body of bodies) visit(body, depth + 1)
-    for (const [program = '', ...args] of simpleCommands(text)) {
-      if (SHELL_INTERPRETERS.has(program)) {
-        const script = shellScript(args)
-        if (script !== undefined) visit(script, depth + 1)
-      } else if (program === 'gh') {
-        const [resource, operation, ...flags] = args
-        if (resource !== 'pr') continue
-        if (operation === 'view' || operation === 'edit' || operation === 'checkout') forms.reference = true
-        else if ((operation === 'create' || operation === 'new') && !printsNoPullRequest(flags)) forms.create = true
-      } else if (program === 'git' && gitSubcommand(args) === 'push') {
-        forms.push = true
-      }
+    for (const words of simpleCommands(text)) classify(words, depth)
+  }
+  const classify = (words: readonly string[], depth: number): void => {
+    if (depth > MAX_NESTING) return
+    let start = skipAssignments(words, 0)
+    while (SHELL_KEYWORDS.has(words[start] ?? '')) start = skipAssignments(words, start + 1)
+    const program = executableName(words[start] ?? '')
+    const args = words.slice(start + 1)
+    const wrapped = unwrapCommand(program, args)
+    const script = SHELL_INTERPRETERS.has(program) ? shellScript(args) : commandString(program, args)
+    if (wrapped !== undefined) {
+      classify(wrapped, depth + 1)
+    } else if (script !== undefined) {
+      visit(script, depth + 1)
+    } else if (program === 'find') {
+      for (const inner of findCommands(args)) classify(inner, depth + 1)
+    } else if (program === 'gh') {
+      const [resource, operation, ...flags] = args
+      if (resource !== 'pr') return
+      if (operation === 'view' || operation === 'edit' || operation === 'checkout') forms.reference = true
+      else if ((operation === 'create' || operation === 'new') && !printsNoPullRequest(flags)) forms.create = true
+    } else if (program === 'git' && gitSubcommand(args) === 'push') {
+      forms.push = true
     }
   }
   visit(command, 0)
@@ -205,7 +233,7 @@ function commandForms(command: string): CommandForms {
 function simpleCommands(source: string): string[][] {
   let tokens: parse.ParseEntry[]
   try {
-    tokens = parse(source.replace(/\r?\n/g, ';'), () => '')
+    tokens = parse(source.replace(/\r?\n/g, ';').replace(/\\(?=[A-Za-z\d_.])/g, '/'), () => '')
   } catch {
     return []
   }
@@ -215,13 +243,66 @@ function simpleCommands(source: string): string[][] {
     else if ('pattern' in token) segments.at(-1)?.push(token.pattern)
     else segments.push([])
   }
-  return segments.flatMap((words) => {
-    let start = skipAssignments(words, 0)
-    while (SHELL_KEYWORDS.has(words[start] ?? '')) start = skipAssignments(words, start + 1)
-    if (executableName(words[start] ?? '') === 'env') start = skipAssignments(words, start + 1)
-    const program = words[start]
-    return program === undefined ? [] : [[executableName(program), ...words.slice(start + 1)]]
-  })
+  return segments.filter(words => words.length > 0)
+}
+
+function unwrapCommand(program: string, args: readonly string[]): string[] | undefined {
+  if (program === 'env') {
+    let index = 0
+    for (; index < args.length; index++) {
+      const word = args[index] ?? ''
+      if (word === '--' || ASSIGNMENT.test(word)) continue
+      if (!word.startsWith('-')) break
+      if (ENV_VALUE_OPTIONS.has(word)) index++
+    }
+    return args.slice(index)
+  }
+  const wrapper = WRAPPERS.get(program)
+  if (wrapper === undefined) return undefined
+  let index = 0
+  for (; index < args.length; index++) {
+    const word = args[index] ?? ''
+    if (word === '--') {
+      index++
+      break
+    }
+    if (!word.startsWith('-') || word === '-') break
+    if (wrapper.values.has(word)) index++
+  }
+  return args.slice(index + wrapper.positional)
+}
+
+function commandString(program: string, args: readonly string[]): string | undefined {
+  if (program === 'eval') return args.join(' ')
+  if (program === 'pwsh' || program === 'powershell') {
+    const at = args.findIndex(word => POWERSHELL_COMMAND_OPTION.test(word))
+    return at < 0 ? undefined : args.slice(at + 1).join(' ')
+  }
+  if (program === 'cmd') {
+    const at = args.findIndex(word => /^\/[ck]$/i.test(word))
+    return at < 0 ? undefined : args.slice(at + 1).join(' ')
+  }
+  if (program === 'ssh') {
+    let index = 0
+    for (; index < args.length; index++) {
+      const word = args[index] ?? ''
+      if (!word.startsWith('-')) break
+      if (SSH_VALUE_OPTIONS.has(word)) index++
+    }
+    return index + 1 < args.length ? args.slice(index + 1).join(' ') : undefined
+  }
+  return undefined
+}
+
+function findCommands(args: readonly string[]): string[][] {
+  const commands: string[][] = []
+  for (let index = 0; index < args.length; index++) {
+    if (!FIND_EXEC_OPTIONS.has(args[index] ?? '')) continue
+    const inner: string[] = []
+    for (index++; index < args.length && args[index] !== ';' && args[index] !== '+'; index++) inner.push(args[index] ?? '')
+    commands.push(inner)
+  }
+  return commands
 }
 
 function executableName(word: string): string {
@@ -327,7 +408,7 @@ function substitutionBodies(source: string): string[] | undefined {
       }
     }
   }
-  return frames.length === 1 ? bodies : undefined
+  return frames.some(frame => frame !== root && !frame.tick) ? undefined : bodies
 }
 
 function skipAssignments(words: readonly string[], start: number): number {
