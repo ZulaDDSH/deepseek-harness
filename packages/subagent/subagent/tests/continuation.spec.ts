@@ -2966,7 +2966,7 @@ describe('continuable review regressions', () => {
     release.resolve(undefined)
     await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
     await child.whenIdle()
-    expect(child.inbox.hasPending).toBe(false)
+    expect([...child.inbox.nextTurn, ...child.inbox.nextStep]).toEqual([])
     expect(hasUserText(child.session.snapshotEvents(), 'after interrupt')).toBe(true)
     await waitNoActivation(ctx, started.childId)
   })

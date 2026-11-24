@@ -45,7 +45,7 @@ describe('driver retirement window', () => {
     await agent.whenIdle()
 
     expect(adapter.requests).toHaveLength(2)
-    expect(agent.inbox.hasPending).toBe(false)
+    expect([...agent.inbox.nextTurn, ...agent.inbox.nextStep]).toEqual([])
     expect(agent.session.snapshotEvents().filter(e => e.type === 'user/message').flatMap(e => e.type === 'user/message' ? e.data.content : []).map(c => c.type === 'text' ? c.text : '')).toEqual(['first', 'late'])
   })
 })
