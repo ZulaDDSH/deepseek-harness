@@ -669,7 +669,7 @@ export class SessionManager {
     this.queuedRefreshes.add(sessionId)
     const again = (): void => {
       this.queuedRefreshes.delete(sessionId)
-      if (this.disposed) return
+      if (this.disposed || inflight.controller.signal.aborted) return
       this.projectionLoads.delete(sessionId)
       void this.refreshProjections(sessionId)
     }

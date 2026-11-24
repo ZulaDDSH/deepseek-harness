@@ -89,4 +89,17 @@ describe('manager append routing', () => {
     await Promise.resolve()
     expect(remote.session.projections).toHaveBeenCalledTimes(2)
   })
+
+  it('does not refresh a Session removed while its gap refresh was queued', async ({ remote }) => {
+    const first = Promise.withResolvers<ReturnType<typeof ok>>()
+    remote.session.projections.mockReturnValueOnce(first.promise as never).mockResolvedValue(ok(null) as never)
+    const manager = makeManager(remote)
+    manager.handleControlFrame(frame(3, [{ key: 'subagentCatalog', append: { from: 5, items: [entry('x')] } }]))
+    manager.handleControlFrame(frame(4, [{ key: 'subagentCatalog', append: { from: 7, items: [entry('y')] } }]))
+    manager.handleSessionRemoved(SID)
+    first.resolve(ok(null))
+    await vi.waitFor(() => { expect(remote.session.projections).toHaveBeenCalledTimes(1) })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(remote.session.projections).toHaveBeenCalledTimes(1)
+  })
 })
