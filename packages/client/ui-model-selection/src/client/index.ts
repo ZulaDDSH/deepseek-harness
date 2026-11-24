@@ -164,9 +164,21 @@ export function apply(ctx: ClientContext): void {
             if (result.error.code === 'session/writer-held') throw new Error(t('error.sessionInUse'))
             throw result.error
           }
-          if (directory.store.getSnapshot().defaultNotSaved === true) {
-            const actx = sessions.scope(session.sessionId)
-            if (actx !== undefined) scope.get('conversation')?.input.for(actx).notify('info', t('warning.defaultNotSaved'))
+          const actx = sessions.scope(session.sessionId)
+          const notify = (key: 'warning.defaultNotSaved' | 'warning.defaultSaving' | 'warning.defaultSaved'): void => {
+            if (actx !== undefined) scope.get('conversation')?.input.for(actx).notify('info', t(key))
+          }
+          const { defaultNotSaved, defaultLate } = directory.store.getSnapshot()
+          if (defaultNotSaved === true) notify('warning.defaultNotSaved')
+          else if (defaultLate === 'saving') {
+            notify('warning.defaultSaving')
+            const unsubscribe = directory.store.subscribe(() => {
+              const late = directory.store.getSnapshot()
+              if (late.defaultLate === 'saving') return
+              unsubscribe()
+              if (late.defaultNotSaved === true) notify('warning.defaultNotSaved')
+              else if (late.defaultLate === 'saved') notify('warning.defaultSaved')
+            })
           }
         },
       },

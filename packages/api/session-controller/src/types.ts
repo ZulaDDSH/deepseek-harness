@@ -225,6 +225,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'session/provider-credentials-unavailable': Record<string, never>
     'session/provider-models-unavailable': { readonly provider: string }
     'session/model-unavailable': { readonly provider: string; readonly model: string }
+    'session/default-save-unknown': { readonly sessionId: SessionId; readonly saveId: DefaultSaveId }
     'session/conflict': {
       readonly sessionId: SessionId
       readonly requestedCwd: string
@@ -372,10 +373,29 @@ export interface SessionSelectModelRequest extends ModelSelection {
   readonly sessionId: SessionId
 }
 
+/** Opaque handle to a default-model save that had not settled when `selectModel` answered. */
+export type DefaultSaveId = Branded<'default-save-id'>
+
+/** Outcome of the profile default save; `pending` means it has not settled yet. */
+export type DefaultSaveOutcome = 'saved' | 'unavailable' | 'failed' | 'pending'
+
 /** Accepted model selection after Host resolution. */
 export interface SessionSelectModelValue {
   readonly selected: ModelSelection
-  readonly defaultSave?: 'saved' | 'unavailable' | 'failed'
+  readonly defaultSave?: DefaultSaveOutcome
+  /** Present exactly when `defaultSave` is `pending`; resolve it with `defaultSaveOutcome`. */
+  readonly defaultSaveId?: DefaultSaveId
+}
+
+/** Request for the outcome of one pending default-model save. */
+export interface SessionDefaultSaveOutcomeRequest {
+  readonly sessionId: SessionId
+  readonly saveId: DefaultSaveId
+}
+
+/** Latest outcome of one default-model save; `pending` means ask again. */
+export interface SessionDefaultSaveOutcomeValue {
+  readonly defaultSave: DefaultSaveOutcome
 }
 
 /** Per-Session hook overrides keyed by `hookKey`; true enables, false disables. */

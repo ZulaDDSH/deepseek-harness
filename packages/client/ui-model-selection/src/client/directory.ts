@@ -7,7 +7,7 @@
 import type { ModelSelectionProjection } from '@deepseek-ai/dsh-agent/types'
 import type { TrackProductEvent } from '@deepseek-ai/dsh-client-product-analytics/client'
 import type {
-  ModelCatalogFailure, ModelProviderGroup, ModelSelection,
+  DefaultSaveId, DefaultSaveOutcome, ModelCatalogFailure, ModelProviderGroup, ModelSelection,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { RemoteResult, TypertClientRemote } from '@deepseek-ai/dsh-typert-protocol'
@@ -36,6 +36,8 @@ export interface ModelDirectoryState {
   /** Whole-request or selection failure text; null when none. */
   error: string | null
   defaultNotSaved?: boolean
+  /** Late default-save progress: `saving` until the Host settles a stalled save, then `saved`; a failure sets `defaultNotSaved`. */
+  defaultLate?: 'saving' | 'saved'
 }
 
 /** One session's shared directory controller; disposed with the session scope. */
@@ -62,7 +64,7 @@ export class ModelDirectory {
    * @param track - desktop-only callback after a successful user selection.
    */
   constructor(
-    private readonly sessions: Pick<TypertClientRemote['session'], 'selectModel'>,
+    private readonly sessions: Pick<TypertClientRemote['session'], 'selectModel' | 'defaultSaveOutcome'>,
     private readonly sessionId: SessionId,
     private readonly available: () => boolean,
     private readonly catalog: ModelCatalogDirectory,
@@ -99,7 +101,7 @@ export class ModelDirectory {
     const previousEffort = previous?.reasoningEffort ?? (previous === null ? undefined : this.catalog.reasoningFor(previous)?.defaultEffort)
     const nextEffort = selection.reasoningEffort ?? this.catalog.reasoningFor(selection)?.defaultEffort
     const generation = ++this.generation
-    this.store.update((s) => { s.status = 'selecting'; s.pending = selection; s.error = null; delete s.defaultNotSaved })
+    this.store.update((s) => { s.status = 'selecting'; s.pending = selection; s.error = null; delete s.defaultNotSaved; delete s.defaultLate })
     const send = () => generation !== this.generation
       ? Promise.resolve(undefined)
       : this.sessions.selectModel({
@@ -135,12 +137,30 @@ export class ModelDirectory {
         ...this.isBlank() ? {} : { session_id: this.sessionId }, model_name: to, switch_from: previousEffort ?? 'default', switch_to: nextEffort ?? 'default',
       })
     }
+    const { defaultSaveId: saveId } = result.value
     this.store.update((s) => {
       s.status = 'ready'; s.pending = null; s.error = null
       if (result.value.defaultSave === 'failed' || result.value.defaultSave === 'unavailable') s.defaultNotSaved = true
+      if (saveId !== undefined) s.defaultLate = 'saving'
     })
     this.syncInputs()
+    if (saveId !== undefined) void this.followDefaultSave(generation, saveId)
     return { ok: true, value: undefined }
+  }
+
+  private async followDefaultSave(generation: number, saveId: DefaultSaveId): Promise<void> {
+    let outcome: DefaultSaveOutcome = 'pending'
+    while (outcome === 'pending') {
+      const result = await this.sessions.defaultSaveOutcome({ sessionId: this.sessionId, saveId })
+      if (this.disposed || generation !== this.generation) return
+      outcome = result.ok ? result.value.defaultSave : 'failed'
+    }
+    this.store.update((s) => {
+      delete s.defaultLate
+      if (outcome === 'saved') s.defaultLate = 'saved'
+      else s.defaultNotSaved = true
+    })
+    this.syncInputs()
   }
 
   /**
@@ -155,6 +175,7 @@ export class ModelDirectory {
       state.pending = null
       state.error = null
       delete state.defaultNotSaved
+      delete state.defaultLate
     })
     this.syncInputs()
   }
@@ -176,6 +197,11 @@ export class ModelDirectory {
   private syncInputs(): void {
     if (this.disposed) return
     const catalog = this.catalog.store.getSnapshot()
+    const { defaultNotSaved, defaultLate } = this.store.getSnapshot()
+    const defaults = {
+      ...defaultNotSaved === true ? { defaultNotSaved: true } : {},
+      ...defaultLate === undefined ? {} : { defaultLate },
+    }
     const projected = modelSelectionProjection(this.projected.getSnapshot())
     const intended = projected?.next ?? catalog.value?.default
     const reasoning = intended === undefined ? undefined : this.catalog.reasoningFor(intended)
@@ -194,7 +220,7 @@ export class ModelDirectory {
         status: catalog.status === 'error' ? 'error' : 'loading',
         pending: this.store.getSnapshot().pending,
         error: catalog.error,
-        ...this.store.getSnapshot().defaultNotSaved === true ? { defaultNotSaved: true } : {},
+        ...defaults,
       })
       return
     }
@@ -213,7 +239,7 @@ export class ModelDirectory {
         : 'ready',
       pending: this.store.getSnapshot().pending,
       error: null,
-      ...this.store.getSnapshot().defaultNotSaved === true ? { defaultNotSaved: true } : {},
+      ...defaults,
     })
   }
 }

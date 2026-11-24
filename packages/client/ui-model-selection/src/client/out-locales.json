@@ -167,6 +167,14 @@
   {
    "key": "warning.defaultRetry",
    "up": null
+  },
+  {
+   "key": "warning.defaultSaving",
+   "up": null
+  },
+  {
+   "key": "warning.defaultSaved",
+   "up": null
   }
  ],
  "es": [
@@ -336,6 +344,14 @@
   },
   {
    "key": "warning.defaultRetry",
+   "up": null
+  },
+  {
+   "key": "warning.defaultSaving",
+   "up": null
+  },
+  {
+   "key": "warning.defaultSaved",
    "up": null
   }
  ],
@@ -507,6 +523,14 @@
   {
    "key": "warning.defaultRetry",
    "up": null
+  },
+  {
+   "key": "warning.defaultSaving",
+   "up": null
+  },
+  {
+   "key": "warning.defaultSaved",
+   "up": null
   }
  ],
  "de": [
@@ -676,6 +700,14 @@
   },
   {
    "key": "warning.defaultRetry",
+   "up": null
+  },
+  {
+   "key": "warning.defaultSaving",
+   "up": null
+  },
+  {
+   "key": "warning.defaultSaved",
    "up": null
   }
  ],
@@ -847,6 +879,14 @@
   {
    "key": "warning.defaultRetry",
    "up": null
+  },
+  {
+   "key": "warning.defaultSaving",
+   "up": null
+  },
+  {
+   "key": "warning.defaultSaved",
+   "up": null
   }
  ],
  "pt": [
@@ -1016,6 +1056,14 @@
   },
   {
    "key": "warning.defaultRetry",
+   "up": null
+  },
+  {
+   "key": "warning.defaultSaving",
+   "up": null
+  },
+  {
+   "key": "warning.defaultSaved",
    "up": null
   }
  ]

@@ -56,6 +56,10 @@ import type {
   SessionSelectMcpValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
+  SessionDefaultSaveOutcomeRequest,
+  SessionDefaultSaveOutcomeValue,
+  DefaultSaveId,
+  DefaultSaveOutcome,
   SessionUpdateQueueRequest,
   SessionUpdateQueueValue,
   SessionRequestId,
@@ -65,9 +69,10 @@ type PromptContentCandidate =
   | SessionPromptRequest['content'][number]
   | Extract<SessionUpdateQueueRequest['action'], { readonly kind: 'edit' }>['content'][number]
 
-type DefaultSave = NonNullable<SessionSelectModelValue['defaultSave']>
+type DefaultSave = DefaultSaveOutcome
 
 const DEFAULT_SAVE_WAIT_MS = 3000
+const RETAINED_DEFAULT_SAVES = 32
 
 /**
  * Whether prompt content carries non-whitespace text or an attachment.
@@ -102,6 +107,8 @@ export class SessionCommandController {
     messages: Set<MessageId>
     requests: Set<SessionRequestId>
   }>()
+
+  private readonly stalledDefaultSaves = new Map<DefaultSaveId, { sessionId: SessionId; saving: Promise<DefaultSave> }>()
 
   private continuation!: ProjectionHandle<ContinuationState>
 
@@ -273,15 +280,47 @@ export class SessionCommandController {
         )
       }
     })
+    const defaultSave = await this.settleWithinBound(saving)
+    if (defaultSave !== 'pending') return { ...value, defaultSave }
+    this.ctx.logger.warn('session-controller: the default model save has not settled; reporting it as pending')
+    const saveId = brandString<DefaultSaveId>(`default-save-${randomUUID()}`)
+    this.stalledDefaultSaves.set(saveId, { sessionId: request.sessionId, saving })
+    if (this.stalledDefaultSaves.size > RETAINED_DEFAULT_SAVES) {
+      for (const oldest of this.stalledDefaultSaves.keys()) {
+        this.stalledDefaultSaves.delete(oldest)
+        break
+      }
+    }
+    return { ...value, defaultSave, defaultSaveId: saveId }
+  }
+
+  /**
+   * Report the latest outcome of a default-model save that had not settled when its selection answered.
+   * @param request - Session identity and the `defaultSaveId` from `selectModel`.
+   * @returns the settled outcome, or `pending` when the save is still running after the bounded wait.
+   * @throws `session/default-save-unknown` when the Host holds no such save for the Session.
+   */
+  async defaultSaveOutcome(request: SessionDefaultSaveOutcomeRequest): Promise<SessionDefaultSaveOutcomeValue> {
+    const stalled = this.stalledDefaultSaves.get(request.saveId)
+    if (stalled === undefined || stalled.sessionId !== request.sessionId) {
+      throw new RemoteError(
+        'session/default-save-unknown',
+        `no pending default model save "${request.saveId}" for session "${request.sessionId}"`,
+        { sessionId: request.sessionId, saveId: request.saveId },
+      )
+    }
+    const defaultSave = await this.settleWithinBound(stalled.saving)
+    if (defaultSave !== 'pending') this.stalledDefaultSaves.delete(request.saveId)
+    return { defaultSave }
+  }
+
+  private async settleWithinBound(saving: Promise<DefaultSave>): Promise<DefaultSave> {
     let timer: ReturnType<typeof setTimeout> | undefined
     const waited = new Promise<DefaultSave>((resolve) => {
-      timer = setTimeout(() => {
-        this.ctx.logger.warn('session-controller: the default model save has not settled; reporting it as not saved')
-        resolve('failed')
-      }, DEFAULT_SAVE_WAIT_MS)
+      timer = setTimeout(resolve, DEFAULT_SAVE_WAIT_MS, 'pending')
     })
     try {
-      return { ...value, defaultSave: await Promise.race([saving, waited]) }
+      return await Promise.race([saving, waited])
     } finally {
       clearTimeout(timer)
     }

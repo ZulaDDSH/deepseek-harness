@@ -139,6 +139,41 @@ describe('ModelSelect default-not-saved notice', () => {
     await vi.waitFor(() => { expect(screen.queryByRole('alert')).toBeNull() })
   })
 
+  it('shows a saving notice without a retry for a stalled save, then a saved notice on its late success', async () => {
+    const directory = createSnapshotStore<ModelDirectoryState>(initial)
+    const select = vi.fn(async (selection: ModelSelection) => {
+      directory.update((s) => { s.status = 'selecting'; s.pending = selection })
+      await Promise.resolve()
+      directory.update((s) => { s.status = 'ready'; s.pending = null; s.current = selection; s.defaultLate = 'saving' })
+      return { ok: true as const, value: undefined }
+    })
+    render(<Seat directory={directory} select={select} />)
+    chooseProModel()
+
+    expect((await screen.findByRole('alert')).textContent).toContain(zh['warning.defaultSaving'])
+    expect(screen.queryByRole('button', { name: zh['warning.defaultRetry'] })).toBeNull()
+    await act(async () => { directory.update((s) => { s.defaultLate = 'saved' }) })
+    await vi.waitFor(() => { expect(screen.getByRole('alert').textContent).toContain(zh['warning.defaultSaved']) })
+    expect(screen.queryByRole('button', { name: zh['warning.defaultRetry'] })).toBeNull()
+  })
+
+  it('shows the retry notice when a stalled save later fails', async () => {
+    const directory = createSnapshotStore<ModelDirectoryState>(initial)
+    const select = vi.fn(async (selection: ModelSelection) => {
+      directory.update((s) => { s.status = 'selecting'; s.pending = selection })
+      await Promise.resolve()
+      directory.update((s) => { s.status = 'ready'; s.pending = null; s.current = selection; s.defaultLate = 'saving' })
+      return { ok: true as const, value: undefined }
+    })
+    render(<Seat directory={directory} select={select} />)
+    chooseProModel()
+    await screen.findByText(zh['warning.defaultSaving'])
+
+    await act(async () => { directory.update((s) => { delete s.defaultLate; s.defaultNotSaved = true }) })
+    await screen.findByRole('button', { name: zh['warning.defaultRetry'] })
+    expect(screen.getByRole('alert').textContent).toContain(zh['warning.defaultNotSaved'])
+  })
+
   it('leaves a failed save from the other entry to that entry', async () => {
     const { directory } = mountSeat(false)
     await act(async () => { directory.update((s) => { s.defaultNotSaved = true }) })

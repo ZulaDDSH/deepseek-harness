@@ -22,7 +22,7 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionPromptRequest, SessionRequestId } from '../src/types.ts'
+import type { DefaultSaveId, SessionPromptRequest, SessionRequestId } from '../src/types.ts'
 import { buildModelCatalog, hasProviderApiKey, missingCredentialProviders } from '../src/catalog.ts'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
@@ -152,6 +152,14 @@ async function harness(logged?: {
   } satisfies Agent
   await ctx.agents.register(agent)
   return { ctx, agent, sessionId: session.id }
+}
+
+async function advanceUntil<T>(operation: Promise<T>): Promise<T> {
+  let settled: { value: T } | undefined
+  void operation.then((value) => { settled = { value } })
+  for (let step = 0; step < 20 && settled === undefined; step++) await vi.advanceTimersByTimeAsync(500)
+  if (settled === undefined) throw new Error('operation did not settle within the advanced time')
+  return settled.value
 }
 
 function expectValue<T>(result: { ok: true; value: T } | { ok: false }): T {
@@ -702,43 +710,53 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
-  it('reports a stalled default save as not saved after the bounded wait and keeps each switch applied', async () => {
+  it('reports a stalled default save as pending, keeps each switch applied, and resolves its real outcome through the endpoint', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const { ctx, sessionId } = await harness()
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     onTestFinished(() => { warn.mockRestore() })
-    const release = Promise.withResolvers<undefined>()
+    const releases = [Promise.withResolvers<undefined>(), Promise.withResolvers<undefined>()]
     const saves: Promise<void>[] = []
-    const operations: Promise<unknown>[] = []
     onTestFinished(async () => {
-      release.resolve(undefined)
-      await Promise.allSettled([...operations, ...saves])
+      for (const release of releases) release.resolve(undefined)
+      await Promise.allSettled(saves)
       await ctx.fiber.dispose()
       vi.useRealTimers()
     })
     const remote = await createSessionTestRemote(ctx, {
       defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
       saveDefaultModelSelection: () => {
-        saves.push(release.promise)
-        return release.promise
+        const save = releases[saves.length]!.promise
+        saves.push(save)
+        return save
       },
       cwd: '/tmp',
     })
 
+    const ids: DefaultSaveId[] = []
     for (const model of ['deepseek-reasoner', 'deepseek-chat']) {
-      let outcome: string | undefined
-      const operation = remote.selectModel({ sessionId, provider: 'deepseek-official', model })
-        .then((result) => { outcome = expectValue(result).defaultSave })
-      operations.push(operation)
-      for (let step = 0; step < 20 && outcome === undefined; step++) await vi.advanceTimersByTimeAsync(500)
-      expect(outcome).toBe('failed')
+      const value = expectValue(await advanceUntil(remote.selectModel({ sessionId, provider: 'deepseek-official', model })))
+      expect(value.defaultSave).toBe('pending')
+      expect(value.defaultSaveId).toEqual(expect.any(String))
+      ids.push(value.defaultSaveId!)
       expect(currentSelection(ctx, sessionId)).toMatchObject({ provider: 'deepseek-official', model })
     }
     expect(saves).toHaveLength(2)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('has not settled'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('reporting it as pending'))
+
+    const [first, second] = ids as [DefaultSaveId, DefaultSaveId]
+    expect(expectValue(await advanceUntil(remote.defaultSaveOutcome({ sessionId, saveId: first }))))
+      .toEqual({ defaultSave: 'pending' })
+    releases[0]!.resolve(undefined)
+    expect(expectValue(await advanceUntil(remote.defaultSaveOutcome({ sessionId, saveId: first }))))
+      .toEqual({ defaultSave: 'saved' })
+    await expect(remote.defaultSaveOutcome({ sessionId, saveId: first }))
+      .resolves.toMatchObject({ ok: false, error: { code: 'session/default-save-unknown' } })
+    expect(expectValue(await advanceUntil(remote.defaultSaveOutcome({ sessionId, saveId: second }))))
+      .toEqual({ defaultSave: 'pending' })
   })
 
-  it('keeps a default save that rejects after the bounded wait reported as failed and logs the late rejection', async () => {
+  it('reports a default save that rejects after the bounded wait as failed through the endpoint and logs the late rejection', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const { ctx, sessionId } = await harness()
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
@@ -753,17 +771,64 @@ describe('Web session model selection', () => {
       saveDefaultModelSelection: () => write.promise,
       cwd: '/tmp',
     })
-    let outcome: string | undefined
-    const operation = remote.selectModel({ sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner' })
-      .then((result) => { outcome = expectValue(result).defaultSave })
-    for (let step = 0; step < 20 && outcome === undefined; step++) await vi.advanceTimersByTimeAsync(500)
-    expect(outcome).toBe('failed')
+    const value = expectValue(await advanceUntil(remote.selectModel({ sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner' })))
+    expect(value.defaultSave).toBe('pending')
     write.reject(new Error('profile write rejected late'))
-    await operation
-    await vi.advanceTimersByTimeAsync(0)
-    expect(outcome).toBe('failed')
+    expect(expectValue(await advanceUntil(remote.defaultSaveOutcome({ sessionId, saveId: value.defaultSaveId! }))))
+      .toEqual({ defaultSave: 'failed' })
     expect(currentSelection(ctx, sessionId)).toMatchObject({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('profile write rejected late'))
+  })
+
+  it('rejects a default save id for another Session or one the Host does not hold', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { ctx, sessionId } = await harness()
+    const release = Promise.withResolvers<undefined>()
+    onTestFinished(async () => {
+      release.resolve(undefined)
+      await ctx.fiber.dispose()
+      vi.useRealTimers()
+    })
+    const remote = await createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      saveDefaultModelSelection: () => release.promise,
+      cwd: '/tmp',
+    })
+    const value = expectValue(await advanceUntil(remote.selectModel({ sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner' })))
+    const other = brandString<SessionId>('another-session')
+    await expect(remote.defaultSaveOutcome({ sessionId: other, saveId: value.defaultSaveId! }))
+      .resolves.toMatchObject({ ok: false, error: { code: 'session/default-save-unknown' } })
+    await expect(remote.defaultSaveOutcome({ sessionId, saveId: brandString<DefaultSaveId>('never-issued') }))
+      .resolves.toMatchObject({ ok: false, error: { code: 'session/default-save-unknown' } })
+    expect(expectValue(await advanceUntil(remote.defaultSaveOutcome({ sessionId, saveId: value.defaultSaveId! }))))
+      .toEqual({ defaultSave: 'pending' })
+  })
+
+  it('retains a bounded number of stalled default saves and forgets the oldest first', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { ctx, sessionId } = await harness()
+    const release = Promise.withResolvers<undefined>()
+    onTestFinished(async () => {
+      release.resolve(undefined)
+      await ctx.fiber.dispose()
+      vi.useRealTimers()
+    })
+    const remote = await createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      saveDefaultModelSelection: () => release.promise,
+      cwd: '/tmp',
+    })
+    const ids: DefaultSaveId[] = []
+    for (let index = 0; index < 33; index++) {
+      const value = expectValue(await advanceUntil(remote.selectModel({
+        sessionId, provider: 'deepseek-official', model: index % 2 === 0 ? 'deepseek-reasoner' : 'deepseek-chat',
+      })))
+      ids.push(value.defaultSaveId!)
+    }
+    await expect(remote.defaultSaveOutcome({ sessionId, saveId: ids[0]! }))
+      .resolves.toMatchObject({ ok: false, error: { code: 'session/default-save-unknown' } })
+    expect(expectValue(await advanceUntil(remote.defaultSaveOutcome({ sessionId, saveId: ids[32]! }))))
+      .toEqual({ defaultSave: 'pending' })
   })
 
   it('reports an unsaved default when the deployment has no configuration editor', async () => {
