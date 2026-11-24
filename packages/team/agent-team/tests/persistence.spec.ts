@@ -136,6 +136,53 @@ for (const backend of backends) {
       expect(second.ctx.agentTeams.listTasks(resumed.agent)).toEqual([claimed])
     })
 
+    it.each(['rejects', 'resolves false'] as const)('keeps a Team mode applied under an unconfirmed flush that %s across a restart, and its retry adds no event', async (kind) => {
+      const storageRoot = mkdtempSync(join(tmpdir(), `dsh-team-unconfirmed-${backend.name.toLowerCase()}-`))
+      roots.push(storageRoot)
+      const id = brandString<SessionId>(`${backend.name.toLowerCase()}-unconfirmed-${kind === 'rejects' ? 'reject' : 'false'}`)
+      const first = await stack(backend, storageRoot, [])
+      const lead = await first.ctx.agentLoop.create(id, { provider: 'mock', model: 'mock' })
+      lead.session.append('session/title', { title: 'Saved session', messageSeqs: [], source: { kind: 'user' } })
+      await first.ctx.sessions.flush(lead.session)
+      const flush = vi.spyOn(first.ctx.sessions, 'flush')
+      if (kind === 'rejects') flush.mockRejectedValueOnce(new Error('disk full'))
+      else flush.mockResolvedValueOnce(false)
+      await expect(first.ctx.agentTeams.setEnabled(lead, true)).rejects.toMatchObject({ code: 'TEAM_MODE_PERSISTENCE_UNCONFIRMED' })
+      expect(first.ctx.agentTeams.isEnabled(lead)).toBe(true)
+      await first.dispose()
+
+      const second = await stack(backend, storageRoot, [])
+      const resumed = await second.ctx.agents.resume({ resumeSessionId: id, agentOptions: { provider: 'mock', model: 'mock' } })
+      expect(second.ctx.agentTeams.isEnabled(resumed.agent)).toBe(true)
+      const modeEvents = (): unknown[] => resumed.agent.session.ownEvents().filter(event => event.type === 'team/mode').map(event => event.data)
+      expect(modeEvents()).toEqual([{ enabled: true }])
+      await second.ctx.agentTeams.setEnabled(resumed.agent, true)
+      expect(modeEvents()).toEqual([{ enabled: true }])
+      await resumed.dispose()
+    })
+
+    it('starts with the mode off after a restart when the unconfirmed selection never reached disk, and re-selecting it persists once', async () => {
+      const storageRoot = mkdtempSync(join(tmpdir(), `dsh-team-lost-${backend.name.toLowerCase()}-`))
+      roots.push(storageRoot)
+      const id = brandString<SessionId>(`${backend.name.toLowerCase()}-lost-mode`)
+      const first = await stack(backend, storageRoot, [])
+      const lead = await first.ctx.agentLoop.create(id, { provider: 'mock', model: 'mock' })
+      lead.session.append('session/title', { title: 'Saved session', messageSeqs: [], source: { kind: 'user' } })
+      await first.ctx.sessions.flush(lead.session)
+      const storage = first.ctx.sessionPersistence as unknown as { persistBatch: () => Promise<void> }
+      vi.spyOn(storage, 'persistBatch').mockRejectedValue(new Error('disk full'))
+      await expect(first.ctx.agentTeams.setEnabled(lead, true)).rejects.toMatchObject({ code: 'TEAM_MODE_PERSISTENCE_UNCONFIRMED' })
+      expect(first.ctx.agentTeams.isEnabled(lead)).toBe(true)
+      await first.dispose().catch(() => undefined)
+
+      const second = await stack(backend, storageRoot, [])
+      const resumed = await second.ctx.agents.resume({ resumeSessionId: id, agentOptions: { provider: 'mock', model: 'mock' } })
+      expect(second.ctx.agentTeams.isEnabled(resumed.agent)).toBe(false)
+      await second.ctx.agentTeams.setEnabled(resumed.agent, true)
+      expect(resumed.agent.session.ownEvents().filter(event => event.type === 'team/mode').map(event => event.data)).toEqual([{ enabled: true }])
+      await resumed.dispose()
+    })
+
     it('restores continuable teammates and tasks from the Lead log after restart', {
       timeout: PERSISTENCE_TEST_TIMEOUT_MS,
     }, async () => {
