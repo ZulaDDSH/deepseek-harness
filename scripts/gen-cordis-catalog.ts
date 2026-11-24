@@ -777,6 +777,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SessionEventMap: 'session.md',
   TurnEndReason: 'session.md',
   TurnTrigger: 'session.md',
+  SessionCheckpointRows: 'session-query.md',
   SessionEventReadRequest: 'session-query.md',
   SessionEventRecord: 'session-query.md',
   SessionEventResultFilter: 'session-query.md',
