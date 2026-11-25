@@ -60,6 +60,8 @@ window.__ModuleLoader__.load({
       .audit .fixer-controls{padding:.7rem 1rem;border-bottom:1px solid var(--rule)}
       .audit .fixer-controls a,.audit .fixer-work a{color:var(--accent)}
       .audit .fixer-work .fixer-revision{word-break:break-all}
+      .audit .fixer-rounds{display:inline-flex;align-items:center;gap:.4rem;font-size:.82rem;color:var(--soft);border:1px solid var(--rule);border-radius:.48rem;padding:.18rem .48rem}
+      .audit .fixer-rounds select{width:auto;min-width:3.2rem;padding:.16rem .34rem;border:0;background:transparent;color:var(--ink);font-weight:500;cursor:pointer}
       .audit button[aria-pressed="true"]{background:var(--fill);border-color:var(--accent)}
       .audit .queue-head{display:flex;align-items:center;justify-content:space-between;gap:.4rem;margin:0 .35rem .55rem}
       .audit .queue-head h2{margin:0;font-weight:500}
@@ -116,14 +118,20 @@ window.__ModuleLoader__.load({
         try {await job()} catch(e) {setError(e.message)} finally {lock.current=false;setBusy(false)}
       }}
     }
-    function Settings({rpc,model,onDone,fixer=false}) {
+    function Settings({rpc,model,maxRounds,onDone,fixer=false}) {
       const [provider,setProvider]=useState(model?.provider || ''),[name,setName]=useState(model?.model || '')
       const [effort,setEffort]=useState(model?.reasoningEffort || '')
+      const [rounds,setRounds]=useState(String(maxRounds ?? 3))
       const providers=useData(rpc,'providers',{}),models=useData(rpc,'models',{provider},!!provider)
       const reasoning=useData(rpc,'efforts',{provider,model:name},!!provider && !!name)
       const action=useAction()
+      const parsedRounds=Number(rounds)
+      const invalidRounds=!fixer && (!Number.isSafeInteger(parsedRounds) || parsedRounds<1 || parsedRounds>50)
       return h('form',{onSubmit:e=>{e.preventDefault();action.run(async()=>{
-        await call(rpc,fixer?'fixer-model':'settings',provider ? {provider,model:name,reasoningEffort:effort} : {inherit:true});onDone()
+        await call(rpc,fixer?'fixer-model':'settings',provider ? {provider,model:name,reasoningEffort:effort} : {inherit:true})
+        if (!fixer && maxRounds!==undefined && parsedRounds!==maxRounds)
+          await call(rpc,'fixer-max-rounds',{maxRounds:parsedRounds})
+        onDone()
       })}},h('h2',null,fixer?'Fixer model':'Reviewer model'),
       field('Provider',h('select',{value:provider,onChange:e=>{setProvider(e.target.value);setName('');setEffort('')}},
         h('option',{value:''},fixer?'Use the audit model and effort':'Use each lead’s model and effort'),options(providers.value || []))),
@@ -131,8 +139,9 @@ window.__ModuleLoader__.load({
         h('option',{value:''},'Choose model'),options(models.value || []))),
       name && provider && field('Reasoning effort',h('select',{value:effort,disabled:!reasoning.value,onChange:e=>setEffort(e.target.value)},
         h('option',{value:''},reasoning.value?.defaultEffort ? 'Model default · '+reasoning.value.defaultEffort : 'Model default'),options(reasoning.value?.efforts || []))),
+      !fixer && field('Max repair rounds (1–50)',h('input',{type:'number',min:1,max:50,step:1,required:true,value:rounds,onChange:e=>setRounds(e.target.value)})),
       problem(action.error || providers.error || models.error || reasoning.error),
-      h('div',{className:'actions'},h('button',{className:'primary',disabled:action.busy || !!provider && (!name || reasoning.value===undefined)},fixer?'Save fixer model':'Save reviewer'),button('Cancel',onDone)))
+      h('div',{className:'actions'},h('button',{className:'primary',disabled:action.busy || invalidRounds || !!provider && (!name || reasoning.value===undefined)},fixer?'Save fixer model':'Save reviewer'),button('Cancel',onDone)))
     }
     function Capture({rpc,id,capture}) {
       const [show,setShow]=useState(false)
@@ -367,7 +376,7 @@ window.__ModuleLoader__.load({
               ()=>openItem(row.id),{key:grouped?group.key:row.id,className:'item audit-row','aria-current':isCurrent})
           }) : rows.length>0 && h('p',{className:'empty',style:{padding:'0 .45rem',fontSize:'.8rem'}},'No reviews match this filter.')),
         h('section',{className:'detail','aria-label':'Review details'},problem(data.error),
-          view==='settings' ? h(Settings,{rpc,model:state?.model,onDone:()=>{refresh();setView('queue')}}):
+          view==='settings' ? h(Settings,{rpc,model:state?.model,maxRounds:state?.maxRepairRounds,onDone:()=>{refresh();setView('queue')}}):
           item ? h(React.Fragment,null,
             activeGroup && activeGroup.rows.length>1 && (()=>{
               const recent=activeGroup.rows.slice(0,5)
@@ -457,6 +466,10 @@ window.__ModuleLoader__.load({
         await call(rpc,'fixer-autopublish',{enabled:!state.autoPublish})
         refresh()
       })}
+      function changeMaxRounds(limit) {action.run(async()=>{
+        await call(rpc,'fixer-max-rounds',{maxRounds:limit})
+        refresh()
+      })}
       function start() {action.run(async()=>{
         const id=item.id
         const job=await call(rpc,'fixer-start',{id})
@@ -467,12 +480,22 @@ window.__ModuleLoader__.load({
       const chat=open && open.id===item?.id && open.sessionId
       const fixerModelLabel=state?.model?.model ?
         'Fixer model · '+state.model.model+(state.model.reasoningEffort?' · '+state.model.reasoningEffort:'') : 'Fixer model'
+      const currentRounds=state?.maxRepairRounds ?? 3
+      const roundChoices=[...new Set([1,2,3,4,5,6,8,10,15,20,30,50,currentRounds])].sort((a,b)=>a-b)
       return h('div',{className:'audit dsh-pr-fixer'},
         h('header',null,h('h1',null,'PR Fixer'),h('div',{className:'actions'},
           button('Automatic wake',toggle,{disabled:!state || action.busy,'aria-pressed':state?.automaticWake===true,
             title:'Wake PR Fixer when Auto Auditor requests changes'}),
           button('Auto-publish',togglePublish,{disabled:!state || action.busy,'aria-pressed':state?.autoPublish===true,
             title:'Automatically push approved repairs to the original PR branch'}),
+          h('label',{className:'fixer-rounds',title:'Maximum repair rounds before stopping for owner review'},
+            h('span',null,'Max rounds'),
+            h('select',{
+              'aria-label':'Max repair rounds',
+              disabled:!state || action.busy,
+              value:String(currentRounds),
+              onChange:e=>changeMaxRounds(Number(e.target.value)),
+            },roundChoices.map(n=>h('option',{key:n,value:String(n)},String(n))))),
           button(fixerModelLabel,()=>setSettings(!settings),
             {disabled:!state,'aria-expanded':settings}))),
         h('div',{className:'body'},

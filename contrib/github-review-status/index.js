@@ -2,13 +2,13 @@ import {createHash} from 'node:crypto'
 import {mkdir,readFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import {withFileLock,writeFileAtomic} from '@deepseek-ai/dsh-atomic-write'
-import {auditRevision,parsePull,readGitCredentialToken,readPull} from './github.js'
+import {auditRevision,listAccessibleRepositories,parsePull,parseRepoKey,readGitCredentialToken,readPull,readRepository} from './github.js'
 
 export const name = 'desktop-github-review-status'
 export const inject = ['profileContext','connection','webServer','credentials']
 const channel = '/desktop-github-review-status'
 const credential = key => 'DSH_GITHUB_REVIEW_'+createHash('sha256').update(key).digest('hex').toUpperCase()
-const limits = {rows:12,requests:4,cache:128,refreshMs:45000,failureMs:90000}
+const limits = {rows:12,requests:4,cache:128,refreshMs:45000,failureMs:90000,discoverMs:60000}
 const patPattern = /^(?:github_pat_[A-Za-z0-9_]{20,256}|ghp_[A-Za-z0-9]{20,256})$/
 
 /** Serve GitHub status for persisted audit submissions and manage their read credentials. */
@@ -17,31 +17,46 @@ export function apply(ctx) {
   const filename = join(dir,'queue.json')
   const gitAuthFile = join(dir,'github-git-auth.json')
   const cache = new Map()
+  const discoveredCache = {expires:0,repos:[],error:''}
   const lifetime = new AbortController()
   ctx.effect(()=>()=>lifetime.abort(),'GitHub status request lifetime')
 
   async function readGitAuth() {
     try {
-      const list = JSON.parse(await readFile(gitAuthFile,'utf8'))
-      return new Set(Array.isArray(list) ? list.filter(item=>typeof item==='string') : [])
+      const raw = JSON.parse(await readFile(gitAuthFile,'utf8'))
+      if (Array.isArray(raw)) {
+        return {allRepos:false,repos:new Set(raw.filter(item=>typeof item==='string')),excluded:new Set()}
+      }
+      return {
+        allRepos:raw?.allRepos === true,
+        repos:new Set(Array.isArray(raw?.repos) ? raw.repos.filter(item=>typeof item==='string') : []),
+        excluded:new Set(Array.isArray(raw?.excluded) ? raw.excluded.filter(item=>typeof item==='string') : []),
+      }
     } catch (error) {
-      if (error.code === 'ENOENT') return new Set()
+      if (error.code === 'ENOENT') return {allRepos:false,repos:new Set(),excluded:new Set()}
       throw error
     }
   }
-  async function setGitAuth(key, enabled) {
+  async function updateGitAuth(edit) {
     await mkdir(dir,{recursive:true})
     return withFileLock(gitAuthFile,async()=>{
-      const repos = await readGitAuth()
-      if (enabled) repos.add(key)
-      else repos.delete(key)
-      await writeFileAtomic(gitAuthFile,JSON.stringify([...repos].sort()),{mode:0o600})
+      const state = await readGitAuth()
+      await edit(state)
+      const payload = {
+        allRepos:state.allRepos === true,
+        repos:[...state.repos].sort(),
+        excluded:[...state.excluded].sort(),
+      }
+      await writeFileAtomic(gitAuthFile,JSON.stringify(payload),{mode:0o600})
+      return state
     })
   }
   async function resolveToken(key, signal) {
     const stored = (await ctx.credentials.resolve(credential(key)))?.value
     if (stored) return stored
-    if ((await readGitAuth()).has(key)) return readGitCredentialToken(key,signal)
+    const auth = await readGitAuth()
+    if (auth.repos.has(key) || (auth.allRepos && !auth.excluded.has(key)))
+      return readGitCredentialToken(key,signal)
     return undefined
   }
 
@@ -116,41 +131,87 @@ export function apply(ctx) {
     return result
   }
 
-  async function repositories(rows) {
-    const unique = new Set(rows.map(({pull})=>pull.key))
-    const gitRepos = await readGitAuth()
-    return Promise.all([...unique].sort().map(async key=>{
+  async function discoverRepositories(signal, force = false) {
+    if (!force && discoveredCache.expires > Date.now()) return discoveredCache
+    try {
+      const token = await readGitCredentialToken('',signal)
+      const repos = await listAccessibleRepositories(token,signal)
+      discoveredCache.repos = repos
+      discoveredCache.error = ''
+      discoveredCache.expires = Date.now() + limits.discoverMs
+    } catch (error) {
+      discoveredCache.error = error.message
+      discoveredCache.expires = Date.now() + 15000
+    }
+    return discoveredCache
+  }
+
+  async function repositories(rows, {discover = false, refresh = false, signal} = {}) {
+    const tracked = new Set(rows.map(({pull})=>pull.key))
+    const auth = await readGitAuth()
+    const meta = new Map()
+    if (discover) {
+      const discovered = await discoverRepositories(signal,refresh)
+      for (const repo of discovered.repos) meta.set(repo.key,repo)
+    }
+    const keys = new Set([...tracked,...auth.repos,...meta.keys()])
+    return Promise.all([...keys].sort().map(async key=>{
       const hasToken = (await ctx.credentials.describe(credential(key))).configured
-      const hasGit = gitRepos.has(key)
-      return {key,configured:Boolean(hasToken || hasGit),authMode:hasToken?'token':hasGit?'git':'none'}
+      const explicitGit = auth.repos.has(key)
+      const viaAllRepos = !hasToken && !explicitGit && auth.allRepos && !auth.excluded.has(key)
+      const hasGit = explicitGit || viaAllRepos
+      const info = meta.get(key)
+      return {
+        key,
+        fullName:info?.fullName || key,
+        owner:info?.owner || key.split('/')[0],
+        private:info?.private === true,
+        archived:info?.archived === true,
+        tracked:tracked.has(key),
+        configured:Boolean(hasToken || hasGit),
+        authMode:hasToken?'token':hasGit?'git':'none',
+        viaAllRepos,
+      }
     }))
   }
 
   async function configure(method, rows, args, signal) {
-    const pull = rows.find(item=>item.pull.key===args.key)?.pull
-    if (!pull) throw new Error('Submit a PR from this repository to Auto Auditor first.')
-    const reference = credential(pull.key)
+    const parsed = parseRepoKey(args.key)
+    if (!parsed) throw new Error('Choose a valid GitHub repository (owner/name).')
+    const pull = rows.find(item=>item.pull.key===parsed.key)?.pull
+    const reference = credential(parsed.key)
     if (method==='disconnect') {
       await ctx.credentials.unset(reference)
-      await setGitAuth(pull.key,false)
+      await updateGitAuth(state=>{
+        state.repos.delete(parsed.key)
+        if (state.allRepos) state.excluded.add(parsed.key)
+      })
     } else if (method==='connect-git') {
-      const token = await readGitCredentialToken(pull.key,signal)
-      await readPull(pull,token,signal)
+      const token = await readGitCredentialToken(parsed.key,signal)
+      if (pull) await readPull(pull,token,signal)
+      else await readRepository(parsed.key,token,signal)
       signal?.throwIfAborted()
       await ctx.credentials.unset(reference)
-      await setGitAuth(pull.key,true)
+      await updateGitAuth(state=>{
+        state.repos.add(parsed.key)
+        state.excluded.delete(parsed.key)
+      })
     } else {
       const token = typeof args.token==='string' ? args.token.trim() : ''
       if (!patPattern.test(token))
         throw new Error('Enter a GitHub personal access token (github_pat_… or ghp_…).')
-      await readPull(pull,token,signal)
+      if (pull) await readPull(pull,token,signal)
+      else await readRepository(parsed.key,token,signal)
       signal?.throwIfAborted()
       await ctx.credentials.set(reference,token)
-      await setGitAuth(pull.key,false)
+      await updateGitAuth(state=>{
+        state.repos.delete(parsed.key)
+        state.excluded.delete(parsed.key)
+      })
     }
-    const prefix = 'https://github.com/'+pull.key+'/pull/'
+    const prefix = 'https://github.com/'+parsed.key+'/pull/'
     for (const url of cache.keys()) if (url.startsWith(prefix)) cache.delete(url)
-    return repositories(rows)
+    return repositories(rows,{discover:Boolean(args.discover),signal})
   }
 
   ctx.connection.register(ctx,channel,async(method,args={},signal,peer)=>{
@@ -160,8 +221,36 @@ export function apply(ctx) {
       const rows = await reviews()
       let value
       if (method==='snapshot') value=await statuses(rows,args.ids,signal)
-      else if (method==='repositories') value=await repositories(rows)
-      else if (method==='connect' || method==='connect-git' || method==='disconnect') value=await configure(method,rows,args,signal)
+      else if (method==='repositories') value=await repositories(rows,{discover:Boolean(args.discover),refresh:Boolean(args.refresh),signal})
+      else if (method==='account') {
+        const auth = await readGitAuth()
+        if (args.discover) await discoverRepositories(signal,Boolean(args.refresh))
+        value = {
+          allReposGit:auth.allRepos,
+          discoveredCount:discoveredCache.repos.length,
+          discoveryError:discoveredCache.error || '',
+        }
+      } else if (method==='connect-all-git') {
+        const token = await readGitCredentialToken('',signal)
+        const repos = await listAccessibleRepositories(token,signal)
+        signal?.throwIfAborted()
+        discoveredCache.repos = repos
+        discoveredCache.error = ''
+        discoveredCache.expires = Date.now() + limits.discoverMs
+        await updateGitAuth(state=>{
+          state.allRepos = true
+          state.excluded.clear()
+        })
+        cache.clear()
+        value = {allReposGit:true,discoveredCount:repos.length,repositories:await repositories(rows,{discover:true,signal})}
+      } else if (method==='disconnect-all-git') {
+        await updateGitAuth(state=>{
+          state.allRepos = false
+          state.excluded.clear()
+        })
+        cache.clear()
+        value = {allReposGit:false,discoveredCount:discoveredCache.repos.length,repositories:await repositories(rows,{discover:Boolean(args.discover),signal})}
+      } else if (method==='connect' || method==='connect-git' || method==='disconnect') value=await configure(method,rows,args,signal)
       else throw new Error('Unknown GitHub review action.')
       return {ok:true,value}
     } catch (error) {

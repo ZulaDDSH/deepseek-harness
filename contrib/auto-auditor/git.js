@@ -7,17 +7,23 @@ const exec = promisify(execFile)
 const diffOptions = ['--no-color','--no-ext-diff','--no-textconv','--submodule=short','--no-renames']
 const maxDiffBytes = 100_000
 
-async function git(cwd, args, signal, limit = 65536) {
+async function git(cwd, args, signal, opts = {}) {
+  const {limit = 65536, timeout = 30000, allowLazyFetch = false} = typeof opts === 'number' ? {limit:opts} : opts
+  const env = {...process.env, GIT_TERMINAL_PROMPT:'0', GCM_INTERACTIVE:'Never', ...(!allowLazyFetch && {GIT_NO_LAZY_FETCH:'1'})}
   try {
     const {stdout} = await exec('git', ['--no-optional-locks','--no-replace-objects','-c','core.quotePath=true', ...args], {
-      cwd, signal, windowsHide:true, timeout:15000, maxBuffer:limit,
-      env:{...process.env,GIT_TERMINAL_PROMPT:'0',GIT_NO_LAZY_FETCH:'1'},
+      cwd, signal, windowsHide:true, timeout, maxBuffer:limit, env,
     })
     return stdout
   } catch (error) {
     if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new Error('This diff exceeds the review size limit. Submit a smaller commit range.')
     signal?.throwIfAborted()
-    throw new Error(String(error.stderr || 'Unable to read this Git repository.').trim().slice(0,450), {cause:error})
+    const output = String(error.stderr || error.stdout || '').trim()
+    if (error.killed || error.signal === 'SIGTERM') {
+      const cmd = args.find(arg => !arg.startsWith('-')) || 'command'
+      throw new Error(('Git ' + cmd + ' timed out after ' + Math.round(timeout / 1000) + 's.' + (output ? ' ' + output : '')).slice(0,800), {cause:error})
+    }
+    throw new Error((output || 'Unable to read this Git repository.').slice(0,800), {cause:error})
   }
 }
 
@@ -83,7 +89,7 @@ export async function pushPullCommit(cwd,target,candidate,expectedHead,signal) {
     const configured=(urls.trim() || await git(repo,['config','--get-all','remote.'+remote+'.url'],signal)).trim().split(/\r?\n/)
     if (configured.length!==1 || remoteRepository(configured[0])!==target.headRepo) continue
     await git(repo,['push','--no-follow-tags','--recurse-submodules=no','--force-with-lease='+destination+':'+expectedHead,
-      '--',remote,candidate+':'+destination],signal)
+      '--',remote,candidate+':'+destination],signal,{timeout:120000,allowLazyFetch:true})
     return {alreadyPushed:false}
   }
   throw new Error('This worktree needs a configured push remote for the PR’s source repository.')
@@ -176,7 +182,7 @@ export async function openPullForCommit(cwd,{branch,commit,base,title,body,draft
   }
   baseBranch=checkedRef(baseBranch)
 
-  const remoteHeads=await git(repo,['ls-remote','--heads',pushRemote,destination],signal)
+  const remoteHeads=await git(repo,['ls-remote','--heads',pushRemote,destination],signal,{timeout:60000,allowLazyFetch:true})
   const remoteTip=remoteHeads.trim().split(/\s+/)[0]
   let alreadyPushed=false
   if (sha.test(remoteTip ?? '')) {
@@ -185,11 +191,11 @@ export async function openPullForCommit(cwd,{branch,commit,base,title,body,draft
     } else {
       await checkFastForward(repo,remoteTip,commit,signal)
       await git(repo,['push','--no-follow-tags','--recurse-submodules=no',
-        '--force-with-lease='+destination+':'+remoteTip,'--',pushRemote,commit+':'+destination],signal)
+        '--force-with-lease='+destination+':'+remoteTip,'--',pushRemote,commit+':'+destination],signal,{timeout:120000,allowLazyFetch:true})
     }
   } else {
     await git(repo,['push','--no-follow-tags','--recurse-submodules=no',
-      '--force-with-lease='+destination+':','--',pushRemote,commit+':'+destination],signal)
+      '--force-with-lease='+destination+':','--',pushRemote,commit+':'+destination],signal,{timeout:120000,allowLazyFetch:true})
   }
 
   const token=await gitCredentialToken(baseRepoKey,signal)
@@ -271,7 +277,7 @@ export async function prepareRepairWorktree(row, root, cwd, signal) {
     if (!await optionalRevision(row.repo,row.head,signal))
       await fetchPull(row.repo,row.pull,[headRef(row.pull.number)],signal)
     await mkdir(root,{recursive:true})
-    await git(row.repo,['worktree','add','--detach','--',cwd,row.head],signal)
+    await git(row.repo,['worktree','add','--detach','--',cwd,row.head],signal,{timeout:120000,allowLazyFetch:true})
   }
   return realpath(cwd)
 }
@@ -293,7 +299,7 @@ async function pullRefs(repo,pull,signal) {
   if(remoteRepository(url)!==pull.key) throw new Error('The configured Git remote has changed.')
   const mergeRef='refs/pull/'+pull.number+'/merge'
   let output
-  try {output=await git(repo,['ls-remote','--refs',pull.remote,headRef(pull.number),mergeRef],signal)}
+  try {output=await git(repo,['ls-remote','--refs',pull.remote,headRef(pull.number),mergeRef],signal,{timeout:60000,allowLazyFetch:true})}
   catch {signal?.throwIfAborted();throw new Error('Could not read PR refs through the repository’s Git credentials.')}
   const refs=new Map(output.trim().split(/\r?\n/).map(line=>line.split('\t').reverse()))
   const head=refs.get(headRef(pull.number)),merge=refs.get(mergeRef)
@@ -302,7 +308,7 @@ async function pullRefs(repo,pull,signal) {
 }
 async function fetchPull(repo,pull,refs,signal) {
   try {await git(repo,['-c','fetch.writeCommitGraph=false','fetch','--no-write-fetch-head','--no-tags',
-    '--no-recurse-submodules','--no-auto-gc','--refmap=',pull.remote,...refs],signal)}
+    '--no-recurse-submodules','--no-auto-gc','--refmap=',pull.remote,...refs],signal,{timeout:120000,allowLazyFetch:true})}
   catch {signal?.throwIfAborted();throw new Error('Could not fetch the PR commits. Check your Git credentials and try again.')}
 }
 async function pinPull(repo,pull,base,commit,signal) {

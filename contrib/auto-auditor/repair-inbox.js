@@ -64,7 +64,7 @@ function handoff(row,maxRounds) {
     '',
     'Workflow rules for this repair:',
     '- Work only in this session’s detached worktree at '+row.head+'. Never push to GitHub or open a new PR.',
-    '- Commit your repair locally and submit the exact commit SHA with auditor_stage_fix using review_id '+row.id+' (up to '+maxRounds+' repair rounds before stopping for owner review).',
+    '- Commit your repair locally (satisfying any repository commit/pre-push hooks or review gates) and submit the exact commit SHA with auditor_stage_fix using review_id '+row.id+' (up to '+maxRounds+' repair rounds before stopping for owner review).',
     '- If you need a build, capture, or GPU run from the originating lane, call auditor_request_run with review_id '+row.id+', your local commit SHA, and the exact check needed. It routes directly to the originating lead, not Master Control.',
     '- When Auto Auditor approves your repair, the Harness publishes that exact commit to the original PR branch.',
     '- If any tool call is refused, quote the refusal verbatim and stop.',

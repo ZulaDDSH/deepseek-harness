@@ -47,6 +47,15 @@ const pending = new Set(['EXPECTED','PENDING','QUEUED','IN_PROGRESS','WAITING','
 const states = new Set(['OPEN','CLOSED','MERGED'])
 const passingMergeStates = new Set(['CLEAN','HAS_HOOKS'])
 
+/** Validate a canonical owner/repo key. */
+export function parseRepoKey(value) {
+  const match = typeof value === 'string' &&
+    /^([a-z0-9][a-z0-9-]{0,38})\/([a-z0-9_.-]{1,100})$/i.exec(value.trim())
+  if (!match || ['.','..'].includes(match[2])) return
+  const [,owner,repo] = match
+  return {owner,repo,key:(owner+'/'+repo).toLowerCase()}
+}
+
 /** Read the canonical GitHub identity of a previously submitted PR. */
 export function parsePull(url) {
   const match = typeof url === 'string' &&
@@ -126,8 +135,72 @@ export async function readPull(pull, token, signal) {
   return parseSnapshot(payload.data.repository.pullRequest,pull)
 }
 
-/** Read the host GitHub token for a repository from Git’s credential helper without persisting it. */
-export async function readGitCredentialToken(repoKey, signal) {
+/** Verify repository access via GitHub REST API. */
+export async function readRepository(repoKey, token, signal) {
+  const parsed = parseRepoKey(repoKey)
+  if (!parsed) throw new Error('Enter a valid GitHub repository (owner/name).')
+  const deadline = AbortSignal.timeout(8000)
+  const response = await fetch('https://api.github.com/repos/' + parsed.key, {
+    method:'GET', redirect:'error', signal:signal ? AbortSignal.any([signal,deadline]) : deadline,
+    headers:{Authorization:'Bearer '+token,Accept:'application/vnd.github+json','User-Agent':'DeepSeek-Harness-GitHub-Review-Status'},
+  })
+  if (!response.ok) {
+    await response.body?.cancel()
+    if (response.status===429 || response.headers.get('x-ratelimit-remaining')==='0')
+      throw new Error('GitHub rate limited this connection. Try again shortly.')
+    throw new Error('GitHub could not access ' + parsed.key + '. Check repository access and credentials.')
+  }
+  const repo = await response.json()
+  return {
+    key:(repo.full_name || parsed.key).toLowerCase(),
+    fullName:repo.full_name || parsed.key,
+    owner:repo.owner?.login || parsed.owner,
+    private:repo.private === true,
+    archived:repo.archived === true,
+  }
+}
+
+/** Discover repositories accessible to the user across personal, collaborator, and organization memberships. */
+export async function listAccessibleRepositories(token, signal) {
+  const results = []
+  const seen = new Set()
+  let nextUrl = 'https://api.github.com/user/repos?affiliation=owner,collaborator,organization_member&sort=updated&per_page=100'
+  for (let page = 0; page < 5 && nextUrl; page++) {
+    const deadline = AbortSignal.timeout(10000)
+    const response = await fetch(nextUrl, {
+      method:'GET', redirect:'error', signal:signal ? AbortSignal.any([signal,deadline]) : deadline,
+      headers:{Authorization:'Bearer '+token,Accept:'application/vnd.github+json','User-Agent':'DeepSeek-Harness-GitHub-Review-Status'},
+    })
+    if (!response.ok) {
+      await response.body?.cancel()
+      if (response.status===429 || response.headers.get('x-ratelimit-remaining')==='0')
+        throw new Error('GitHub rate limited repository discovery. Try again shortly.')
+      throw new Error('GitHub could not list accessible repositories (HTTP ' + response.status + ').')
+    }
+    const items = await response.json()
+    if (!Array.isArray(items)) break
+    for (const repo of items) {
+      if (typeof repo?.full_name !== 'string') continue
+      const key = repo.full_name.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      results.push({
+        key,
+        fullName:repo.full_name,
+        owner:repo.owner?.login || repo.full_name.split('/')[0],
+        private:repo.private === true,
+        archived:repo.archived === true,
+      })
+    }
+    const link = response.headers.get('link') || ''
+    const match = /<([^>]+)>;\s*rel="next"/.exec(link)
+    nextUrl = match && match[1].startsWith('https://api.github.com/') ? match[1] : ''
+  }
+  return results
+}
+
+/** Read the host GitHub token for a repository (or github.com) from Git’s credential helper without persisting it. */
+export async function readGitCredentialToken(repoKey = '', signal) {
   return new Promise((resolveToken, reject) => {
     const child = spawn('git', ['credential', 'fill'], {
       windowsHide: true,
@@ -146,10 +219,10 @@ export async function readGitCredentialToken(repoKey, signal) {
       const fields = Object.fromEntries(stdout.split(/\r?\n/).filter(l => l.includes('=')).map(l => {
         const idx = l.indexOf('='); return [l.slice(0, idx), l.slice(idx + 1)]
       }))
-      if (!fields.password) return reject(new Error('Git has no stored GitHub credentials for ' + repoKey + '.'))
+      if (!fields.password) return reject(new Error('Git has no stored GitHub credentials' + (repoKey ? ' for ' + repoKey : '') + '.'))
       resolveToken(fields.password)
     }))
-    child.stdin.end('protocol=https\nhost=github.com\npath=' + repoKey + '.git\n\n')
+    child.stdin.end('protocol=https\nhost=github.com\n' + (repoKey ? 'path=' + repoKey + '.git\n' : '') + '\n')
   })
 }
 

@@ -98,9 +98,20 @@ export async function openQueue(ctx,deliver) {
     return mutate(state=>state.fixerAutoPublish=enabled)
   }
   function setMaxRepairRounds(limit) {
-    if (!Number.isSafeInteger(limit) || limit<1 || limit>10)
-      throw new Error('Choose a repair round limit between 1 and 10.')
-    return mutate(state=>state.fixerMaxRounds=limit)
+    if (!Number.isSafeInteger(limit) || limit<1 || limit>50)
+      throw new Error('Choose a repair round limit between 1 and 50.')
+    return mutate(state=>{
+      state.fixerMaxRounds=limit
+      for (const row of state.rows) {
+        if (row.fixerJob?.state==='round_limit' && repairRounds(state.rows,row.id)<limit) {
+          const nextJob={...row.fixerJob,state:row.fixerJob.sessionId?'sent':'available'}
+          delete nextJob.error
+          row.fixerJob=nextJob
+          row.revision=(row.revision || 0)+1
+        }
+      }
+      return limit
+    })
   }
   async function submit(lead,args,restricted,signal,repair) {
     const state = await read()

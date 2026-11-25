@@ -263,7 +263,12 @@ export async function apply(ctx) {
         const state=await queue.read()
         const pending=state.rows.reduce((count,row)=>count+Number(['queued','reviewing'].includes(row.status))+
           (row.messages ?? []).filter(message=>['queued','answering'].includes(message.status)).length,0)
-        value=method==='count' ? pending : {model:state.model,pending,rows:state.rows.map(header)}
+        value=method==='count' ? pending : {
+          model:state.model,
+          maxRepairRounds:state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS,
+          pending,
+          rows:state.rows.map(header),
+        }
       } else if(method==='leads') value=(await leads(signal)).map(({id,title,workspace,cwd})=>({id,title,workspace,cwd}))
       else if(method==='detail') value=await queue.detail(args.id,signal)
       else if(method==='tip') value=await queue.tip(args.id,signal)
