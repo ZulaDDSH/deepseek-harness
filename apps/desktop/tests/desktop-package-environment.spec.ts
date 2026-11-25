@@ -226,6 +226,16 @@ describe('Desktop local packaging configuration', () => {
     })
   })
 
+  it('accepts the update feed URL from the Windows dotenv and ignores an ambient one', async () => {
+    await withDirectory(async (directory) => {
+      const feed = 'https://github.com/ZulaDDSH/deepseek-harness/releases/download/desktop-feed/'
+      await writeFile(join(directory, '.env.windows'), `DSH_DESKTOP_APP_ID=com.example.desktop\nDSH_DESKTOP_UPDATE_FEED_URL=${feed}\n`)
+      expect(loadDesktopPackageEnvironment('win32', {}, directory)).toEqual({ DSH_DESKTOP_APP_ID: 'com.example.desktop', DSH_DESKTOP_UPDATE_FEED_URL: feed })
+      await writeFile(join(directory, '.env.windows'), 'DSH_DESKTOP_APP_ID=com.example.desktop\n')
+      expect(loadDesktopPackageEnvironment('win32', { DSH_DESKTOP_UPDATE_FEED_URL: feed }, directory)).toEqual({ DSH_DESKTOP_APP_ID: 'com.example.desktop' })
+    })
+  })
+
   it('requires the local file even when ambient configuration exists and rejects other-platform fields', async () => {
     await withDirectory(async (directory) => {
       expect(() => loadDesktopPackageEnvironment('win32', RELEASE, directory)).toThrow(/copy .*\.env.windows.example/u)

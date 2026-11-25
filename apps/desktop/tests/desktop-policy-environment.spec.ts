@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { resolveDesktopPolicyEnvironment } from '../scripts/desktop-policy-environment.mjs'
+import { resolveDesktopPolicyEnvironment, resolveDesktopUpdateFeedUrl } from '../scripts/desktop-policy-environment.mjs'
 import { validateDesktopPackageEnvironment } from '../scripts/desktop-package-environment.mjs'
 import { resolveDesktopPolicyConfig } from '../src/mandatory-update-policy.ts'
 
@@ -56,5 +56,24 @@ it.each([{ unsigned: true }, { prepareOnly: true }, {}])('requires policy outsid
     }
     expect(() => { validateDesktopPackageEnvironment({ DSH_DESKTOP_APP_ID: 'com.example.test' }, { platform, arch: 'x64' }, options) })
       .toThrow('DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN')
+  }
+})
+
+const FEED = 'https://github.com/ZulaDDSH/deepseek-harness/releases/download/desktop-feed/'
+
+it('omits the policy when an update feed is configured', () => {
+  expect(resolveDesktopPolicyEnvironment({ DSH_DESKTOP_UPDATE_FEED_URL: FEED })).toBeUndefined()
+  expect(resolveDesktopPolicyEnvironment({ ...origins, ...auth, DSH_DESKTOP_UPDATE_FEED_URL: FEED })).toBeUndefined()
+  expect(() => { validateDesktopPackageEnvironment({ DSH_DESKTOP_APP_ID: 'com.example.test', DSH_DESKTOP_UPDATE_FEED_URL: FEED }, { platform: 'win32', arch: 'x64' }, { unsigned: true }) })
+    .not.toThrow()
+})
+
+it('validates the feed URL and confines it to unsigned builds', () => {
+  expect(resolveDesktopUpdateFeedUrl({}, true)).toBeUndefined()
+  expect(resolveDesktopUpdateFeedUrl({ DSH_DESKTOP_UPDATE_FEED_URL: '  ' }, false)).toBeUndefined()
+  expect(resolveDesktopUpdateFeedUrl({ DSH_DESKTOP_UPDATE_FEED_URL: FEED }, true)).toBe(FEED)
+  expect(() => resolveDesktopUpdateFeedUrl({ DSH_DESKTOP_UPDATE_FEED_URL: FEED }, false)).toThrow('unsigned')
+  for (const value of ['http://example.com/feed/', 'https://example.com/feed', 'https://u:p@example.com/feed/', 'https://example.com/feed/?a=1', 'not a url']) {
+    expect(() => resolveDesktopUpdateFeedUrl({ DSH_DESKTOP_UPDATE_FEED_URL: value }, true)).toThrow('DSH_DESKTOP_UPDATE_FEED_URL')
   }
 })
