@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { forwardWebRequest, serveWebDocument } from '../src/web-document.ts'
+import { forwardWebRequest, removeLegacyHostCookies, serveWebDocument } from '../src/web-document.ts'
 
 const roots: string[] = []
 const servers: Server[] = []
@@ -125,4 +125,12 @@ it('replaces the immutable cache header of plugin bundles with no-store and leav
 it('refuses another page origin without forwarding its request', async () => {
   const response = await forwardWebRequest(new Request('dsh-app://app/api/read', { headers: { origin: 'https://other.example' } }), 'http://127.0.0.1:1/', 'session=owned')
   expect(response.status).toBe(403)
+})
+
+it('removes only dsh-auth cookies for the Host origin', async () => {
+  const get = vi.fn(async () => [{ name: 'dsh-auth-old' }, { name: 'other' }, { name: 'dsh-auth-older' }])
+  const remove = vi.fn(async () => undefined)
+  await removeLegacyHostCookies({ get, remove }, 'http://127.0.0.1:4321/?token=x')
+  expect(get).toHaveBeenCalledWith({ url: 'http://127.0.0.1:4321' })
+  expect(remove.mock.calls).toEqual([['http://127.0.0.1:4321', 'dsh-auth-old'], ['http://127.0.0.1:4321', 'dsh-auth-older']])
 })
