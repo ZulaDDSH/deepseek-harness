@@ -2,6 +2,7 @@ import {createUserMessage} from '@deepseek-ai/dsh-llm'
 
 const masterSectionName='auto-auditor-awareness'
 const leadSectionName='pr-workflow-contract'
+const fixerSectionName='pr-fixer-autonomy'
 const maxSummaryRows=12
 
 function formatModel(selection,fallback) {
@@ -95,6 +96,20 @@ function renderLeadContract(maxRounds) {
   ].join('\n')
 }
 
+function renderFixerContract(maxRounds) {
+  return [
+    'Autonomous PR Fixer operating contract (mandatory):',
+    '- You are a fully autonomous background PR repair worker. The human owner is NOT interactively supervising this chat.',
+    '- NEVER ask the user questions, NEVER ask "how do you want me to proceed?" or "Decision for you", and NEVER present a menu of options waiting for owner approval.',
+    '- Make pragmatic engineering decisions yourself within the PR’s scope to resolve every Auto Auditor finding cleanly and completely, commit locally in this detached worktree, satisfy any repository commit/pre-push hooks or review gates (check `git config --get core.hooksPath`), and submit with auditor_stage_fix (up to '+maxRounds+' repair rounds).',
+    '- Never run git push or open a new PR; Harness owns publishing approved repairs automatically.',
+    '- If you need a build, test, capture, or GPU run you cannot execute locally, IMMEDIATELY call auditor_request_run with the source review_id, your local commit SHA, and the exact check needed — it routes directly to the originating lead’s lane without bothering the user or Master Control.',
+    '- If you need clarification on an audit finding or verdict, IMMEDIATELY call auditor_message to ask Auto Auditor directly.',
+    '- If Auto-publish reports a pre-push hook failure on an already-approved commit, satisfy the hook yourself and call auditor_retry_publish (unchanged SHA) or re-stage with auditor_stage_fix (new SHA).',
+    '- If you hit a genuinely unrecoverable terminal block (PR closed/merged, repair round limit reached, or a hard tool refusal you cannot resolve via auditor_status/auditor_message/auditor_request_run), write a terse factual "Blocked: <reason>" summary and stop — do NOT ask the user questions.',
+  ].join('\n')
+}
+
 async function lastInjected(ctx,sessionId,sectionName,signal) {
   using history=await ctx.sessionQuery.observeSession(sessionId,{signal,projectionMode:'none'})
   const prior=history.events.findLast(event=>
@@ -106,18 +121,22 @@ async function lastInjected(ctx,sessionId,sectionName,signal) {
   return block?.text ?? null
 }
 
-/** Inject change-deduplicated Auto Auditor/PR Fixer state into Master Control and the PR workflow contract into lead chats. */
+/** Inject change-deduplicated Auto Auditor/PR Fixer state into Master Control, the PR workflow contract into leads, and the autonomy contract into PR Fixer chats. */
 export function registerWorkflowAwareness(ctx,{queue,isMaster,isFixer}) {
   ctx.on('agent/pre-step',async({agent,step,signal},next)=>{
     const decision=await next()
     if (decision.kind==='reject' || signal.aborted || step!==1) return decision
     const master=isMaster(agent)
-    if (!master && isFixer(agent)) return decision
+    const fixer=!master && isFixer(agent)
     try {
       let sectionName,text
       if (master) {
         sectionName=masterSectionName
         text=renderMasterSnapshot(await buildFixerOverview(ctx,queue))
+      } else if (fixer) {
+        const state=await queue.read()
+        sectionName=fixerSectionName
+        text=renderFixerContract(state.fixerMaxRounds ?? 3)
       } else {
         if (agent.session.header.origin==='subagent') return decision
         const state=await queue.read()

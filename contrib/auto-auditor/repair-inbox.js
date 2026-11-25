@@ -63,13 +63,15 @@ function handoff(row,maxRounds) {
     ...(row.evidence ? ['', 'Evidence reported by the lead:',row.evidence] : []),
     '',
     'Workflow rules for this repair:',
+    '- Operate fully autonomously. NEVER stop to ask the user questions, ask "how do you want me to proceed?", or present option lists waiting for owner input.',
     '- Work only in this session’s detached worktree at '+row.head+'. Never push to GitHub or open a new PR.',
     '- Before calling auditor_stage_fix, check whether this repository enforces any Git commit/pre-push hook or PR gate (for example check `git config --get core.hooksPath` and run any repo gate check script on your commit) and satisfy every required rule or review on your exact local commit SHA first so Auto-publish succeeds cleanly.',
     '- Commit your repair locally and submit the exact commit SHA with auditor_stage_fix using review_id '+row.id+' (up to '+maxRounds+' repair rounds before stopping for owner review).',
     '- If Auto-publish later reports a pre-push hook failure on an already-approved commit, satisfy the hook on that exact commit and call auditor_retry_publish with the repair review ID (or commit code fixes and re-stage with auditor_stage_fix).',
-    '- If you need a build, capture, or GPU run from the originating lane, call auditor_request_run with review_id '+row.id+', your local commit SHA, and the exact check needed. It routes directly to the originating lead, not Master Control.',
+    '- If you need a build, capture, or GPU run from the originating lane, IMMEDIATELY call auditor_request_run with review_id '+row.id+', your local commit SHA, and the exact check needed. It routes directly to the originating lead, not Master Control or the user.',
+    '- If you need clarification on a finding, call auditor_message to ask Auto Auditor directly.',
     '- When Auto Auditor approves your repair, the Harness publishes that exact commit to the original PR branch.',
-    '- If any tool call is refused, quote the refusal verbatim and stop.',
+    '- If you hit a genuinely unrecoverable terminal block (for example PR closed/merged or round limit reached), state "Blocked: <reason>" concisely and stop without asking the user questions.',
   ].join('\n')
 }
 

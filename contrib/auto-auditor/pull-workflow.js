@@ -93,11 +93,11 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
         rows.find(row=>row.repair?.original===repair.repair.original)?.id!==repair.id)
       throw new Error('Choose the latest approved repair for that PR.')
     const target=await resolvePullTarget(repair.repair.url,{},signal)
-    if (target.base!==repair.repair.target)
-      throw new Error('The target branch changed since the repair audit. Submit a fresh review.')
+    if (target.prState!=='OPEN')
+      throw new Error('This pull request is no longer open.')
     const outcome=await pushAndConfirm(repair.repo,target,repair.head,repair.repair.head,signal,
       latest=>{
-        if (latest.base!==repair.repair.target) throw new Error('The target moved during the push. Submit the current PR for a fresh audit.')
+        if (latest.prState!=='OPEN') throw new Error('This pull request is no longer open.')
         return queue.recordPublishedRepair(repair.id,signal)
       })
     if (outcome.status!=='submitted') throw new Error(outcome.message || 'Could not confirm the published repair on GitHub.')
@@ -246,11 +246,11 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
       if (!sha.test(args.commit ?? '') || args.commit===original.head)
         throw new Error('Choose the complete SHA of a new repair commit.')
       const target=await resolvePullTarget(original.pull.url,{originalRow:original,allowGitOnly:true},exec.signal)
-      if (target.prState!=='OPEN' || target.head!==original.head || target.base!==original.pull.target)
+      if (target.prState!=='OPEN' || target.head!==original.head)
         throw new Error('The PR changed since this review. Submit the current PR for a new audit first.')
       const fixer=await lead(caller.master ? args.fixer_id || assigned || original.leadId : caller.id,exec.signal,true)
       return JSON.stringify(await queue.submit(fixer,{commit:args.commit,goal:original.goal,evidence:args.evidence},
-        true,exec.signal,{original:original.id,url:target.url,head:target.head,target:target.base}))
+        true,exec.signal,{original:original.id,url:target.url,head:target.head,target:original.pull.target}))
     },
   }))
 
@@ -370,11 +370,11 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
           rows.find(row=>row.repair?.original===repair.repair.original)?.id!==repair.id)
         throw new Error('Choose the latest approved repair for that PR.')
       const target=await resolvePullTarget(repair.repair.url,{},exec.signal)
-      if (target.base!==repair.repair.target)
-        throw new Error('The target branch changed since the repair audit. Submit a fresh review.')
+      if (target.prState!=='OPEN')
+        throw new Error('This pull request is no longer open.')
       return JSON.stringify(await pushAndConfirm(repair.repo,target,repair.head,repair.repair.head,exec.signal,
         latest=>{
-          if (latest.base!==repair.repair.target) throw new Error('The target moved during the push. Submit the current PR for a fresh audit.')
+          if (latest.prState!=='OPEN') throw new Error('This pull request is no longer open.')
           return queue.recordPublishedRepair(repair.id,exec.signal)
         }))
     },
