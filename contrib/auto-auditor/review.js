@@ -1,3 +1,5 @@
+import {randomUUID} from 'node:crypto'
+import {isAbsolute} from 'node:path'
 import {BlockAssembler,LlmError} from '@deepseek-ai/dsh-llm'
 
 const instructions = [
@@ -8,8 +10,26 @@ const instructions = [
   'Use ready only if the reviewed scope and evidence support it. Request a run only when a specific missing observation prevents a verdict. Reuse applicable evidence and request the smallest decisive check for the reviewed scope, specifying the revision, scene or test, comparison, and result to report. Auto Auditor sends run requests to the originating lead. Never authorize a push, merge, or another session action.',
 ].join('\n')
 
+export const reviewerWorkspacePrefix='desktop-auto-auditor-review-'
+
+export function usesClaudeWorkspace(row) {
+  const provider=row.model?.provider
+  return provider==='claude-code-session' || provider?.startsWith('claude-sub-')
+}
+
+function attachReviewerWorkspace(ctx,row) {
+  if(!usesClaudeWorkspace(row)) return
+  if(typeof row.repo!=='string' || !isAbsolute(row.repo))
+    throw new Error('The review has no absolute repository path. Submit the change again from its repository.')
+  // Claude reads cwd from a live session header even for one-shot requests.
+  // Enter without announcing so this read-only context creates no persisted chat.
+  const session=ctx.sessions.prepare(reviewerWorkspacePrefix+randomUUID(),{meta:{cwd:row.repo}})
+  return {id:session.id,[Symbol.dispose]:ctx.sessions.enter(session)}
+}
+
 async function reply(ctx,row,content,system,signal) {
-  const stream = ctx.llm.stream({...row.model,sessionId:row.leadId,purpose:'auto-audit',signal,
+  using workspace=attachReviewerWorkspace(ctx,row)
+  const stream = ctx.llm.stream({...row.model,sessionId:workspace?.id ?? row.leadId,purpose:'auto-audit',signal,
     system,messages:[{role:'user',content}]})
   const output = new BlockAssembler()
   let finished = false

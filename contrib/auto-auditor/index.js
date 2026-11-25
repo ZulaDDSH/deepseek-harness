@@ -2,6 +2,7 @@ import {symbols} from '@deepseek-ai/cordis'
 import {createUserMessage} from '@deepseek-ai/dsh-llm'
 import {defineTool} from '@deepseek-ai/dsh-tools'
 import {openQueue,reviewGroup,scheduledReviewRetry} from './queue.js'
+import {reviewerWorkspacePrefix} from './review.js'
 import {branchState} from './git.js'
 import {registerPullTools} from './pull-workflow.js'
 import {registerWorkflowAwareness} from './master-awareness.js'
@@ -101,6 +102,7 @@ export async function apply(ctx) {
       for(const id of workspace.sessionIds) workspaces.set(id,workspace.title || workspace.path)
     const {items}=await ctx.sessionController.list({},signal)
     return items.filter(item=>item.cwd && item.origin!=='subagent' && !item.sessionId.startsWith(controlPrefix) &&
+      !item.sessionId.startsWith(reviewerWorkspacePrefix) &&
       !archived.has(item.sessionId) && item.formatStatus!=='migration-required').map(item=>{
       const values=item.projections?.values ?? {}
       const model=ctx.agents.get(item.sessionId)?.model.current() ?? values.modelSelection?.next ?? values.modelSelection?.lastUsed

@@ -3,7 +3,7 @@ import {mkdir,open,readFile,realpath} from 'node:fs/promises'
 import {basename,extname,isAbsolute,join,relative,resolve,sep} from 'node:path'
 import {withFileLock,writeFileAtomic} from '@deepseek-ai/dsh-atomic-write'
 import {branchState,checkFastForward,pinSubmission} from './git.js'
-import {answer,review} from './review.js'
+import {answer,review,usesClaudeWorkspace} from './review.js'
 import {createRepairInbox,DEFAULT_MAX_REPAIR_ROUNDS,repairRounds} from './repair-inbox.js'
 
 function text(value,label,limit,required=false) {
@@ -27,9 +27,14 @@ const transientReviewCodes=new Set([
   'HTTP_502','HTTP_503','HTTP_504','HTTP_529',
 ])
 const deadlineError=message=>typeof message==='string' && /exceeded the generation deadline/i.test(message)
+const legacyWorkspaceError='The session workspace must be an absolute path. The process directory is not a workspace.'
+const needsWorkspaceRecovery=row=>usesClaudeWorkspace(row) &&
+  row.error===legacyWorkspaceError && !row.workspaceRecoveryAttempted
 export const reviewGroup=row=>row.pull?.url || row.repair?.url || JSON.stringify([row.leadId,row.branch || row.id])
 export function scheduledReviewRetry(row,latest) {
-  if(row!==latest || row.status!=='failed' || (row.reviewerRetries ?? 0)>=retryDelays.length) return
+  if(row!==latest || row.status!=='failed') return
+  if(needsWorkspaceRecovery(row)) return row.finished || row.created
+  if((row.reviewerRetries ?? 0)>=retryDelays.length) return
   return row.reviewerRetryAt ?? (row.reviewerRetries===undefined && deadlineError(row.error) ? row.finished || row.created : undefined)
 }
 function dueRetry(row,rows,now) {
@@ -349,7 +354,8 @@ export async function openQueue(ctx,deliver) {
           const item=lookup(latest,row.id)
           if (item.status!=='queued') {
             if (!dueRetry(item,latest.rows,Date.now())) return false
-            item.reviewerRetries=(item.reviewerRetries ?? 0)+1
+            if(needsWorkspaceRecovery(item)) item.workspaceRecoveryAttempted=true
+            else item.reviewerRetries=(item.reviewerRetries ?? 0)+1
           }
           item.status='reviewing'
           delete item.reviewerRetryAt

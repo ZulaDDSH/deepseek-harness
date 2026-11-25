@@ -4,6 +4,8 @@ Auto Auditor reviews Git changes while the Harness host runs, including when the
 
 Auto Auditor reads the PR through a matching configured Git remote and pins the reviewed commit. Its verdict and answers appear in the originating chat and in the Auto Auditor review inbox. Ask a question with `auditor_message` or inspect reviews with `auditor_status`. Run requests (`needs_run`) route directly to the originating lead, including when triggered by a PR Fixer repair.
 
+Claude subscription reviews and replies use the review's pinned repository as their workspace. The originating chat can be closed while the reviewer runs.
+
 Open **Review queue** in Master Control for the latest audit on each submitted PR or lead branch. Select a review to open its findings in Auto Auditor. Install the optional GitHub review status plugin and connect the PR repository to add live GitHub status and required checks.
 
 Both review queues show **Waiting on lead** after the requested run is delivered and **With PR Fixer** when a fixer owns the repair. Auto Auditor retries transient reviewer failures up to twice, after 30 seconds and 2 minutes. **Needs input** shows the blocker and next step when delivery or retry fails, a repair reaches its round limit, or a required check fails without an assigned recovery path. Master Control shows the required check and links to GitHub when available.
