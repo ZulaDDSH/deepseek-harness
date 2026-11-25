@@ -13,9 +13,10 @@ function origin(value, name) {
 /**
  * Resolve mandatory policy metadata before preparing artifacts or accessing signing hardware.
  * @param {NodeJS.ProcessEnv} environment File-owned release settings; the unselected origin is not required.
- * @returns {{ origin: string, allowedPageOrigins: string[], authentication: 'anonymous' | 'feishu-test', [key: string]: unknown }} Selected policy.
+ * @returns {{ origin: string, allowedPageOrigins: string[], authentication: 'anonymous' | 'feishu-test', [key: string]: unknown } | undefined} Selected policy, or undefined when DSH_DESKTOP_UPDATE_FEED_URL selects a feed without a policy service.
  */
 export function resolveDesktopPolicyEnvironment(environment) {
+  if (environment.DSH_DESKTOP_UPDATE_FEED_URL?.trim()) return undefined
   const deployment = resolveDesktopAutoUpdateEnvironment(environment)
   const name = deployment === 'test' ? 'DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN' : 'DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN'
   const selected = origin(environment[name], name)
@@ -41,4 +42,22 @@ export function resolveDesktopPolicyEnvironment(environment) {
     allowedPageOrigins: pages.map(value => origin(value, 'allowedPageOrigins')),
     ...(deployment === 'test' ? { allowedAuthOrigins: authOrigins.map(value => origin(value, 'allowedAuthOrigins')) } : {}),
     authentication: deployment === 'test' ? 'feishu-test' : 'anonymous' }
+}
+
+/**
+ * Signed builds must keep the COS feed and policy, so only unsigned builds accept the GitHub feed.
+ * @param {NodeJS.ProcessEnv} environment File-owned release settings.
+ * @param {boolean} unsigned Whether the build is unsigned; signed builds keep the COS feed and policy.
+ * @returns {string | undefined} HTTPS feed directory URL ending in a slash, or undefined when unset or blank.
+ */
+export function resolveDesktopUpdateFeedUrl(environment, unsigned) {
+  const value = environment.DSH_DESKTOP_UPDATE_FEED_URL?.trim()
+  if (!value) return undefined
+  if (!unsigned) throw new Error('desktop package: DSH_DESKTOP_UPDATE_FEED_URL requires an unsigned build')
+  let url
+  try { url = new URL(value) } catch { throw new Error('desktop package: DSH_DESKTOP_UPDATE_FEED_URL requires an HTTPS URL') }
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || !url.pathname.endsWith('/')) {
+    throw new Error('desktop package: DSH_DESKTOP_UPDATE_FEED_URL requires an HTTPS URL ending in a slash, without credentials, query, or fragment')
+  }
+  return value
 }
