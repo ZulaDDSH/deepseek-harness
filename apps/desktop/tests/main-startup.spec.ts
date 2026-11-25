@@ -24,6 +24,7 @@ vi.mock('../src/file-drag.ts', () => ({ installDesktopFileDrag: () => { fileDrag
 
 vi.mock('../src/web-document.ts', () => ({
   serveWebDocument: vi.fn(), forwardWebRequest: vi.fn(),
+  removeLegacyHostCookies: (...args: unknown[]) => harness.removeLegacyHostCookies(...args),
 }))
 vi.mock('../src/operation-report-job.ts', () => ({ runOperationReportJob: vi.fn(async () => ({ appended: false, timedOut: false, cancelled: false })) }))
 // Report persistence has its own unit tests; here it resolves within microtasks so the fatal
@@ -223,7 +224,7 @@ const harness = await vi.hoisted(async () => {
     failWindow(error: Error) { windowFailure = error },
     windows, views, hosts, handlers, app, FakeWindow, FakeView, FakeHost, powerMonitor, nativeTheme, analytics,
     trays, FakeTray, backgroundNotice, shellDialog,
-    menu, popup, socketHeaders: vi.fn(),
+    menu, popup, socketHeaders: vi.fn(), removeLegacyHostCookies: vi.fn((..._args: unknown[]): Promise<void> => Promise.resolve()),
     loginShell, readLoginShell, updateCheck, updateDownload, updateInstall,
     platformDispose,
     platformCloseAndWait,
@@ -1428,6 +1429,22 @@ describe('desktop main startup', () => {
         .toMatchFileSnapshot(`./expected/application-menu-${locale}.json`)
       expect(harness.app.name).toBe('@deepseek-ai/dsh-desktop')
     } finally { harness.app.name = originalName }
+  })
+
+  it.each([false, true])('removes legacy Host cookies after Host start and survives a cleanup failure (%s)', async (fails) => {
+    harness.removeLegacyHostCookies.mockClear()
+    if (fails) harness.removeLegacyHostCookies.mockRejectedValueOnce(new Error('cookie store unavailable'))
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    harness.prepared.resolve()
+    await harness.hostStarted.promise
+    harness.hosts[0]!.url = 'http://127.0.0.1:3080/'
+    harness.hosts[0]!.ready.resolve()
+    await Promise.resolve(invoke(DESKTOP_IPC.boot))
+    expect(harness.removeLegacyHostCookies).toHaveBeenCalledWith(expect.anything(), 'http://127.0.0.1:3080/')
+    if (fails) expect(log).toHaveBeenCalledWith('desktop: legacy Host cookie cleanup failed', expect.any(Error))
+    log.mockRestore()
   })
 
   it.each(['http:', 'https:'] as const)('attaches authenticated socket credentials only to the owned application origin and window (%s)', async (protocol) => {

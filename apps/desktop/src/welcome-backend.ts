@@ -32,7 +32,8 @@ async function failureSnippet(response: Response): Promise<string> {
     }
     void reader.cancel().catch(() => undefined)
     const text = new TextDecoder().decode(Buffer.concat(chunks).subarray(0, MAX_FAILURE_BODY_BYTES))
-    return text.replace(/[A-Za-z0-9_-]{32,}/gu, '[redacted]').replace(/\s+/gu, ' ').trim().slice(0, MAX_FAILURE_SNIPPET_CHARS)
+    return text.replace(/dsh-desktop-session=[^;\s]*/giu, '[redacted]').replace(/\b[\w-]*cookie[\w-]*\s*[:=][^\r\n]*/giu, '[redacted]')
+      .replace(/[A-Za-z0-9_-]{32,}/gu, '[redacted]').replace(/\s+/gu, ' ').trim().slice(0, MAX_FAILURE_SNIPPET_CHARS)
   } catch { return '' }
 }
 

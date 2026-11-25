@@ -58,30 +58,42 @@ describe('desktop welcome Web operations', () => {
   })
 
   it('keeps the explicit cookie when the session cookie jar holds legacy Host cookies', async () => {
-    const server = createServer(async (request, response) => {
-      let body = ''
-      for await (const chunk of request) body += chunk
-      if (request.headers.cookie !== cookie) {
-        response.writeHead(401).end('unauthorized')
-        return
-      }
-      response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
-        type: 'server-response', rpcId: (JSON.parse(body) as { rpcId: string }).rpcId, result: { ok: true, value: true },
-      }))
+    const server = createServer((request, response) => {
+      const chunks: Buffer[] = []
+      request.on('data', (chunk: Buffer) => { chunks.push(chunk) })
+      request.on('end', () => {
+        if (request.headers.cookie !== cookie) {
+          response.writeHead(401).end('unauthorized')
+          return
+        }
+        const { rpcId } = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { rpcId: string }
+        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+          type: 'server-response', rpcId, result: { ok: true, value: true },
+        }))
+      })
     })
-    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve) })
     try {
       const address = server.address()
       if (address === null || typeof address === 'string') throw new Error('test Host did not bind a TCP port')
       const jar = 'dsh-auth-legacy=stale'
-      const chromium: Parameters<typeof connectDesktopWelcome>[1] = (input, init) => fetch(input, {
-        ...init, headers: { ...(init?.headers as Record<string, string>), cookie: init?.credentials === 'omit' ? (init.headers as Record<string, string>).cookie! : jar },
-      })
+      const chromium: Parameters<typeof connectDesktopWelcome>[1] = (input, init) => {
+        const headers = init?.headers as Record<string, string>
+        return fetch(input, { ...init, headers: { ...headers, cookie: init?.credentials === 'omit' ? headers.cookie! : jar } })
+      }
       const backend = await connectDesktopWelcome(`http://127.0.0.1:${address.port}/`, chromium, () => Promise.resolve(cookie))
       expect(await backend.analyticsEnabled()).toBe(true)
     } finally {
-      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+      await new Promise<void>((resolve, reject) => { server.close((error) => { if (error) reject(error); else resolve() }) })
     }
+  })
+
+  it('redacts the session cookie and cookie-like pairs from the failure snippet', async () => {
+    const send = vi.fn<Parameters<typeof connectDesktopWelcome>[1]>(async () =>
+      new Response('bad dsh-desktop-session=abc123 and Cookie: a=b; c=d', { status: 403 }))
+    const backend = await connectDesktopWelcome(url, send, () => Promise.resolve(cookie))
+    const error = await backend.readLocalePreference().then(() => undefined, (failure: unknown) => failure as Error)
+    expect(error?.message).toBe('desktop welcome: Web request failed: settings/describe HTTP 403 bad [redacted] and [redacted]')
   })
 
   it('reads language without querying account or model providers', async () => {
