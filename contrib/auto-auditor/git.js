@@ -257,7 +257,7 @@ export async function samePath(left, right) {
 }
 
 /** Prepare a detached worktree at the reviewed PR head, preserving an existing retry. */
-export async function prepareRepairWorktree(row, root, cwd, signal) {
+export async function prepareRepairWorktree(row, root, cwd, signal, {reuseOnly=false}={}) {
   const {head}=await pullRefs(row.repo,row.pull,signal)
   if (head!==row.head)
     throw new Error('The PR head has moved. Send the current revision to Auto Auditor before starting a repair.')
@@ -274,6 +274,7 @@ export async function prepareRepairWorktree(row, root, cwd, signal) {
     const tip=await revision(cwd,'HEAD',signal)
     await checkFastForward(cwd,row.head,tip,signal)
   } else {
+    if (reuseOnly) throw new Error('The existing repair worktree is missing. Restore it before resuming.')
     if (!await optionalRevision(row.repo,row.head,signal))
       await fetchPull(row.repo,row.pull,[headRef(row.pull.number)],signal)
     await mkdir(root,{recursive:true})

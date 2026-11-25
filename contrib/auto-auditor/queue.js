@@ -4,7 +4,7 @@ import {basename,extname,isAbsolute,join,relative,resolve,sep} from 'node:path'
 import {withFileLock,writeFileAtomic} from '@deepseek-ai/dsh-atomic-write'
 import {branchState,checkFastForward,pinSubmission} from './git.js'
 import {answer,review,usesClaudeWorkspace} from './review.js'
-import {createRepairInbox,DEFAULT_MAX_REPAIR_ROUNDS,repairRounds} from './repair-inbox.js'
+import {createRepairInbox,DEFAULT_MAX_REPAIR_ROUNDS,repairRounds,repairTarget} from './repair-inbox.js'
 
 function text(value,label,limit,required=false) {
   if (value == null && !required) return ''
@@ -102,6 +102,17 @@ export async function openQueue(ctx,deliver) {
   })}
   function setFixerJob(id,job) {
     return change(id,row=>{row.fixerJob=job})
+  }
+  function setFixerRecovery(id,sessionId,targetId,recovery) {
+    return mutate(state=>{
+      const row=lookup(state,id)
+      const target=repairTarget(state.rows,row)
+      if (row.fixerJob?.state!=='sent' || row.fixerJob.sessionId!==sessionId ||
+          target?.id!==targetId || target.status!=='changes_requested') return
+      row.fixerJob.recovery=recovery
+      row.revision=(row.revision ?? 0)+1
+      if (target!==row) target.revision=(target.revision ?? 0)+1
+    })
   }
   async function selectModel(args,field='model') {
     if (args.inherit === true) return mutate(state=>state[field]=null)
@@ -426,11 +437,6 @@ export async function openQueue(ctx,deliver) {
       if(requested && !life.signal.aborted) wake()
     })
   }
-  ctx.effect(()=>{
-    const timer=setInterval(()=>{if(!worker) wake()},15000)
-    timer.unref()
-    return ()=>{clearInterval(timer);life.abort();return worker}
-  },'Auto Auditor review worker')
   const tip=async(id,signal)=>branchState(lookup(await read(),id),signal)
   async function capture(id,side,signal) {
     const ref=lookup(await read(),id).captures?.find(c=>c.side===side)?.ref
@@ -439,8 +445,21 @@ export async function openQueue(ctx,deliver) {
     return 'data:'+ref.mediaType+';base64,'+Buffer.from(data).toString('base64')
   }
   let publisher
-  const api={read,selectModel,setAutomaticWake,setAutoPublish,setMaxRepairRounds,submit,detail,tip,capture,retry,retryDelivery,requestLead,sendMessage,recordPublishedRepair,setFixerJob,setPublisher(fn){publisher=fn}}
+  const api={read,selectModel,setAutomaticWake,setAutoPublish,setMaxRepairRounds,submit,detail,tip,capture,retry,retryDelivery,requestLead,sendMessage,recordPublishedRepair,setFixerJob,setFixerRecovery,setPublisher(fn){publisher=fn}}
   api.fixer=createRepairInbox(ctx,api)
+  let supervision
+  ctx.effect(()=>{
+    const timer=setInterval(()=>{
+      if(!worker) wake()
+      if(!supervision) {
+        supervision=api.fixer.supervise(life.signal)
+          .catch(error=>{if(!life.signal.aborted) ctx.logger.warn('PR Fixer recovery: '+error.message)})
+          .finally(()=>{supervision=undefined})
+      }
+    },15000)
+    timer.unref()
+    return ()=>{clearInterval(timer);life.abort();return Promise.allSettled([worker,supervision])}
+  },'Auto Auditor review and repair workers')
   wake()
   return api
 }

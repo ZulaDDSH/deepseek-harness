@@ -6,7 +6,7 @@ import {reviewerWorkspacePrefix} from './review.js'
 import {branchState} from './git.js'
 import {registerPullTools} from './pull-workflow.js'
 import {registerWorkflowAwareness} from './master-awareness.js'
-import {DEFAULT_MAX_REPAIR_ROUNDS,repairRounds} from './repair-inbox.js'
+import {DEFAULT_MAX_REPAIR_ROUNDS,fixerProgress,repairRounds,repairTarget} from './repair-inbox.js'
 
 export const name='desktop-auto-auditor'
 export const inject=['profileContext','connection','webServer','tools','agents','sessions','llm','sessionController','sessionQuery','workspaceRegistry','permissionPresets','attachments']
@@ -71,9 +71,12 @@ function installFixerPermissionLock(ctx) {
   return Promise.all(ctx.agents.list().filter(isFixer).map(lock))
 }
 
-function header(row,rows) {
+function header(ctx,row,rows) {
   const original=row.repair && rows.find(item=>item.id===row.repair.original)
   const job=(original || row).fixerJob
+  const source=original || row
+  const progress=source.pull && job?.state==='sent' && repairTarget(rows,source)===row
+    ? fixerProgress(ctx,source,row) : undefined
   const notice=row.leadNotices?.lead_action
   const deliveries=[row.delivery?.[original && original.leadId!==row.leadId?'origin_lead':'lead']]
   if(notice?.kind==='run') deliveries.push(row.delivery?.lead_action)
@@ -91,6 +94,7 @@ function header(row,rows) {
     ...(row.status==='failed' && row.error && {inputNote:row.error.slice(0,300)}),
     ...(job?.state==='sent' && {fixerSessionId:job.sessionId}),
     ...(job?.state && {fixerState:job.state}),
+    ...(progress && {fixerProgress:progress,fixerRecoveryError:job.recovery?.target===row.id ? job.recovery.error : undefined}),
     ...(row.repair && {repairOriginal:row.repair.original,repairPublished:row.repair.published===true})}
 }
 
@@ -308,14 +312,14 @@ export async function apply(ctx) {
       const caller=await author(exec)
       const state=await queue.read()
       const rows=state.rows.filter(row=>caller.master || row.leadId===caller.id || row.fixerJob?.sessionId===caller.id)
-      if(!review_id) return JSON.stringify(rows.slice(0,25).map(row=>header(row,state.rows)))
+      if(!review_id) return JSON.stringify(rows.slice(0,25).map(row=>header(ctx,row,state.rows)))
       const row=rows.find(item=>item.id===review_id)
       if(!row) throw new Error('Review not found.')
       const fixerJob=row.fixerJob ? {
         ...row.fixerJob,
         ...(['sent','round_limit'].includes(row.fixerJob.state) && {agentStatus:ctx.agents.get(row.fixerJob.sessionId)?.status || 'closed'}),
       } : null
-      return JSON.stringify({...header(row,state.rows),result:row.result,error:row.error,delivery:row.delivery,fixerJob,
+      return JSON.stringify({...header(ctx,row,state.rows),result:row.result,error:row.error,delivery:row.delivery,fixerJob,
         current:await queue.tip(row.id,exec.signal),messages:row.messages?.slice(-12)})
     },
   }))
@@ -340,7 +344,7 @@ export async function apply(ctx) {
           model:state.model,
           maxRepairRounds:state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS,
           pending,
-          rows:state.rows.map(row=>header(row,state.rows)),
+          rows:state.rows.map(row=>header(ctx,row,state.rows)),
         }
       } else if(method==='leads') value=(await leads(signal)).map(({id,title,workspace,cwd})=>({id,title,workspace,cwd}))
       else if(method==='detail') value=await queue.detail(args.id,signal)
@@ -352,6 +356,7 @@ export async function apply(ctx) {
       else if(method==='settings') value=await queue.selectModel(args)
       else if(method==='fixer-list') value=await queue.fixer.list()
       else if(method==='fixer-start') value=await queue.fixer.start(args.id,signal)
+      else if(method==='fixer-resume') value=await queue.fixer.resume(args.id,signal)
       else if(method==='fixer-model') value=await queue.selectModel(args,'fixerModel')
       else if(method==='fixer-autowake') value=await queue.setAutomaticWake(args.enabled)
       else if(method==='fixer-autopublish') value=await queue.setAutoPublish(args.enabled)

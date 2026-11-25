@@ -44,8 +44,8 @@ window.__ModuleLoader__.load({
       .mc-review-queue .mc-status[data-status="changes_requested"]::before{background:currentColor;border:0}
       .mc-review-queue .mc-status:is([data-status="ready"],[data-status="review_ready"],[data-status="published"]){color:var(--dsw-alias-state-business-primary,var(--audit-ok));border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary,var(--audit-ok)) 40%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,var(--audit-ok)) 12%,transparent)}
       .mc-review-queue .mc-status:is([data-status="ready"],[data-status="review_ready"],[data-status="published"])::before{background:currentColor;border:0}
-      .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"],[data-status="ci_failed"],[data-status="round_limit"]){color:var(--dsw-alias-state-error-primary,var(--audit-err));border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 44%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 12%,transparent)}
-      .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"],[data-status="ci_failed"],[data-status="round_limit"])::before{border-radius:1px;transform:rotate(45deg);background:currentColor;border:0}
+      .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"],[data-status="ci_failed"],[data-status="round_limit"],[data-status="fixer_stalled"]){color:var(--dsw-alias-state-error-primary,var(--audit-err));border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 44%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 12%,transparent)}
+      .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"],[data-status="ci_failed"],[data-status="round_limit"],[data-status="fixer_stalled"])::before{border-radius:1px;transform:rotate(45deg);background:currentColor;border:0}
       .mc-review-queue .mc-review-sub{display:block;margin:.22rem 0 0;color:var(--mc-muted);font-size:.73rem;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .mc-review-queue .mc-review-title{display:block;width:100%;margin:.24rem 0 0;font-size:.77rem;font-weight:400;line-height:1.38;letter-spacing:0;color:color-mix(in srgb,var(--mc-ink) 78%,var(--mc-muted));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .mc-review-queue .mc-review-card:hover .mc-review-title{color:var(--mc-accent)}
@@ -172,11 +172,13 @@ window.__ModuleLoader__.load({
       const meta=(label,value)=>h('div',null,h('dt',null,label),h('dd',null,value))
       const input=needsInput(item,remote,row)
       const work=assignedWork(item,remote)
+      const resumeFixer=()=>act('fixer-resume',{id:item.repairOriginal || item.id})
       const leadDelivery=row.delivery?.lead_action
       const bumpDelivery=row.delivery?.lead_bump
       const pending=status=>['pending','sending'].includes(status)
       const leadButton=input?.kind==='needs_run' || input?.kind==='ci_failed'
-      const recommended=input?.kind==='round_limit' ? button('Open reviewer settings',openSettings) :
+      const recommended=input?.kind==='fixer_stalled' ? button('Resume PR Fixer',resumeFixer,{disabled:action.busy}) :
+        input?.kind==='round_limit' ? button('Open reviewer settings',openSettings) :
         leadButton ? button(input.kind==='needs_run'?'Ask lead to run this':'Ask lead to fix check',
           ()=>act('request-lead',{id:row.id,kind:input.kind==='needs_run'?'run':'ci'}),
           {disabled:action.busy || pending(leadDelivery)}) :
@@ -188,6 +190,7 @@ window.__ModuleLoader__.load({
             leadButton && leadDelivery && h('small',{role:'status'},
               ({pending:'Request queued',sending:'Sending request…',sent:'Request sent',failed:'Request delivery failed'})[leadDelivery]))),
         !input && work && h('p',{className:'notice'},work[1]),
+        !input && item.fixerProgress==='idle' && h('div',{className:'actions'},button('Resume PR Fixer',resumeFixer,{disabled:action.busy})),
         !input && remote?.ci==='failed' && remote.prState==='OPEN' && h(CheckStatus,{remote}),
         h('dl',null,meta('Lead',row.leadTitle),
           row.pull ? meta('Pull request',h('a',{href:row.pull.url,target:'_blank',rel:'noreferrer'},'PR #'+row.pull.number)) : meta('Branch',row.branch || 'Detached HEAD'),
@@ -255,7 +258,9 @@ window.__ModuleLoader__.load({
         if(pending(row.runDelivery)) return ['Sending to lead','Auto Auditor is delivering the requested run.']
       }
       if(row.status==='changes_requested') {
-        if(row.fixerState==='sent') return ['With PR Fixer','PR Fixer has the audit findings.']
+        if(row.fixerProgress==='working') return ['With PR Fixer','The repair session is active.']
+        if(row.fixerProgress==='waiting') return ['Waiting on lead','PR Fixer requested evidence from the originating lead.']
+        if(row.fixerProgress==='idle') return ['PR Fixer idle','The repair session is idle. Automatic wake can resume it when enabled.']
         if(pending(row.fixerDelivery)) return ['Queued for PR Fixer','Auto Auditor is delivering its findings to PR Fixer.']
         if(row.leadDelivery==='sent') return ['With lead','The lead received the audit findings.']
         if(pending(row.leadDelivery)) return ['Sending to lead','Auto Auditor is delivering its findings to the lead.']
@@ -267,6 +272,11 @@ window.__ModuleLoader__.load({
         kind:'round_limit',
         summary:'PR Fixer reached the configured repair round limit.',
         action:'Review the findings and decide whether to raise Max repair rounds in Reviewer model.',
+      }
+      if(row.fixerProgress==='stalled' && remote?.audit!=='changed') return {
+        kind:'fixer_stalled',
+        summary:row.fixerRecoveryError || 'PR Fixer stopped after two automatic wake attempts.',
+        action:'Open the repair chat to inspect the blocker, or resume the repair.',
       }
       const work=assignedWork(row,remote)
       if(remote?.ci==='failed' && !assignedCheck(row,remote) && (!work || remote.audit==='changed')) return {
@@ -413,7 +423,7 @@ window.__ModuleLoader__.load({
           const link=reviewLink(row)
           const pull=typeof link==='string' && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/([1-9]\d*)$/.exec(link)
           const subParts=[row.leadTitle,row.head.slice(0,8),...(count>1?[count+' rounds']:row.repair && !row.pull?['Repair']:[])]
-          const showReason=['needs_run','ci_failed','failed','round_limit','assigned'].includes(kind) ||
+          const showReason=['needs_run','ci_failed','failed','round_limit','fixer_stalled','assigned'].includes(kind) ||
             remote?.audit==='changed' || (row.repair && !row.pull && row.status==='ready' && !row.repairPublished)
           return h('li',{key:row.id,className:'mc-session mc-review-card',onClick:e=>{if(!e.target.closest('a,button')) showReview(row.id)}},
             h('div',{className:'mc-review-top'},
@@ -534,6 +544,7 @@ window.__ModuleLoader__.load({
     }
     const repairLabels={
       available:'Ready to start',preparing:'Preparing worktree',handoff_failed:'Handoff needs attention',sent:'Handoff sent',
+      working:'Working',idle:'Idle',waiting:'Waiting on lead',stalled:'Needs input',
       queued:'Repair queued for audit',reviewing:'Repair in audit',ready:'Repair approved',
       changes_requested:'More changes requested',needs_run:'Run requested',failed:'Repair audit failed',
       round_limit:'Needs owner · round limit',published:'Published to PR',superseded:'Newer audit available',
@@ -599,6 +610,10 @@ window.__ModuleLoader__.load({
         setOpen({id,sessionId:job.sessionId})
         refresh()
       })}
+      function resume() {action.run(async()=>{
+        await call(rpc,'fixer-resume',{id:item.id})
+        refresh()
+      })}
       const chat=open && open.id===item?.id && open.sessionId
       const fixerModelLabel=state?.model?.model ?
         'Fixer model · '+state.model.model+(state.model.reasoningEffort?' · '+state.model.reasoningEffort:'') : 'Fixer model'
@@ -635,7 +650,9 @@ window.__ModuleLoader__.load({
                 h('div',null,h('h3',null,'Auto Auditor findings'),h('ul',null,item.findings.map((finding,index)=>h('li',{key:index},finding)))),
                 item.evidence && h('details',null,h('summary',null,'Evidence from '+item.lead),h('p',{className:'long'},item.evidence)),
                 problem(item.error),
-                item.sessionId ? h('div',null,button('Open repair chat',()=>setOpen({id:item.id,sessionId:item.sessionId}))) :
+                item.sessionId ? h('div',{className:'actions'},
+                  button('Open repair chat',()=>setOpen({id:item.id,sessionId:item.sessionId})),
+                  item.resumable && button('Resume PR Fixer',resume,{disabled:action.busy})) :
                   item.startable && h('div',null,button(action.busy?'Starting…':item.error?'Retry handoff':'Start repair',
                     start,{className:'primary',disabled:action.busy}))) :
                 h('p',{className:'empty',role:'status'},state?'PRs with changes requested by Auto Auditor appear here.':'Loading repair inbox…')))))

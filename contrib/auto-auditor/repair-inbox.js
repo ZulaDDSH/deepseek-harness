@@ -1,11 +1,46 @@
 import {join} from 'node:path'
 import {withFileLock} from '@deepseek-ai/dsh-atomic-write'
 import {createUserMessage} from '@deepseek-ai/dsh-llm'
-import {prepareRepairWorktree,samePath} from './git.js'
+import {prepareRepairWorktree,readPullViaGitCredentials,samePath} from './git.js'
 
 const uuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/
 const prefix='desktop-pr-fixer-'
 export const DEFAULT_MAX_REPAIR_ROUNDS=3
+const recoveryDelay=2*60_000
+const maxRecoveries=2
+
+export function repairTarget(rows,row) {
+  if (rows.find(item=>item.pull?.url===row.pull.url)!==row) return
+  return rows.find(item=>item.repair?.original===row.id) ?? row
+}
+
+function activeAgent(ctx,id) {
+  const agent=ctx.agents.get(id)
+  return agent?.status==='running' || Boolean(agent?.inbox?.nextTurn.length)
+}
+
+export function fixerProgress(ctx,row,target) {
+  const job=row.fixerJob
+  if (job?.state!=='sent' || !target || target.status!=='changes_requested') return
+  if (activeAgent(ctx,job.sessionId)) return 'working'
+  const recovery=job.recovery?.target===target.id ? job.recovery : undefined
+  if (recovery?.waiting) return 'waiting'
+  if (recovery?.blocked || recovery?.attempts>=maxRecoveries) return 'stalled'
+  return 'idle'
+}
+
+function waitingForLead(events,reviewId) {
+  const reply=events.findLast(event=>event.type==='user/message' &&
+    event.data.source?.kind==='auto-auditor' && event.data.source.reviewId===reviewId &&
+    event.data.source.exchangeId?.startsWith('run-reply:'))
+  const requested=new Set()
+  for (const event of events) {
+    if (event.seq<=(reply?.seq ?? 0)) continue
+    if (event.type==='tool/call' && event.data.name==='auditor_request_run') requested.add(event.data.callId)
+    if (event.type==='tool/result' && !event.data.message.isError && requested.has(event.data.message.toolCallId)) return true
+  }
+  return false
+}
 
 /** Count staged repair attempts for a given original PR review ID. */
 export function repairRounds(rows,originalId) {
@@ -23,7 +58,7 @@ export function activeFixerForPull(rows,pullUrl) {
 }
 
 /** Project the latest actionable PR findings and earlier jobs with an open chat. */
-function inbox(rows,maxRounds=DEFAULT_MAX_REPAIR_ROUNDS) {
+function inbox(ctx,rows,maxRounds=DEFAULT_MAX_REPAIR_ROUNDS) {
   const latest=new Map()
   const repairs=new Map()
   for(const row of rows) {
@@ -38,13 +73,15 @@ function inbox(rows,maxRounds=DEFAULT_MAX_REPAIR_ROUNDS) {
     const job=row.fixerJob
     const rounds=repairRounds(rows,row.id)
     const limitHit=job?.state==='round_limit' || (rounds>=maxRounds && repair?.status==='changes_requested')
-    const status=repair?.repair.published?'published':!current?'superseded':limitHit?'round_limit':repair?.status ?? job?.state ?? 'available'
+    const progress=fixerProgress(ctx,row,current ? repair ?? row : undefined)
+    const status=repair?.repair.published?'published':!current?'superseded':limitHit?'round_limit':progress ?? repair?.status ?? job?.state ?? 'available'
     return {id:row.id,url:row.pull.url,number:row.pull.number,head:row.head,lead:row.leadTitle,goal:row.goal,
       findings:row.result?.findings ?? [],evidence:row.evidence,
       sessionId:['sent','round_limit'].includes(job?.state)?job.sessionId:undefined,
       status,rounds,maxRounds,
       startable:current && row.status==='changes_requested' && !['sent','round_limit'].includes(job?.state) && !limitHit,
-      error:job?.error}
+      resumable:!limitHit && ['idle','stalled'].includes(progress),
+      error:progress==='stalled' ? job.recovery?.error || 'PR Fixer stopped after two automatic wake attempts.' : job?.error}
   })
 }
 
@@ -79,12 +116,116 @@ function handoff(row,maxRounds) {
 export function createRepairInbox(ctx,queue) {
   const dir=join(ctx.profileContext.dir,'auto-auditor')
   const root=join(dir,'fixer-worktrees')
+  const pending=status=>status==='pending' || status==='sending'
+  async function recover(id,signal,automatic) {
+    return withFileLock(join(dir,'fixer-'+id),async()=>{
+      const state=await queue.read()
+      const row=state.rows.find(item=>item.id===id && item.pull)
+      const job=row?.fixerJob
+      const target=row && repairTarget(state.rows,row)
+      if (job?.state!=='sent' || target?.status!=='changes_requested' ||
+          repairRounds(state.rows,id)>=(state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS) ||
+          (automatic && !state.fixerAutoWake) || activeAgent(ctx,job.sessionId) || pending(target.delivery?.lead)) return false
+      const recovery=job.recovery?.target===target.id ? job.recovery : {target:target.id,attempts:0}
+      if (automatic && (recovery.blocked || recovery.attempts>=maxRecoveries ||
+          Date.now()-Math.max(target.finished ?? target.created,recovery.at ?? 0)<recoveryDelay)) return false
+      const save=update=>queue.setFixerRecovery(id,job.sessionId,target.id,{...recovery,...update})
+      try {
+        if (ctx.workspaceRegistry.archivedSessionIds.includes(job.sessionId)) {
+          await save({blocked:true,error:'This repair chat is archived. Restore it before resuming.'})
+          return false
+        }
+        if ((await ctx.waterfall('workspace/session-activity',{sessionId:job.sessionId},async()=>[])).length) return false
+        using history=await ctx.sessionQuery.observeSession(job.sessionId,{signal,projectionMode:'none'})
+        const lastTurn=history.events.findLast(event=>event.type==='turn/end')
+        if (waitingForLead(history.events,id)) {
+          if (!recovery.waiting) await save({waiting:true})
+          return false
+        }
+        if (recovery.waiting) await save({waiting:false})
+        if (automatic && lastTurn?.data.reason.kind==='aborted') {
+          await save({waiting:false,blocked:true,error:'The last PR Fixer turn was cancelled. Resume it when you are ready.'})
+          return false
+        }
+        if (automatic && lastTurn && Date.now()-lastTurn.time<recoveryDelay) return false
+        const service=ctx.get('githubReviewStatus')
+        let pull
+        if (service) {
+          try {pull=await service.target(row.pull.url,signal)}
+          catch(error) {
+            if (!/Connect the PR|Enable the GitHub review status/i.test(error.message)) throw error
+          }
+        }
+        pull ??= await readPullViaGitCredentials(row.pull.url,signal)
+        if (pull.prState!=='OPEN' || pull.head!==row.head) {
+          await save({blocked:true,error:'The PR closed or its head changed. Review the current PR before resuming.'})
+          return false
+        }
+        const cwd=await prepareRepairWorktree(row,root,join(root,id),signal,{reuseOnly:true})
+        if (!await samePath(history.header.cwd,cwd)) throw new Error('The repair chat is bound to a different worktree.')
+        const {agent,error}=await ctx.sessionController.resolveAgent(job.sessionId)
+        if (!agent || error) throw new Error(error?.message || 'The repair chat could not be reopened.')
+        if (!await samePath(agent.session.header.cwd,cwd)) throw new Error('The repair chat is bound to a different worktree.')
+        using currentHistory=await ctx.sessionQuery.observeSession(job.sessionId,{signal,projectionMode:'none'})
+        const latest=await queue.read()
+        const source=latest.rows.find(item=>item.id===id)
+        const current=source && repairTarget(latest.rows,source)
+        if (current?.id!==target.id || current.status!=='changes_requested' ||
+            source.fixerJob?.state!=='sent' || source.fixerJob.sessionId!==job.sessionId ||
+            repairRounds(latest.rows,id)>=(latest.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS) ||
+            (automatic && !latest.fixerAutoWake) ||
+            activeAgent(ctx,job.sessionId) || pending(current.delivery?.lead) ||
+            waitingForLead(currentHistory.events,id)) return false
+        signal.throwIfAborted()
+        const attempt=recovery.attempts+1
+        const exchangeId='repair-resume:'+target.id+':'+attempt
+        const seen=item=>item.type==='user/message' && item.data.source?.kind==='auto-auditor' &&
+          item.data.source.reviewId===id && item.data.source.exchangeId===exchangeId
+        if (!currentHistory.events.some(seen)) {
+          const text=[
+            'Resume PR Fixer work in this existing repair checkout for '+row.pull.url+'.',
+            'Inspect git status, local commits, and the prior conversation. Preserve existing work.',
+            'Address these current findings and submit the verified local commit using auditor_stage_fix with review_id='+id+'.',
+            ...(target.result?.findings ?? []).map(finding=>'- '+finding),
+          ].join('\n')
+          agent.followup(createUserMessage({content:[{type:'text',text}],source:{
+            kind:'auto-auditor',form:'notice',summary:'Resume PR Fixer',reviewId:id,exchangeId,
+          }}))
+        }
+        if (!await ctx.sessions.flush(agent.session)) throw new Error('Could not confirm the resume message was saved.')
+        await save({attempts:attempt,at:Date.now(),waiting:false,blocked:false,error:null})
+        return true
+      } catch(error) {
+        if (signal.aborted) return false
+        await save({attempts:recovery.attempts+1,at:Date.now(),waiting:false,error:String(error.message).slice(0,800)})
+        if (!automatic) throw error
+        return false
+      }
+    },{signal})
+  }
   return {
+    async supervise(signal) {
+      const state=await queue.read()
+      if (!state.fixerAutoWake) return
+      for (const row of state.rows) {
+        signal.throwIfAborted()
+        if (!row.pull || row.fixerJob?.state!=='sent') continue
+        const progress=fixerProgress(ctx,row,repairTarget(state.rows,row))
+        if (['idle','waiting'].includes(progress) && await recover(row.id,signal,true)) return
+      }
+    },
+    async resume(id,signal) {
+      if(typeof id!=='string' || !uuid.test(id)) throw new Error('Choose an Auto Auditor review.')
+      if (await recover(id,signal,false)) return true
+      const state=await queue.read()
+      const item=inbox(ctx,state.rows,state.fixerMaxRounds).find(row=>row.id===id)
+      throw new Error(item?.error || 'PR Fixer cannot resume this review. Check its current status and any pending lead work.')
+    },
     async list() {
       const state=await queue.read()
       const maxRepairRounds=state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS
       return {
-        rows:inbox(state.rows,maxRepairRounds),
+        rows:inbox(ctx,state.rows,maxRepairRounds),
         model:state.fixerModel ?? null,
         automaticWake:state.fixerAutoWake===true,
         autoPublish:state.fixerAutoPublish===true,
@@ -96,7 +237,7 @@ export function createRepairInbox(ctx,queue) {
       return withFileLock(join(dir,'fixer-'+id),async()=>{
         const state=await queue.read()
         const maxRounds=state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS
-        const item=inbox(state.rows,maxRounds).find(entry=>entry.id===id)
+        const item=inbox(ctx,state.rows,maxRounds).find(entry=>entry.id===id)
         if (item?.sessionId) return item
         if (!item?.startable) throw new Error('This PR review is no longer available for repair.')
         const row=state.rows.find(entry=>entry.id===id)
@@ -144,7 +285,7 @@ export function createRepairInbox(ctx,queue) {
           throw error
         }
         const refreshed=await queue.read()
-        return inbox(refreshed.rows,refreshed.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS).find(entry=>entry.id===id)
+        return inbox(ctx,refreshed.rows,refreshed.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS).find(entry=>entry.id===id)
       },{signal})
     },
   }
