@@ -1,3 +1,4 @@
+import {registerOwnerTools} from './pr-owner.js'
 import {createHash} from 'node:crypto'
 import {setTimeout as delay} from 'node:timers/promises'
 import {createUserMessage} from '@deepseek-ai/dsh-llm'
@@ -94,6 +95,8 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
     const target=await resolvePullTarget(repair.repair.url,{},signal)
     if (target.prState!=='OPEN')
       throw new Error('This pull request is no longer open.')
+    if(repair.repair.verification && target.base!==repair.repair.target)
+      throw new Error('The target base changed. This candidate needs a new audit.')
     const outcome=await pushAndConfirm(repair.repo,target,repair.head,repair.repair.head,signal,
       latest=>{
         if (latest.prState!=='OPEN') throw new Error('This pull request is no longer open.')
@@ -103,6 +106,7 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
     return outcome
   }
   queue.setPublisher(publishApprovedRepair)
+  registerOwnerTools(ctx,{queue,parameter,output,resolvePullTarget,defineTool})
 
   ctx.tools.register(defineTool({
     name:'auditor_open_and_review',
@@ -202,7 +206,10 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
         throw new Error('Specify complete commit SHAs for the expected and proposed PR head.')
       const source=await lead(args.lead_id || caller.id,exec.signal,true)
       const target=await resolvePullTarget(args.pull_request,{},exec.signal)
-      const active=activeFixerForPull((await queue.read()).rows,target.url)
+      const rows=(await queue.read()).rows
+      if(rows.some(row=>row.automationPaused && (row.pull?.url || row.repair?.url)===target.url))
+        throw new Error('This historical PR is paused.')
+      const active=activeFixerForPull(rows,target.url)
       if (active && !caller.master)
         throw new Error('PR Fixer is actively repairing this pull request ('+active.sessionId+'). Wait for the repair to finish or escalate before pushing to this PR.')
       return JSON.stringify(await pushAndConfirm(source.cwd,target,args.commit,args.expected_head,exec.signal,
@@ -224,6 +231,8 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
       const rows=state.rows
       const original=rows.find(row=>row.id===args.review_id && row.pull)
       const latest=original && rows.find(row=>row.pull?.url===original.pull.url)
+      if(original?.automationPaused) throw new Error('This historical review is paused.')
+      if(original?.owner) throw new Error('The PR owner must finish with auditor_finish using the recorded pass condition.')
       const jobState=original?.fixerJob?.state
       const assigned=jobState==='sent' ? original.fixerJob.sessionId : undefined
       if (!original || original.status!=='changes_requested' || latest?.id!==original.id)
@@ -266,7 +275,7 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
       const caller=await author(exec)
       const state=await queue.read()
       const original=state.rows.find(row=>row.id===args.review_id && row.pull)
-      const assigned=original?.fixerJob?.state==='sent' ? original.fixerJob.sessionId : undefined
+      const assigned=!original?.automationPaused && original?.fixerJob?.state==='sent' ? original.fixerJob.sessionId : undefined
       if (!original || !assigned || (!caller.master && caller.id!==assigned))
         throw new Error('Only the assigned PR Fixer chat can request a lane run for this review.')
       if (!sha.test(args.commit ?? ''))
@@ -275,6 +284,11 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
       if (!request || request.length>4000) throw new Error('Describe the run or evidence needed (up to 4000 characters).')
       const fixerSession=await lead(assigned,exec.signal)
       await checkFastForward(fixerSession.cwd,original.head,args.commit,exec.signal)
+      if(original.owner) {
+        const run=await queue.ownerRun(original.id,args.commit,request)
+        queue.wake()
+        return JSON.stringify(run)
+      }
       const digest=createHash('sha256').update(args.commit+'\n'+request).digest('hex').slice(0,16)
       const text=[
         'PR Fixer requests a lane run for '+original.pull.url,
@@ -302,17 +316,24 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
       review_id:parameter('Original PR review ID whose PR Fixer requested evidence.',true),
       evidence:parameter('What was completed and the verified test results or remaining blocker.',true),
       commit:parameter('Full commit SHA of a completed fix from the lead’s worktree, when code changed.'),
+      verified_commit:parameter('Exact checked candidate SHA for an owned PR lane run.'),passed:parameter('yes or no for the recorded pass condition.'),
     },
     output,
     async execute(args,exec) {
       const caller=await author(exec)
       const state=await queue.read()
       const original=state.rows.find(row=>row.id===args.review_id && row.pull)
-      const assigned=original?.fixerJob?.state==='sent' ? original.fixerJob.sessionId : undefined
+      const assigned=!original?.automationPaused && original?.fixerJob?.state==='sent' ? original.fixerJob.sessionId : undefined
       if (!original || !assigned || (!caller.master && caller.id!==original.leadId))
         throw new Error('Only the originating lead or Master Control can reply to the active PR Fixer for this review.')
       const evidence=typeof args.evidence==='string' ? args.evidence.trim() : ''
       if (!evidence || evidence.length>16000) throw new Error('Enter run evidence (up to 16000 characters).')
+      if(original.owner) {
+        if(!['yes','no'].includes(args.passed)) throw new Error('Report whether the recorded condition passed, with yes or no.')
+        const run=await queue.ownerReply(original.id,args.verified_commit,evidence,args.passed==='yes')
+        queue.wake()
+        return JSON.stringify({status:'recorded',commit:run.commit,fixerSessionId:assigned})
+      }
       const commit=args.commit
       if (commit!==undefined) {
         if (!sha.test(commit)) throw new Error('Specify the complete SHA of the completed fix.')
@@ -376,6 +397,7 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
       if (!isCurrentRepairApproval(rows,repair))
         throw new Error('Choose the latest approved repair for that PR.')
       const target=await resolvePullTarget(repair.repair.url,{},exec.signal)
+      if(repair.repair.verification && target.base!==repair.repair.target) throw new Error('The target base changed. Submit the current revision.')
       if (target.prState!=='OPEN')
         throw new Error('This pull request is no longer open.')
       return JSON.stringify(await pushAndConfirm(repair.repo,target,repair.head,repair.repair.head,exec.signal,

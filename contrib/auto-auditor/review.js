@@ -49,10 +49,11 @@ export async function review(ctx,row,patch,previous,signal) {
   const input = {goal:row.goal,reportedEvidence:row.evidence || null,branch:row.branch || null,pullRequest:row.pull?.url ?? row.repair?.url,
     base:row.base,commit:row.head,previousReview:previous && {
       commit:previous.head,verdict:previous.result ?? null,
-    },diff:patch}
+    },...(row.repair?.verification==='independent' && {originalCondition:previous?.owner?.plan?.condition,proposedCondition:previous?.owner?.proposed?.condition,initialEvidence:previous?.evidence,laneResult:previous?.owner?.run}),diff:patch}
   const content=[{type:'text',text:JSON.stringify(input)}]
   for(const {side,ref} of row.captures ?? []) content.push({type:'text',text:side+' capture'},{type:'image',attachment:ref})
-  const raw=await reply(ctx,row,content,instructions,signal)
+  const system=row.repair?.verification==='independent' ? instructions+'\nOne independent verification only. Assess the pinned candidate against the original condition, submitted evidence and goal. Explain any remaining blocker. The Harness defers an inconclusive or failing candidate.' : instructions
+  const raw=await reply(ctx,row,content,system,signal)
   let result
   try {result=JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g,''))}
   catch {throw new Error('The reviewer did not return a structured verdict. Retry the review or choose another model.')}

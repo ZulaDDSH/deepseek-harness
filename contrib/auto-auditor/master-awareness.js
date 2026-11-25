@@ -19,7 +19,7 @@ function latestReviews(rows) {
   const seen=new Set()
   const result=[]
   for (const row of rows) {
-    const key=row.pull?.url || JSON.stringify([row.leadId,row.repair?.url || row.branch || row.id])
+    const key=row.pull?.url || row.repair?.url || JSON.stringify([row.leadId,row.branch || row.id])
     if (seen.has(key)) continue
     seen.add(key)
     result.push(row)
@@ -38,7 +38,7 @@ export async function buildFixerOverview(ctx,queue) {
   }))
   return {
     reviewerModel:state.model ?? null,
-    pendingAudits:pendingCount(rows),
+    pendingAudits:pendingCount(rows.filter(row=>!row.automationPaused)),
     fixerModel:fixer.model,
     automaticWake:fixer.automaticWake,
     autoPublish:fixer.autoPublish,
@@ -51,7 +51,7 @@ export async function buildFixerOverview(ctx,queue) {
 function renderMasterSnapshot(overview) {
   const lines=[
     'Auto Auditor & PR Fixer live state (sidebar tabs Auto Auditor and PR Fixer, plus Master Control Review queue):',
-    'Workflow: Master Control is OUT of the routine PR audit/repair/publish loop. Focus on Nolan’s goals, leads, and system/GPU jobs. Leads open PRs only for important changes (auditor_open_and_review / auditor_push_and_review), Auto Auditor reviews, PR Fixer repairs automatically in per-review detached worktrees (not a standing session), Harness auto-publishes approved repairs to the original PR when Auto-publish is on, needs_run and fixer run requests route directly to the originating lead, and Nolan decides every merge. Intervene in PRs only if Nolan asks or a review hits round_limit / failure escalation.',
+    'Workflow: Master Control is OUT of the routine PR audit/repair/publish loop. Focus on Nolan’s goals, leads, and system/GPU jobs. Leads open PRs only for important changes (auditor_open_and_review / auditor_push_and_review), one Auto Auditor owner reviews and repairs each new automated PR in a detached worktree, Harness auto-publishes approved repairs to the original PR when Auto-publish is on, needs_run and fixer run requests route directly to the originating lead, and Nolan decides every merge. Intervene in PRs only if Nolan asks or a review hits round_limit / failure escalation.',
     'Tools (inspection/fallback): auditor_status, auditor_fixer_status, auditor_send_to_fixer, auditor_stage_fix, auditor_publish_fix, auditor_push_and_review, auditor_open_and_review, auditor_reply_fixer, auditor_submit, auditor_message.',
     '',
     'Settings: Reviewer model='+formatModel(overview.reviewerModel,'inherit lead model')+
@@ -65,7 +65,7 @@ function renderMasterSnapshot(overview) {
     lines.push('Latest reviews (review_id · target · status · head · lead):')
     for (const row of overview.latestReviews) {
       const target=row.pull ? 'PR #'+row.pull.number : row.repair ? 'Repair PR #'+row.repair.url.split('/').pop() : (row.branch || 'detached')
-      const fixerNote=row.fixerJob?.state==='sent' ? ' · fixer='+row.fixerJob.sessionId : row.fixerJob?.state ? ' · fixer='+row.fixerJob.state : ''
+      const fixerNote=row.automationPaused ? ' · paused' : row.fixerJob?.state==='sent' ? ' · fixer='+row.fixerJob.sessionId : row.fixerJob?.state ? ' · fixer='+row.fixerJob.state : ''
       lines.push('- '+row.id+' · '+target+' · '+row.status+' · '+row.head.slice(0,8)+' · '+row.leadTitle+fixerNote)
     }
   } else {
@@ -89,7 +89,8 @@ function renderLeadContract(maxRounds) {
     'Harness PR workflow (enforced by Auto Auditor & PR Fixer):',
     '- Open a pull request only when you believe the change is necessary or important — not for every minor change.',
     '- Use auditor_open_and_review to push a branch, open a draft PR, and queue Auto Auditor in one step. Use auditor_push_and_review to push a new commit to an existing open PR and audit it. Never push unaudited fixes onto an audited PR branch or open a second PR / side-branch PR for audit fixes.',
-    '- When Auto Auditor requests changes on a PR, PR Fixer repairs it automatically in an isolated worktree (up to '+maxRounds+' rounds) and Harness publishes the approved repair back to the original PR. Do not push to a PR while PR Fixer is active on it. Local-branch reviews (with no PR yet) stay with you.',
+    '- On an owned PR, the same Auto Auditor worker reviews, repairs, and verifies. If it requests a lane run, return the verified candidate SHA and pass/fail result via auditor_reply_fixer. Do not start a second audit.',
+    '- When Auto Auditor requests changes on a legacy PR, PR Fixer repairs it automatically in an isolated worktree (up to '+maxRounds+' rounds) and Harness publishes the approved repair back to the original PR. Do not push to a PR while PR Fixer is active on it. Local-branch reviews (with no PR yet) stay with you.',
     '- If an assigned audit fix or evidence run is for a PR with an assigned PR Fixer, call auditor_reply_fixer with the source review ID immediately when the task is done, before marking it complete or picking up other work. Include the verified results and the full commit SHA if you made a fix.',
     '- For a run requested by Auto Auditor without an assigned PR Fixer, report the verified evidence with auditor_submit using previous.',
     '- After an approved repair is published to your PR, fetch and fast-forward your local checkout to the notified head SHA before making further edits. Nolan decides every merge.',
@@ -137,7 +138,9 @@ export function registerWorkflowAwareness(ctx,{queue,isMaster,isFixer}) {
       } else if (fixer) {
         const state=await queue.read()
         sectionName=fixerSectionName
-        text=renderFixerContract(state.fixerMaxRounds ?? 3)
+        const row=state.rows.find(item=>item.fixerJob?.sessionId===agent.id)
+        if(row?.automationPaused) return decision
+        text=row?.owner ? 'You own this PR from first audit through verified repair. Follow the original pass condition and use auditor_plan and auditor_finish. The Harness publishes the approved SHA.' : renderFixerContract(state.fixerMaxRounds ?? 3)
       } else {
         if (agent.session.header.origin==='subagent') return decision
         const state=await queue.read()

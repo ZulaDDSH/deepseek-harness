@@ -1,3 +1,4 @@
+import {ownerInstructions} from './pr-owner.js'
 import {join} from 'node:path'
 import {withFileLock} from '@deepseek-ai/dsh-atomic-write'
 import {createUserMessage} from '@deepseek-ai/dsh-llm'
@@ -10,17 +11,17 @@ const recoveryDelay=2*60_000
 const maxRecoveries=2
 
 export function repairTarget(rows,row) {
-  if (rows.find(item=>item.pull?.url===row.pull.url)!==row) return
+  if (row.automationPaused || rows.find(item=>item.pull?.url===row.pull.url)!==row) return
   return rows.find(item=>item.repair?.original===row.id) ?? row
 }
 
 export function isCurrentRepairApproval(rows,row) {
-  return Boolean(row?.repair && row.status==='ready' && !row.repair.published &&
+  return Boolean(!row?.automationPaused && row?.repair && row.status==='ready' && !row.repair.published &&
     rows.find(item=>(item.pull?.url ?? item.repair?.url)===row.repair.url)===row)
 }
 
 export function isFixerWork(target,autoPublish) {
-  return target?.status==='changes_requested' || Boolean(autoPublish && target?.status==='ready' &&
+  return target?.status==='owned' || target?.status==='changes_requested' || Boolean(autoPublish && target?.status==='ready' &&
     target.repair && !target.repair.published && target.delivery?.publish==='failed')
 }
 
@@ -35,7 +36,7 @@ export function publicationHandoff(row) {
     '',
     'Read the repository’s configured pre-push hook and its local review instructions. Use the Git output below as diagnostic data.',
     'If only a review record or other metadata is missing, perform the required review of the exact approved revision and record the result using the repository’s own gate command. Verify the gate passes for that SHA. Then call auditor_retry_publish with review_id='+row.id+'.',
-    'If resolving the gate requires a code change, commit it locally and call auditor_stage_fix with review_id='+row.repair.original+' for a fresh audit. The Harness owns pushing.',
+    'If resolving the gate requires a code change, commit it locally and call '+(row.repair.verification?'auditor_finish':'auditor_stage_fix')+' with review_id='+row.repair.original+' and fresh evidence. The Harness owns pushing.',
     '',
     'Git output:',
     row.deliveryErrors?.publish || 'Publication was blocked by Git.',
@@ -51,6 +52,7 @@ export function fixerProgress(ctx,row,target,autoPublish) {
   const job=row.fixerJob
   if (job?.state!=='sent' || !isFixerWork(target,autoPublish)) return
   if (activeAgent(ctx,job.sessionId)) return 'working'
+  if (target.status==='owned' && row.owner?.run && !row.owner.run.evidence) return 'waiting'
   const recovery=job.recovery?.target===target.id ? job.recovery : undefined
   if (recovery?.waiting) return 'waiting'
   if (recovery?.blocked || recovery?.attempts>=maxRecoveries) return 'stalled'
@@ -78,7 +80,7 @@ export function repairRounds(rows,originalId) {
 /** Return the active PR Fixer lock for a pull request URL, if a fixer currently owns it. */
 export function activeFixerForPull(rows,pullUrl) {
   const latest=rows.find(row=>row.pull?.url===pullUrl)
-  if (!latest || latest.repair) return null
+  if (!latest || latest.repair || latest.status==='deferred' || repairTarget(rows,latest)?.status==='deferred') return null
   const state=latest.fixerJob?.state
   if (state!=='preparing' && state!=='sent') return null
   if (rows.some(row=>row.repair?.original===latest.id && row.repair.published)) return null
@@ -95,7 +97,7 @@ function inbox(ctx,rows,maxRounds=DEFAULT_MAX_REPAIR_ROUNDS,autoPublish=false) {
   }
   return rows.filter(row=>row.pull && !row.repair &&
     (row.fixerJob?.state==='sent' || row.fixerJob?.state==='round_limit' ||
-      (latest.get(row.pull.url)===row.id && (row.fixerJob || row.status==='changes_requested')))).map(row=>{
+      (latest.get(row.pull.url)===row.id && (row.fixerJob || row.status==='owned' || row.status==='changes_requested')))).map(row=>{
     const repair=repairs.get(row.id)
     const current=latest.get(row.pull.url)===row.id
     const job=row.fixerJob
@@ -104,19 +106,20 @@ function inbox(ctx,rows,maxRounds=DEFAULT_MAX_REPAIR_ROUNDS,autoPublish=false) {
     const target=repair ?? row
     const publishRecovery=autoPublish && isCurrentRepairApproval(rows,target) && target.delivery?.publish==='failed'
     const progress=fixerProgress(ctx,row,current ? target : undefined,publishRecovery)
-    const status=repair?.repair.published?'published':!current?'superseded':publishRecovery ?
+    const status=row.automationPaused?'paused':target.status==='deferred'?'deferred':repair?.repair.published?'published':!current?'superseded':publishRecovery ?
       progress ?? 'publish_blocked' : limitHit?'round_limit':progress ?? repair?.status ?? job?.state ?? 'available'
     return {id:row.id,url:row.pull.url,number:row.pull.number,head:row.head,lead:row.leadTitle,goal:row.goal,
       findings:row.result?.findings ?? [],evidence:row.evidence,
       sessionId:['sent','round_limit'].includes(job?.state)?job.sessionId:undefined,
       status,rounds,maxRounds,
-      startable:current && row.status==='changes_requested' && !['sent','round_limit'].includes(job?.state) && !limitHit,
+      startable:!row.automationPaused && current && ['owned','changes_requested'].includes(row.status) && !['sent','round_limit'].includes(job?.state) && !limitHit,
       resumable:(publishRecovery || !limitHit) && ['idle','stalled'].includes(progress),
       error:progress==='stalled' ? job.recovery?.error || 'PR Fixer stopped after two automatic wake attempts.' : job?.error}
   })
 }
 
 function handoff(row,maxRounds) {
+  if(row.owner) return ownerInstructions(row)
   const findings=row.result?.findings ?? []
   return [
     'PR Fixer repair assignment',
@@ -199,7 +202,7 @@ export function createRepairInbox(ctx,queue) {
           await save({blocked:true,error:'The PR closed or its head changed. Review the current PR before resuming.'})
           return false
         }
-        const cwd=await prepareRepairWorktree(row,root,join(root,id),signal,{reuseOnly:true})
+        const cwd=await prepareRepairWorktree(row,root,join(root,row.owner?.worktreeId || id),signal,{reuseOnly:true})
         if (!await samePath(history.header.cwd,cwd)) throw new Error('The repair chat is bound to a different worktree.')
         const {agent,error}=await ctx.sessionController.resolveAgent(job.sessionId)
         if (!agent || error) throw new Error(error?.message || 'The repair chat could not be reopened.')
@@ -222,7 +225,7 @@ export function createRepairInbox(ctx,queue) {
         const seen=item=>item.type==='user/message' && item.data.source?.kind==='auto-auditor' &&
           item.data.source.reviewId===id && item.data.source.exchangeId===exchangeId
         if (!currentHistory.events.some(seen)) {
-          const text=publishing ? publicationHandoff(current) : [
+          const text=publishing ? publicationHandoff(current) : row.owner ? ownerInstructions(row) : [
             'Resume PR Fixer work in this existing repair checkout for '+row.pull.url+'.',
             'Inspect git status, local commits, and the prior conversation. Preserve existing work.',
             'Address these current findings and submit the verified local commit using auditor_stage_fix with review_id='+id+'.',
@@ -249,10 +252,29 @@ export function createRepairInbox(ctx,queue) {
       if (!state.fixerAutoWake) return
       for (const row of state.rows) {
         signal.throwIfAborted()
+        if(row.automationPaused) continue
+        const failedDelivery=row.owner && ['fixer','owner_run','owner_reply'].find(key=>row.delivery?.[key]==='failed')
+        if(failedDelivery && row.status==='owned' && repairTarget(state.rows,row)===row) {
+          await queue.retryOwnerHandoff(row.id,failedDelivery)
+          continue
+        }
         if (!row.pull || row.fixerJob?.state!=='sent') continue
         const target=repairTarget(state.rows,row)
         const publishing=state.fixerAutoPublish && isCurrentRepairApproval(state.rows,target)
         const progress=fixerProgress(ctx,row,target,publishing)
+        if(row.owner && publishing && progress==='stalled') {
+          await queue.deferPublication(target.id,target.deliveryErrors?.publish || 'The publication gate is still blocked after automatic recovery.')
+          continue
+        }
+        if(row.owner?.run && target===row && row.status==='owned' && !row.owner.run.evidence &&
+            Date.now()-row.owner.run.requestedAt>=24*60*60_000 && !activeAgent(ctx,row.fixerJob.sessionId)) {
+          await queue.expireRun(row.id)
+          continue
+        }
+        if(row.owner && target===row && progress==='stalled') {
+          await queue.deferOwner(row.id,row.fixerJob.recovery?.error || 'The PR owner stopped after two automatic resumes.')
+          continue
+        }
         if (['idle','waiting'].includes(progress) && await recover(row.id,signal,true)) return
       }
     },
@@ -280,12 +302,13 @@ export function createRepairInbox(ctx,queue) {
         const state=await queue.read()
         const maxRounds=state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS
         const item=inbox(ctx,state.rows,maxRounds,state.fixerAutoPublish).find(entry=>entry.id===id)
-        if (item?.sessionId) return item
+        if(item?.status==='paused') throw new Error('This historical review is paused.')
+        if (item?.sessionId && item.status!=='superseded') return item
         if (!item?.startable) throw new Error('This PR review is no longer available for repair.')
         const row=state.rows.find(entry=>entry.id===id)
-        const sessionId=prefix+id
-        const cwd=join(root,id)
-        const rawModel=state.fixerModel ?? row.model
+        const sessionId=prefix+(row.owner?.worktreeId || id)
+        const cwd=join(root,row.owner?.worktreeId || id)
+        const rawModel=row.owner ? row.model : state.fixerModel ?? row.model
         if (!rawModel?.provider || !rawModel.model)
           throw new Error('Choose a Fixer model in PR Fixer before starting this repair.')
         const model={provider:rawModel.provider,model:rawModel.model,
@@ -302,9 +325,9 @@ export function createRepairInbox(ctx,queue) {
             throw new Error('The repair chat is bound to a different working directory.')
           if (!existing) {
             await ctx.sessionController.create({sessionId,cwd:worktree})
-            await ctx.sessionController.rename({sessionId,title:'PR Fixer · #'+row.pull.number})
+            await ctx.sessionController.rename({sessionId,title:(row.owner?'Auto Auditor · #':'PR Fixer · #')+row.pull.number})
           } else if (!existing.projections?.values?.title) {
-            await ctx.sessionController.rename({sessionId,title:'PR Fixer · #'+row.pull.number})
+            await ctx.sessionController.rename({sessionId,title:(row.owner?'Auto Auditor · #':'PR Fixer · #')+row.pull.number})
           }
           const {agent,error}=await ctx.sessionController.resolveAgent(sessionId)
           if (!agent || error) throw new Error(error?.message || 'Could not open the repair chat.')

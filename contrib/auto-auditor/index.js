@@ -90,8 +90,10 @@ function header(ctx,row,state) {
     scheduledReviewRetry(row,rows.find(item=>reviewGroup(item)===group))
   const ciAssignment=notice?.kind==='ci' && notice.check ?
     {head:notice.check.head,name:notice.check.name,state:row.delivery?.lead_action} : undefined
-  return {id:row.id,leadId:row.leadId,leadTitle:row.leadTitle,goal:row.goal,status:row.status,head:row.head,
+  return {id:row.id,leadId:row.leadId,leadTitle:row.leadTitle,goal:row.goal,status:row.automationPaused && row.status!=='ready'?'paused':row.status,automationPaused:row.automationPaused,head:row.head,
     branch:row.branch,pull:row.pull?.url,repair:row.repair?.url,created:row.created,revision:row.revision,
+    ownerCondition:source.owner?.plan?.condition,ownerWaiting:Boolean(source.owner?.run && !source.owner.run.evidence),
+    ...(row.status==='deferred' && {inputNote:row.result?.summary?.slice(0,300)}),
     reviewerRetryAt,runDelivery,ciAssignment,leadDelivery:row.delivery?.lead,
     fixerDelivery:(original || row).delivery?.fixer,
     ...(row.status==='needs_run' && row.result?.runRequest && {inputNote:row.result.runRequest.slice(0,300)}),
@@ -141,6 +143,19 @@ export async function apply(ctx) {
       summary='Auto Auditor · Reply'
       body='Auto Auditor reply · Review '+row.id+'\n'+(row.pull?.url || row.head)+
         '\nYour message: '+message.body+'\n\n'+message.answer
+    } else if(target==='owner_run' || target==='owner_reply') {
+      const run=row.owner.run
+      const requesting=target==='owner_run'
+      if(row.status!=='owned' || (requesting && run.evidence)) return
+      const owner=row.fixerJob.sessionId
+      id=requesting ? row.leadId : owner
+      summary=requesting ? 'Auto Auditor · Lane run' : 'Auto Auditor · Lane evidence'
+      exchangeId=(requesting?'run-request:':'run-reply:')+run.commit
+      body=[summary+' for '+row.pull.url,'Review ID: '+row.id,'Candidate SHA: '+run.commit,
+        'Owner worktree: '+(await lead(owner,signal)).cwd,'Recorded pass condition: '+row.owner.plan.condition,
+        requesting ? run.request : run.evidence,
+        requesting ? 'Run this check once. Return its actual result with auditor_reply_fixer, review_id='+row.id+', verified_commit='+run.commit+', passed=yes or no, and evidence.' :
+          'The lane reported '+(run.passed?'pass':'failure')+'. Continue your audit and use auditor_finish on the verified revision.'].join('\n')
     } else if(target==='lead_action' || target==='lead_bump') {
       const notice=row.leadNotices?.[target]
       if(!notice) throw new Error('Lead notification is missing.')
@@ -277,7 +292,7 @@ export async function apply(ctx) {
   await installFixerPermissionLock(ctx)
   ctx.tools.register(defineTool({
     name:'auditor_submit',
-    description:'Send a ready GitHub PR or local commit to the always-on Auto Auditor. For a brand-new PR, prefer auditor_open_and_review. For updating an existing PR, prefer auditor_push_and_review. Local-branch (non-PR) reviews stay with the originating lead; PR reviews with changes requested route to PR Fixer automatically.',
+    description:'Send a ready GitHub PR or local commit to the always-on Auto Auditor. For a brand-new PR, prefer auditor_open_and_review. For updating an existing PR, prefer auditor_push_and_review. Local-branch (non-PR) reviews stay with the originating lead; automated PRs go to one owner for audit, repair and verification.',
     parameters:{pull_request:parameter('Full GitHub PR URL, or PR number if the repository origin is on GitHub.'),
       lead_id:parameter('Exact originating session ID, when submitting on behalf of a lead from Master Control.'),
       goal:parameter('What the change must accomplish. Optional when submitting a GitHub PR.'),
@@ -312,7 +327,7 @@ export async function apply(ctx) {
         ...row.fixerJob,
         ...(['sent','round_limit'].includes(row.fixerJob.state) && {agentStatus:ctx.agents.get(row.fixerJob.sessionId)?.status || 'closed'}),
       } : null
-      return JSON.stringify({...header(ctx,row,state),result:row.result,error:row.error,delivery:row.delivery,fixerJob,
+      return JSON.stringify({...header(ctx,row,state),owner:row.owner,result:row.result,error:row.error,delivery:row.delivery,fixerJob,
         current:await queue.tip(row.id,exec.signal),messages:row.messages?.slice(-12)})
     },
   }))
@@ -331,7 +346,7 @@ export async function apply(ctx) {
       let value
       if(method==='list' || method==='count') {
         const state=await queue.read()
-        const pending=state.rows.reduce((count,row)=>count+Number(['queued','reviewing'].includes(row.status))+
+        const pending=state.rows.reduce((count,row)=>count+Number(!row.automationPaused && (['queued','reviewing'].includes(row.status) || row.status==='owned' && repairTarget(state.rows,row)===row))+
           (row.messages ?? []).filter(message=>['queued','answering'].includes(message.status)).length,0)
         value=method==='count' ? pending : {
           model:state.model,

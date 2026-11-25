@@ -57,6 +57,17 @@ async function workspaceRepo(cwd, signal) {
 }
 
 /** Verify that both commits are local and that publishing them advances the PR. */
+export async function changedVerificationFiles(repo,base,candidate,signal) {
+  if(base===candidate) return false
+  const names=await git(repo,['diff','--name-only','-z',base,candidate,'--'],signal)
+  return names.split('\0').some(name=>/(^|\/)(tests?|specs?|__tests__|fixtures|__snapshots__|\.github\/workflows)(\/|$)|[._-](test|spec)\.|Tests?\.[^.]+$/i.test(name))
+}
+
+export async function checkOwnerCheckout(repo,commit,signal) {
+  if(await revision(repo,'HEAD',signal)!==commit || (await git(repo,['status','--porcelain'],signal)).trim())
+    throw new Error('Use the clean owner worktree at the specified commit.')
+}
+
 export async function checkFastForward(repo, expectedHead, candidate, signal) {
   if (!sha.test(expectedHead ?? '') || !sha.test(candidate ?? ''))
     throw new Error('Use the complete commit SHA for the current PR head and the proposed change.')

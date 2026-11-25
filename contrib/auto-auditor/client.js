@@ -6,8 +6,11 @@ window.__ModuleLoader__.load({
     const id='desktop-auto-auditor',channel='/desktop-auto-auditor'
     const fixerId='desktop-pr-fixer'
     const githubChannel='/desktop-github-review-status'
-    const labels={queued:'Queued',reviewing:'In review',ready:'Ready to push',changes_requested:'Changes requested',needs_run:'Run requested',failed:'Review failed'}
+    const labels={paused:'Paused',owned:'Auditing',deferred:'Deferred',queued:'Queued',reviewing:'In review',ready:'Ready to push',changes_requested:'Changes requested',needs_run:'Run requested',failed:'Review failed'}
     const queueStatuses={
+      paused:['Paused','Historical assignment. Automatic work is paused.',4],
+      owned:['Auditing','The assigned PR owner is auditing this revision.',3],
+      deferred:['Deferred','The available evidence could not establish a pass.',4],
       needs_run:['Needs input','Run requested by Auto Auditor.',0],
       failed:['Needs input','The audit failed. Open the review to see why.',0],
       changes_requested:['Changes requested','Auto Auditor sent findings to the lead.',1],
@@ -184,7 +187,7 @@ window.__ModuleLoader__.load({
           {disabled:action.busy || pending(leadDelivery)}) :
         input && row.status==='failed' ? button('Retry review',()=>act('retry',{id:row.id}),{disabled:action.busy}) : null
       return h('article',{className:'stack'},h('div',null,h('small',{className:'status','data-state':row.status},
-        input?'Needs input':work?.[0] || (item.repairPublished?'Published':changed && row.status==='ready'?'Earlier commit approved':labels[row.status])),h('h2',null,row.goal)),
+        item.status==='paused'?'Paused':input?'Needs input':work?.[0] || (item.repairPublished?'Published':changed && row.status==='ready'?'Earlier commit approved':labels[row.status])),h('h2',null,row.goal)),
         input && h(InputNotice,{input},
           recommended && h('div',{className:'actions'},recommended,
             leadButton && leadDelivery && h('small',{role:'status'},
@@ -199,6 +202,7 @@ window.__ModuleLoader__.load({
           row.pull ? meta('Pull request',h('a',{href:row.pull.url,target:'_blank',rel:'noreferrer'},'PR #'+row.pull.number)) : meta('Branch',row.branch || 'Detached HEAD'),
           meta('Commit',h('code',{title:row.head},row.head.slice(0,12))),meta('Review ID',h('code',{title:row.id},row.id))),
         changed && h('p',{className:'notice'},msg,' The verdict applies to ',h('code',null,row.head.slice(0,10)),'.'),
+        item.ownerCondition && section('Pass condition',h('p',null,item.ownerCondition)),
         row.result && section('Verdict',h('p',null,row.result.summary)),
         row.result?.findings.length>0 && section('Findings',list(row.result.findings)),
         row.result?.checks.length>0 && section('Checks considered',list(row.result.checks)),
@@ -214,14 +218,14 @@ window.__ModuleLoader__.load({
         previous && button('Earlier review · '+previous.head.slice(0,10),()=>select(previous.id)),
         h('details',null,h('summary',null,'Reviewed diff'),h('pre',{tabIndex:0},patch)),
         section('Delivery',h('div',{className:'stack'},
-          h('div',{className:'actions'},button('Bump lead',()=>act('request-lead',{id:row.id,kind:'bump'}),
+          !item.automationPaused && h('div',{className:'actions'},button('Bump lead',()=>act('request-lead',{id:row.id,kind:'bump'}),
             {disabled:action.busy || pending(bumpDelivery)})),
           Object.entries(row.delivery ?? {}).filter(([target])=>!item.publishSupersededBy || !['publish','publish_failed'].includes(target)).map(([target,status])=>
-          h('div',{className:'actions',key:target},h('span',null,({lead:'Originating lead',master:'Master Control',fixer:'PR Fixer',publish:'Auto-publish',publish_failed:'Publish failure notice',origin_lead:'Originating PR lead',origin_published:'Lead sync notice',lead_bump:'Lead reminder',lead_action:'Recommended step request'})[target]+' · '+status),
+          h('div',{className:'actions',key:target},h('span',null,({owner_run:'Lane request',owner_reply:'Lane result',lead:'Originating lead',master:'Master Control',fixer:'PR Fixer',publish:'Auto-publish',publish_failed:'Publish failure notice',origin_lead:'Originating PR lead',origin_published:'Lead sync notice',lead_bump:'Lead reminder',lead_action:'Recommended step request'})[target]+' · '+status),
             row.deliveryErrors?.[target] && (target==='publish'
               ? h('details',null,h('summary',null,'Git output'),h('pre',null,row.deliveryErrors[target]))
               : h('small',null,row.deliveryErrors[target])),
-            ['failed','uncertain'].includes(status) && button(target==='publish'?'Retry push':'Retry delivery',()=>act('deliver',{id:row.id,target}),{disabled:action.busy}))))),
+            !item.automationPaused && ['failed','uncertain'].includes(status) && button(target==='publish'?'Retry push':'Retry delivery',()=>act('deliver',{id:row.id,target}),{disabled:action.busy}))))),
         problem(action.error || (!work && row.error) || data.error || current.error),
         row.status==='failed' && !input && !work && h('div',null,button('Retry review',()=>act('retry',{id:row.id}),{disabled:action.busy})))
     }
@@ -239,7 +243,7 @@ window.__ModuleLoader__.load({
       const num=reviewPrNumber(row)
       return num ? 'PR #'+num : row.branch || 'Commit '+row.head.slice(0,8)
     }
-    const rowBadgeState=row=>row.repairPublished?'published':row.fixerState==='round_limit'?'round_limit':row.status
+    const rowBadgeState=row=>row.status==='paused'?'paused':row.repairPublished?'published':row.fixerState==='round_limit'?'round_limit':row.status
     function brief(value) {
       const text=typeof value==='string' ? value.trim().replace(/\s+/g,' ') : ''
       return text.length<=220 ? text : text.slice(0,217).replace(/\s+\S*$/,'')+'…'
@@ -251,7 +255,8 @@ window.__ModuleLoader__.load({
         ['pending','sending','sent'].includes(assignment.state)
     }
     function assignedWork(row,remote) {
-      if(row.repairPublished) return
+      if(row.repairPublished || row.automationPaused) return
+      if(row.status==='owned') return row.ownerWaiting ? ['Waiting on lead','The owner requested evidence from the originating lane.'] : ['With PR owner',row.ownerCondition || 'Auditing the change and verifying any repair.']
       const pending=status=>status==='pending' || status==='sending'
       if(assignedCheck(row,remote))
         return row.ciAssignment.state==='sent'
@@ -280,7 +285,7 @@ window.__ModuleLoader__.load({
       }
     }
     function needsInput(row,remote,detail) {
-      if(remote?.prState==='CLOSED' || remote?.prState==='MERGED') return null
+      if(row.automationPaused || row.status==='deferred' || remote?.prState==='CLOSED' || remote?.prState==='MERGED') return null
       if(!row.publishBlocked && (row.fixerState==='round_limit' || detail?.fixerJob?.state==='round_limit')) return {
         kind:'round_limit',
         summary:'PR Fixer reached the configured repair round limit.',
@@ -329,6 +334,7 @@ window.__ModuleLoader__.load({
     }
     function matchesReviewFilter(row,mode,remote) {
       if(remote?.prState==='CLOSED' || remote?.prState==='MERGED') return mode==='all'
+      if(row.status==='deferred' || row.status==='paused') return mode==='all'
       if(needsInput(row,remote)) return mode==='all' || mode==='attention'
       if(row.repairPublished) return mode==='all' || mode==='approved'
       const badge=rowBadgeState(row)
@@ -342,6 +348,8 @@ window.__ModuleLoader__.load({
     function queueState(row, remote) {
       if (remote?.prState==='MERGED') return ['Merged','GitHub merged this PR.',4,'merged']
       if (remote?.prState==='CLOSED') return ['Closed','GitHub closed this PR.',4,'closed']
+      if(row.status==='paused') return [...queueStatuses.paused,'paused']
+      if(row.status==='deferred') return ['Deferred',row.inputNote || queueStatuses.deferred[1],4,'deferred']
       const input=needsInput(row,remote)
       if(input) return ['Needs input',input.summary,0,input.kind]
       if (row.repairPublished)
@@ -444,7 +452,7 @@ window.__ModuleLoader__.load({
           const link=reviewLink(row)
           const pull=typeof link==='string' && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/([1-9]\d*)$/.exec(link)
           const subParts=[row.leadTitle,row.head.slice(0,8),...(count>1?[count+' rounds']:row.repair && !row.pull?['Repair']:[])]
-          const showReason=['needs_run','ci_failed','failed','round_limit','fixer_stalled','assigned'].includes(kind) ||
+          const showReason=['deferred','needs_run','ci_failed','failed','round_limit','fixer_stalled','assigned'].includes(kind) ||
             remote?.audit==='changed' || (row.repair && !row.pull && row.status==='ready' && !row.repairPublished)
           return h('li',{key:row.id,className:'mc-session mc-review-card',onClick:e=>{if(!e.target.closest('a,button')) showReview(row.id)}},
             h('div',{className:'mc-review-top'},
@@ -568,7 +576,7 @@ window.__ModuleLoader__.load({
       working:'Working',idle:'Idle',waiting:'Waiting on lead',stalled:'Needs input',publish_blocked:'Publish blocked',
       queued:'Repair queued for audit',reviewing:'Repair in audit',ready:'Repair approved',
       changes_requested:'More changes requested',needs_run:'Run requested',failed:'Repair audit failed',
-      round_limit:'Needs owner · round limit',published:'Published to PR',superseded:'Newer audit available',
+      paused:'Paused',owned:'Auditing',deferred:'Deferred',round_limit:'Needs owner · round limit',published:'Published to PR',superseded:'Newer audit available',
     }
     function FixerChat({sessionId,sessions,SessionProvider,renderFactorySlot}) {
       const [bound,setBound]=useState(null),[error,setError]=useState('')
