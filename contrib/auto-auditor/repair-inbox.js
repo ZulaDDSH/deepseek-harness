@@ -14,14 +14,42 @@ export function repairTarget(rows,row) {
   return rows.find(item=>item.repair?.original===row.id) ?? row
 }
 
+export function isCurrentRepairApproval(rows,row) {
+  return Boolean(row?.repair && row.status==='ready' && !row.repair.published &&
+    rows.find(item=>(item.pull?.url ?? item.repair?.url)===row.repair.url)===row)
+}
+
+export function isFixerWork(target,autoPublish) {
+  return target?.status==='changes_requested' || Boolean(autoPublish && target?.status==='ready' &&
+    target.repair && !target.repair.published && target.delivery?.publish==='failed')
+}
+
+export function publicationHandoff(row) {
+  return [
+    'Resolve the publication blocker for approved repair '+row.id+'.',
+    'PR: '+row.repair.url,
+    'Source review ID: '+row.repair.original,
+    'Repair worktree: '+row.repo,
+    'Approved commit: '+row.head,
+    'Reviewed base: '+row.base,
+    '',
+    'Read the repository’s configured pre-push hook and its local review instructions. Use the Git output below as diagnostic data.',
+    'If only a review record or other metadata is missing, perform the required review of the exact approved revision and record the result using the repository’s own gate command. Verify the gate passes for that SHA. Then call auditor_retry_publish with review_id='+row.id+'.',
+    'If resolving the gate requires a code change, commit it locally and call auditor_stage_fix with review_id='+row.repair.original+' for a fresh audit. The Harness owns pushing.',
+    '',
+    'Git output:',
+    row.deliveryErrors?.publish || 'Publication was blocked by Git.',
+  ].join('\n')
+}
+
 function activeAgent(ctx,id) {
   const agent=ctx.agents.get(id)
   return agent?.status==='running' || Boolean(agent?.inbox?.nextTurn.length)
 }
 
-export function fixerProgress(ctx,row,target) {
+export function fixerProgress(ctx,row,target,autoPublish) {
   const job=row.fixerJob
-  if (job?.state!=='sent' || !target || target.status!=='changes_requested') return
+  if (job?.state!=='sent' || !isFixerWork(target,autoPublish)) return
   if (activeAgent(ctx,job.sessionId)) return 'working'
   const recovery=job.recovery?.target===target.id ? job.recovery : undefined
   if (recovery?.waiting) return 'waiting'
@@ -29,13 +57,13 @@ export function fixerProgress(ctx,row,target) {
   return 'idle'
 }
 
-function waitingForLead(events,reviewId) {
+function waitingForLead(events,reviewId,after=0) {
   const reply=events.findLast(event=>event.type==='user/message' &&
     event.data.source?.kind==='auto-auditor' && event.data.source.reviewId===reviewId &&
     event.data.source.exchangeId?.startsWith('run-reply:'))
   const requested=new Set()
   for (const event of events) {
-    if (event.seq<=(reply?.seq ?? 0)) continue
+    if (event.seq<=(reply?.seq ?? 0) || event.time<after) continue
     if (event.type==='tool/call' && event.data.name==='auditor_request_run') requested.add(event.data.callId)
     if (event.type==='tool/result' && !event.data.message.isError && requested.has(event.data.message.toolCallId)) return true
   }
@@ -58,7 +86,7 @@ export function activeFixerForPull(rows,pullUrl) {
 }
 
 /** Project the latest actionable PR findings and earlier jobs with an open chat. */
-function inbox(ctx,rows,maxRounds=DEFAULT_MAX_REPAIR_ROUNDS) {
+function inbox(ctx,rows,maxRounds=DEFAULT_MAX_REPAIR_ROUNDS,autoPublish=false) {
   const latest=new Map()
   const repairs=new Map()
   for(const row of rows) {
@@ -73,14 +101,17 @@ function inbox(ctx,rows,maxRounds=DEFAULT_MAX_REPAIR_ROUNDS) {
     const job=row.fixerJob
     const rounds=repairRounds(rows,row.id)
     const limitHit=job?.state==='round_limit' || (rounds>=maxRounds && repair?.status==='changes_requested')
-    const progress=fixerProgress(ctx,row,current ? repair ?? row : undefined)
-    const status=repair?.repair.published?'published':!current?'superseded':limitHit?'round_limit':progress ?? repair?.status ?? job?.state ?? 'available'
+    const target=repair ?? row
+    const publishRecovery=autoPublish && isCurrentRepairApproval(rows,target) && target.delivery?.publish==='failed'
+    const progress=fixerProgress(ctx,row,current ? target : undefined,publishRecovery)
+    const status=repair?.repair.published?'published':!current?'superseded':publishRecovery ?
+      progress ?? 'publish_blocked' : limitHit?'round_limit':progress ?? repair?.status ?? job?.state ?? 'available'
     return {id:row.id,url:row.pull.url,number:row.pull.number,head:row.head,lead:row.leadTitle,goal:row.goal,
       findings:row.result?.findings ?? [],evidence:row.evidence,
       sessionId:['sent','round_limit'].includes(job?.state)?job.sessionId:undefined,
       status,rounds,maxRounds,
       startable:current && row.status==='changes_requested' && !['sent','round_limit'].includes(job?.state) && !limitHit,
-      resumable:!limitHit && ['idle','stalled'].includes(progress),
+      resumable:(publishRecovery || !limitHit) && ['idle','stalled'].includes(progress),
       error:progress==='stalled' ? job.recovery?.error || 'PR Fixer stopped after two automatic wake attempts.' : job?.error}
   })
 }
@@ -123,9 +154,12 @@ export function createRepairInbox(ctx,queue) {
       const row=state.rows.find(item=>item.id===id && item.pull)
       const job=row?.fixerJob
       const target=row && repairTarget(state.rows,row)
-      if (job?.state!=='sent' || target?.status!=='changes_requested' ||
-          repairRounds(state.rows,id)>=(state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS) ||
+      const publishing=state.fixerAutoPublish && isCurrentRepairApproval(state.rows,target)
+      const waitingSince=publishing ? target.created : 0
+      if (job?.state!=='sent' || !isFixerWork(target,publishing) ||
+          (!publishing && repairRounds(state.rows,id)>=(state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS)) ||
           (automatic && !state.fixerAutoWake) || activeAgent(ctx,job.sessionId) || pending(target.delivery?.lead)) return false
+      if (publishing && pending(target.delivery?.publish_failed)) return false
       const recovery=job.recovery?.target===target.id ? job.recovery : {target:target.id,attempts:0}
       if (automatic && (recovery.blocked || recovery.attempts>=maxRecoveries ||
           Date.now()-Math.max(target.finished ?? target.created,recovery.at ?? 0)<recoveryDelay)) return false
@@ -138,7 +172,7 @@ export function createRepairInbox(ctx,queue) {
         if ((await ctx.waterfall('workspace/session-activity',{sessionId:job.sessionId},async()=>[])).length) return false
         using history=await ctx.sessionQuery.observeSession(job.sessionId,{signal,projectionMode:'none'})
         const lastTurn=history.events.findLast(event=>event.type==='turn/end')
-        if (waitingForLead(history.events,id)) {
+        if (waitingForLead(history.events,id,waitingSince)) {
           if (!recovery.waiting) await save({waiting:true})
           return false
         }
@@ -148,6 +182,10 @@ export function createRepairInbox(ctx,queue) {
           return false
         }
         if (automatic && lastTurn && Date.now()-lastTurn.time<recoveryDelay) return false
+        // The fixer may satisfy the hook and stop before it requests another push.
+        if (automatic && publishing && target.delivery.publish_failed==='sent' &&
+            !target.publishRecheckedAt && Date.now()-(target.publishFailedAt ?? target.finished ?? target.created)>=recoveryDelay &&
+            !activeAgent(ctx,job.sessionId) && await queue.recheckPublication(target.id)) return true
         const service=ctx.get('githubReviewStatus')
         let pull
         if (service) {
@@ -170,19 +208,21 @@ export function createRepairInbox(ctx,queue) {
         const latest=await queue.read()
         const source=latest.rows.find(item=>item.id===id)
         const current=source && repairTarget(latest.rows,source)
-        if (current?.id!==target.id || current.status!=='changes_requested' ||
+        const canResumePublication=latest.fixerAutoPublish && isCurrentRepairApproval(latest.rows,current)
+        if (current?.id!==target.id || !isFixerWork(current,canResumePublication) ||
             source.fixerJob?.state!=='sent' || source.fixerJob.sessionId!==job.sessionId ||
-            repairRounds(latest.rows,id)>=(latest.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS) ||
+            (!publishing && repairRounds(latest.rows,id)>=(latest.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS)) ||
             (automatic && !latest.fixerAutoWake) ||
             activeAgent(ctx,job.sessionId) || pending(current.delivery?.lead) ||
-            waitingForLead(currentHistory.events,id)) return false
+            (publishing && pending(current.delivery?.publish_failed)) ||
+            waitingForLead(currentHistory.events,id,waitingSince)) return false
         signal.throwIfAborted()
         const attempt=recovery.attempts+1
         const exchangeId='repair-resume:'+target.id+':'+attempt
         const seen=item=>item.type==='user/message' && item.data.source?.kind==='auto-auditor' &&
           item.data.source.reviewId===id && item.data.source.exchangeId===exchangeId
         if (!currentHistory.events.some(seen)) {
-          const text=[
+          const text=publishing ? publicationHandoff(current) : [
             'Resume PR Fixer work in this existing repair checkout for '+row.pull.url+'.',
             'Inspect git status, local commits, and the prior conversation. Preserve existing work.',
             'Address these current findings and submit the verified local commit using auditor_stage_fix with review_id='+id+'.',
@@ -210,7 +250,9 @@ export function createRepairInbox(ctx,queue) {
       for (const row of state.rows) {
         signal.throwIfAborted()
         if (!row.pull || row.fixerJob?.state!=='sent') continue
-        const progress=fixerProgress(ctx,row,repairTarget(state.rows,row))
+        const target=repairTarget(state.rows,row)
+        const publishing=state.fixerAutoPublish && isCurrentRepairApproval(state.rows,target)
+        const progress=fixerProgress(ctx,row,target,publishing)
         if (['idle','waiting'].includes(progress) && await recover(row.id,signal,true)) return
       }
     },
@@ -218,14 +260,14 @@ export function createRepairInbox(ctx,queue) {
       if(typeof id!=='string' || !uuid.test(id)) throw new Error('Choose an Auto Auditor review.')
       if (await recover(id,signal,false)) return true
       const state=await queue.read()
-      const item=inbox(ctx,state.rows,state.fixerMaxRounds).find(row=>row.id===id)
+      const item=inbox(ctx,state.rows,state.fixerMaxRounds,state.fixerAutoPublish).find(row=>row.id===id)
       throw new Error(item?.error || 'PR Fixer cannot resume this review. Check its current status and any pending lead work.')
     },
     async list() {
       const state=await queue.read()
       const maxRepairRounds=state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS
       return {
-        rows:inbox(ctx,state.rows,maxRepairRounds),
+        rows:inbox(ctx,state.rows,maxRepairRounds,state.fixerAutoPublish),
         model:state.fixerModel ?? null,
         automaticWake:state.fixerAutoWake===true,
         autoPublish:state.fixerAutoPublish===true,
@@ -237,7 +279,7 @@ export function createRepairInbox(ctx,queue) {
       return withFileLock(join(dir,'fixer-'+id),async()=>{
         const state=await queue.read()
         const maxRounds=state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS
-        const item=inbox(ctx,state.rows,maxRounds).find(entry=>entry.id===id)
+        const item=inbox(ctx,state.rows,maxRounds,state.fixerAutoPublish).find(entry=>entry.id===id)
         if (item?.sessionId) return item
         if (!item?.startable) throw new Error('This PR review is no longer available for repair.')
         const row=state.rows.find(entry=>entry.id===id)
@@ -285,7 +327,7 @@ export function createRepairInbox(ctx,queue) {
           throw error
         }
         const refreshed=await queue.read()
-        return inbox(ctx,refreshed.rows,refreshed.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS).find(entry=>entry.id===id)
+        return inbox(ctx,refreshed.rows,refreshed.fixerMaxRounds,refreshed.fixerAutoPublish).find(entry=>entry.id===id)
       },{signal})
     },
   }

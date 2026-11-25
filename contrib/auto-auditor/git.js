@@ -6,9 +6,10 @@ import {isAbsolute, relative, resolve, sep} from 'node:path'
 const exec = promisify(execFile)
 const diffOptions = ['--no-color','--no-ext-diff','--no-textconv','--submodule=short','--no-renames']
 const maxDiffBytes = 100_000
+const pushDiagnosticLimit = 12_000
 
 async function git(cwd, args, signal, opts = {}) {
-  const {limit = 65536, timeout = 30000, allowLazyFetch = false} = typeof opts === 'number' ? {limit:opts} : opts
+  const {limit = 65536, timeout = 30000, allowLazyFetch = false, diagnosticLimit = 800} = typeof opts === 'number' ? {limit:opts} : opts
   const env = {...process.env, GIT_TERMINAL_PROMPT:'0', GCM_INTERACTIVE:'Never', ...(!allowLazyFetch && {GIT_NO_LAZY_FETCH:'1'})}
   try {
     const {stdout} = await exec('git', ['--no-optional-locks','--no-replace-objects','-c','core.quotePath=true', ...args], {
@@ -18,12 +19,14 @@ async function git(cwd, args, signal, opts = {}) {
   } catch (error) {
     if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new Error('This diff exceeds the review size limit. Submit a smaller commit range.')
     signal?.throwIfAborted()
-    const output = String(error.stderr || error.stdout || '').trim()
+    const output = diagnosticLimit===800 ? String(error.stderr || error.stdout || '').trim() :
+      [error.stderr,error.stdout].map(value=>String(value || '').trim()).filter(Boolean).join('\n')
+    const diagnostic = output.length<=diagnosticLimit ? output : output.slice(0,diagnosticLimit)+'\n[Git output truncated]'
     if (error.killed || error.signal === 'SIGTERM') {
       const cmd = args.find(arg => !arg.startsWith('-')) || 'command'
-      throw new Error(('Git ' + cmd + ' timed out after ' + Math.round(timeout / 1000) + 's.' + (output ? ' ' + output : '')).slice(0,800), {cause:error})
+      throw new Error('Git ' + cmd + ' timed out after ' + Math.round(timeout / 1000) + 's.' + (diagnostic ? ' ' + diagnostic : ''), {cause:error})
     }
-    throw new Error((output || 'Unable to read this Git repository.').slice(0,800), {cause:error})
+    throw new Error(diagnostic || 'Unable to read this Git repository.', {cause:error})
   }
 }
 
@@ -89,7 +92,7 @@ export async function pushPullCommit(cwd,target,candidate,expectedHead,signal) {
     const configured=(urls.trim() || await git(repo,['config','--get-all','remote.'+remote+'.url'],signal)).trim().split(/\r?\n/)
     if (configured.length!==1 || remoteRepository(configured[0])!==target.headRepo) continue
     await git(repo,['push','--no-follow-tags','--recurse-submodules=no','--force-with-lease='+destination+':'+expectedHead,
-      '--',remote,candidate+':'+destination],signal,{timeout:120000,allowLazyFetch:true})
+      '--',remote,candidate+':'+destination],signal,{timeout:120000,allowLazyFetch:true,diagnosticLimit:pushDiagnosticLimit})
     return {alreadyPushed:false}
   }
   throw new Error('This worktree needs a configured push remote for the PR’s source repository.')

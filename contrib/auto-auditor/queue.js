@@ -4,7 +4,7 @@ import {basename,extname,isAbsolute,join,relative,resolve,sep} from 'node:path'
 import {withFileLock,writeFileAtomic} from '@deepseek-ai/dsh-atomic-write'
 import {branchState,checkFastForward,pinSubmission} from './git.js'
 import {answer,review,usesClaudeWorkspace} from './review.js'
-import {createRepairInbox,DEFAULT_MAX_REPAIR_ROUNDS,repairRounds,repairTarget} from './repair-inbox.js'
+import {createRepairInbox,DEFAULT_MAX_REPAIR_ROUNDS,isCurrentRepairApproval,isFixerWork,repairRounds,repairTarget} from './repair-inbox.js'
 
 function text(value,label,limit,required=false) {
   if (value == null && !required) return ''
@@ -107,8 +107,9 @@ export async function openQueue(ctx,deliver) {
     return mutate(state=>{
       const row=lookup(state,id)
       const target=repairTarget(state.rows,row)
+      const publishing=state.fixerAutoPublish && isCurrentRepairApproval(state.rows,target)
       if (row.fixerJob?.state!=='sent' || row.fixerJob.sessionId!==sessionId ||
-          target?.id!==targetId || target.status!=='changes_requested') return
+          target?.id!==targetId || !isFixerWork(target,publishing)) return
       row.fixerJob.recovery=recovery
       row.revision=(row.revision ?? 0)+1
       if (target!==row) target.revision=(target.revision ?? 0)+1
@@ -223,11 +224,26 @@ export async function openQueue(ctx,deliver) {
   async function retryDelivery(id,target) {
     if (!['lead','master','fixer','publish','publish_failed','origin_lead','origin_published','lead_action','lead_bump'].includes(target))
       throw new Error('Unknown recipient.')
-    await change(id,row=>{
+    await change(id,(row,state)=>{
       if (!['failed','uncertain'].includes(row.delivery?.[target])) throw new Error('This delivery is not awaiting a retry.')
+      if (['publish','publish_failed'].includes(target) && !isCurrentRepairApproval(state.rows,row))
+        throw new Error('This approval was superseded by a newer review. Open the latest review.')
       row.delivery[target]='pending'
     })
     wake()
+  }
+  async function recheckPublication(id) {
+    const queued=await mutate(state=>{
+      const row=lookup(state,id)
+      if (!state.fixerAutoPublish || !state.fixerAutoWake || !isCurrentRepairApproval(state.rows,row) ||
+          row.delivery?.publish!=='failed' || row.delivery.publish_failed!=='sent' || row.publishRecheckedAt) return false
+      row.publishRecheckedAt=Date.now()
+      row.delivery.publish='pending'
+      row.revision=(row.revision ?? 0)+1
+      return true
+    })
+    if (queued) wake()
+    return queued
   }
   async function requestLead(id,kind,check) {
     if (!['run','ci','bump'].includes(kind)) throw new Error('Unknown lead action.')
@@ -282,6 +298,13 @@ export async function openQueue(ctx,deliver) {
       if(error) item.deliveryErrors[target]=error
       else delete item.deliveryErrors[target]
     })
+    if (!message && ['publish','publish_failed'].includes(target)) {
+      const latest=await read()
+      if (!isCurrentRepairApproval(latest.rows,lookup(latest,row.id))) {
+        await update('skipped')
+        return
+      }
+    }
     await update('sending')
     try {
       if (target==='fixer') await api.fixer.start(row.id,life.signal)
@@ -291,11 +314,12 @@ export async function openQueue(ctx,deliver) {
       } else await deliver(row,target,life.signal,message)
     } catch(error) {
       if (!message && target==='publish' && !life.signal.aborted) {
-        await change(row.id,item=>{
+        await change(row.id,(item,latest)=>{
           item.delivery[target]='failed'
+          item.publishFailedAt=Date.now()
           item.deliveryErrors??={}
           item.deliveryErrors[target]=error.message
-          if (item.repair && !item.repair.published && (item.publishFixNotices || 0)<2) {
+          if (isCurrentRepairApproval(latest.rows,item) && (item.publishFixNotices || 0)<2) {
             item.publishFixNotices=(item.publishFixNotices || 0)+1
             item.delivery.publish_failed='pending'
           }
@@ -445,7 +469,7 @@ export async function openQueue(ctx,deliver) {
     return 'data:'+ref.mediaType+';base64,'+Buffer.from(data).toString('base64')
   }
   let publisher
-  const api={read,selectModel,setAutomaticWake,setAutoPublish,setMaxRepairRounds,submit,detail,tip,capture,retry,retryDelivery,requestLead,sendMessage,recordPublishedRepair,setFixerJob,setFixerRecovery,setPublisher(fn){publisher=fn}}
+  const api={read,selectModel,setAutomaticWake,setAutoPublish,setMaxRepairRounds,submit,detail,tip,capture,retry,retryDelivery,recheckPublication,requestLead,sendMessage,recordPublishedRepair,setFixerJob,setFixerRecovery,setPublisher(fn){publisher=fn}}
   api.fixer=createRepairInbox(ctx,api)
   let supervision
   ctx.effect(()=>{

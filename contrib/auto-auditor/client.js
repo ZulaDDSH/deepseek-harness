@@ -191,6 +191,9 @@ window.__ModuleLoader__.load({
               ({pending:'Request queued',sending:'Sending request…',sent:'Request sent',failed:'Request delivery failed'})[leadDelivery]))),
         !input && work && h('p',{className:'notice'},work[1]),
         !input && item.fixerProgress==='idle' && h('div',{className:'actions'},button('Resume PR Fixer',resumeFixer,{disabled:action.busy})),
+        item.publishSupersededBy && h('div',{className:'actions'},
+          h('span',null,'A newer review superseded this publication attempt.'),
+          button('Open latest review',()=>select(item.publishSupersededBy))),
         !input && remote?.ci==='failed' && remote.prState==='OPEN' && h(CheckStatus,{remote}),
         h('dl',null,meta('Lead',row.leadTitle),
           row.pull ? meta('Pull request',h('a',{href:row.pull.url,target:'_blank',rel:'noreferrer'},'PR #'+row.pull.number)) : meta('Branch',row.branch || 'Detached HEAD'),
@@ -213,10 +216,12 @@ window.__ModuleLoader__.load({
         section('Delivery',h('div',{className:'stack'},
           h('div',{className:'actions'},button('Bump lead',()=>act('request-lead',{id:row.id,kind:'bump'}),
             {disabled:action.busy || pending(bumpDelivery)})),
-          Object.entries(row.delivery ?? {}).map(([target,status])=>
+          Object.entries(row.delivery ?? {}).filter(([target])=>!item.publishSupersededBy || !['publish','publish_failed'].includes(target)).map(([target,status])=>
           h('div',{className:'actions',key:target},h('span',null,({lead:'Originating lead',master:'Master Control',fixer:'PR Fixer',publish:'Auto-publish',publish_failed:'Publish failure notice',origin_lead:'Originating PR lead',origin_published:'Lead sync notice',lead_bump:'Lead reminder',lead_action:'Recommended step request'})[target]+' · '+status),
-            row.deliveryErrors?.[target] && h('small',null,row.deliveryErrors[target]),
-            ['failed','uncertain'].includes(status) && button('Retry delivery',()=>act('deliver',{id:row.id,target}),{disabled:action.busy}))))),
+            row.deliveryErrors?.[target] && (target==='publish'
+              ? h('details',null,h('summary',null,'Git output'),h('pre',null,row.deliveryErrors[target]))
+              : h('small',null,row.deliveryErrors[target])),
+            ['failed','uncertain'].includes(status) && button(target==='publish'?'Retry push':'Retry delivery',()=>act('deliver',{id:row.id,target}),{disabled:action.busy}))))),
         problem(action.error || (!work && row.error) || data.error || current.error),
         row.status==='failed' && !input && !work && h('div',null,button('Retry review',()=>act('retry',{id:row.id}),{disabled:action.busy})))
     }
@@ -253,6 +258,13 @@ window.__ModuleLoader__.load({
           : ['Sending to lead','Auto Auditor is delivering the failed check to the originating lead.']
       if(row.status==='failed' && row.reviewerRetryAt)
         return ['Retry scheduled','Auto Auditor will retry the review automatically.']
+      if(row.publishPending) return ['Publishing','Auto-publish is checking the approved commit with Git.']
+      if(row.publishBlocked) {
+        if(row.fixerProgress==='working' || pending(row.publishNotice))
+          return ['With PR Fixer','PR Fixer is handling the publication blocker.']
+        if(row.fixerProgress==='idle') return ['PR Fixer idle','The approved repair still needs to pass its Git hook.']
+        if(row.fixerProgress==='waiting') return ['Waiting on lead','PR Fixer requested evidence from the originating lead.']
+      }
       if(row.status==='needs_run') {
         if(row.runDelivery==='sent') return ['Waiting on lead','The requested run was sent to the originating lead.']
         if(pending(row.runDelivery)) return ['Sending to lead','Auto Auditor is delivering the requested run.']
@@ -268,17 +280,23 @@ window.__ModuleLoader__.load({
     }
     function needsInput(row,remote,detail) {
       if(remote?.prState==='CLOSED' || remote?.prState==='MERGED') return null
-      if(row.fixerState==='round_limit' || detail?.fixerJob?.state==='round_limit') return {
+      if(!row.publishBlocked && (row.fixerState==='round_limit' || detail?.fixerJob?.state==='round_limit')) return {
         kind:'round_limit',
         summary:'PR Fixer reached the configured repair round limit.',
         action:'Review the findings and decide whether to raise Max repair rounds in Reviewer model.',
       }
-      if(row.fixerProgress==='stalled' && remote?.audit!=='changed') return {
+      if(row.fixerProgress==='stalled' && (row.publishBlocked || remote?.audit!=='changed')) return {
         kind:'fixer_stalled',
-        summary:row.fixerRecoveryError || 'PR Fixer stopped after two automatic wake attempts.',
+        summary:row.fixerRecoveryError || (row.publishBlocked ? 'PR Fixer stopped while resolving the Git hook.' : 'PR Fixer stopped after two automatic wake attempts.'),
         action:'Open the repair chat to inspect the blocker, or resume the repair.',
       }
       const work=assignedWork(row,remote)
+      if(row.publishBlocked && !work) return {
+        kind:'failed',
+        summary:brief(row.publishNote) || 'Git rejected publication of the approved repair.',
+        action:'Resolve the Git hook output under Delivery, then retry the push.',
+      }
+      if(row.publishBlocked || row.publishPending) return null
       if(remote?.ci==='failed' && !assignedCheck(row,remote) && (!work || remote.audit==='changed')) return {
         kind:'ci_failed',
         summary:remote.check?.name ? 'Required GitHub check failed · '+remote.check.name : 'A required GitHub check failed.',
@@ -325,7 +343,8 @@ window.__ModuleLoader__.load({
       const input=needsInput(row,remote)
       if(input) return ['Needs input',input.summary,0,input.kind]
       const work=assignedWork(row,remote)
-      if (remote?.audit==='changed' && !assignedCheck(row,remote)) return ['In review','The PR revision changed and needs a fresh audit.',3,'reviewing']
+      if (remote?.audit==='changed' && !row.publishBlocked && !row.publishPending && !assignedCheck(row,remote))
+        return ['In review','The PR revision changed and needs a fresh audit.',3,'reviewing']
       if(work) return [...work,3,'assigned']
       if (row.status==='ready' && remote?.audit==='current') {
         if (remote.ci==='passed') return ['Ready for review','The audit and required checks passed for this revision.',2,'review_ready']
@@ -544,7 +563,7 @@ window.__ModuleLoader__.load({
     }
     const repairLabels={
       available:'Ready to start',preparing:'Preparing worktree',handoff_failed:'Handoff needs attention',sent:'Handoff sent',
-      working:'Working',idle:'Idle',waiting:'Waiting on lead',stalled:'Needs input',
+      working:'Working',idle:'Idle',waiting:'Waiting on lead',stalled:'Needs input',publish_blocked:'Publish blocked',
       queued:'Repair queued for audit',reviewing:'Repair in audit',ready:'Repair approved',
       changes_requested:'More changes requested',needs_run:'Run requested',failed:'Repair audit failed',
       round_limit:'Needs owner · round limit',published:'Published to PR',superseded:'Newer audit available',

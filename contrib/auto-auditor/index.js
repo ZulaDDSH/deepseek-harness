@@ -6,7 +6,7 @@ import {reviewerWorkspacePrefix} from './review.js'
 import {branchState} from './git.js'
 import {registerPullTools} from './pull-workflow.js'
 import {registerWorkflowAwareness} from './master-awareness.js'
-import {DEFAULT_MAX_REPAIR_ROUNDS,fixerProgress,repairRounds,repairTarget} from './repair-inbox.js'
+import {DEFAULT_MAX_REPAIR_ROUNDS,fixerProgress,isCurrentRepairApproval,publicationHandoff,repairRounds,repairTarget} from './repair-inbox.js'
 
 export const name='desktop-auto-auditor'
 export const inject=['profileContext','connection','webServer','tools','agents','sessions','llm','sessionController','sessionQuery','workspaceRegistry','permissionPresets','attachments']
@@ -71,12 +71,16 @@ function installFixerPermissionLock(ctx) {
   return Promise.all(ctx.agents.list().filter(isFixer).map(lock))
 }
 
-function header(ctx,row,rows) {
+function header(ctx,row,state) {
+  const rows=state.rows
   const original=row.repair && rows.find(item=>item.id===row.repair.original)
   const job=(original || row).fixerJob
   const source=original || row
+  const publishStatus=row.status==='ready' && row.repair && !row.repair.published ? row.delivery?.publish : undefined
+  const publishBlocked=publishStatus==='failed'
+  const currentApproval=Boolean(publishStatus) && isCurrentRepairApproval(rows,row)
   const progress=source.pull && job?.state==='sent' && repairTarget(rows,source)===row
-    ? fixerProgress(ctx,source,row) : undefined
+    ? fixerProgress(ctx,source,row,state.fixerAutoPublish && currentApproval) : undefined
   const notice=row.leadNotices?.lead_action
   const deliveries=[row.delivery?.[original && original.leadId!==row.leadId?'origin_lead':'lead']]
   if(notice?.kind==='run') deliveries.push(row.delivery?.lead_action)
@@ -95,6 +99,10 @@ function header(ctx,row,rows) {
     ...(job?.state==='sent' && {fixerSessionId:job.sessionId}),
     ...(job?.state && {fixerState:job.state}),
     ...(progress && {fixerProgress:progress,fixerRecoveryError:job.recovery?.target===row.id ? job.recovery.error : undefined}),
+    ...(currentApproval && ['pending','sending'].includes(publishStatus) && {publishPending:true}),
+    ...(publishBlocked && (currentApproval ? {publishBlocked:true,publishNotice:row.delivery.publish_failed,
+      publishNote:row.deliveryErrors?.publish?.split(/\r?\n/,1)[0]} :
+      {publishSupersededBy:rows.find(item=>reviewGroup(item)===reviewGroup(row))?.id})),
     ...(row.repair && {repairOriginal:row.repair.original,repairPublished:row.repair.published===true})}
 }
 
@@ -181,22 +189,7 @@ export async function apply(ctx) {
       id=(await lead(recipient,signal)).id
       summary='Auto Auditor · Auto-publish blocked'
       exchangeId='publish-failed:'+(row.publishFixNotices || 1)
-      const detail=row.deliveryErrors?.publish || 'Git push failed.'
-      body=[
-        'Auto Auditor · Auto-publish failed for approved repair '+row.id,
-        'PR: '+(row.repair?.url || row.pull?.url || ''),
-        'Source review ID: '+(row.repair?.original || ''),
-        'Repair worktree: '+row.repo,
-        'Approved commit: '+row.head,
-        '',
-        'Push / pre-push hook error:',
-        detail,
-        '',
-        'Action required in this repair worktree:',
-        '- Do NOT run git push directly. Harness owns pushing.',
-        '- If the hook only requires recording a review or metadata on the unchanged approved commit '+row.head+' (for example running a required pre-push review skill and recording it with the repo’s gate script, then confirming the gate check passes): complete that step on '+row.head+' and call auditor_retry_publish with review_id='+row.id+'.',
-        '- If satisfying the hook requires code changes (a new commit SHA): commit the fix locally, verify the repository’s pre-push gate passes on the new commit, and submit it with auditor_stage_fix using review_id='+(row.repair?.original || '')+'.',
-      ].join('\n')
+      body=publicationHandoff(row)
     } else if(target==='origin_published') {
       const state=await queue.read()
       const original=state.rows.find(item=>item.id===row.repair?.original)
@@ -312,14 +305,14 @@ export async function apply(ctx) {
       const caller=await author(exec)
       const state=await queue.read()
       const rows=state.rows.filter(row=>caller.master || row.leadId===caller.id || row.fixerJob?.sessionId===caller.id)
-      if(!review_id) return JSON.stringify(rows.slice(0,25).map(row=>header(ctx,row,state.rows)))
+      if(!review_id) return JSON.stringify(rows.slice(0,25).map(row=>header(ctx,row,state)))
       const row=rows.find(item=>item.id===review_id)
       if(!row) throw new Error('Review not found.')
       const fixerJob=row.fixerJob ? {
         ...row.fixerJob,
         ...(['sent','round_limit'].includes(row.fixerJob.state) && {agentStatus:ctx.agents.get(row.fixerJob.sessionId)?.status || 'closed'}),
       } : null
-      return JSON.stringify({...header(ctx,row,state.rows),result:row.result,error:row.error,delivery:row.delivery,fixerJob,
+      return JSON.stringify({...header(ctx,row,state),result:row.result,error:row.error,delivery:row.delivery,fixerJob,
         current:await queue.tip(row.id,exec.signal),messages:row.messages?.slice(-12)})
     },
   }))
@@ -344,7 +337,7 @@ export async function apply(ctx) {
           model:state.model,
           maxRepairRounds:state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS,
           pending,
-          rows:state.rows.map(row=>header(ctx,row,state.rows)),
+          rows:state.rows.map(row=>header(ctx,row,state)),
         }
       } else if(method==='leads') value=(await leads(signal)).map(({id,title,workspace,cwd})=>({id,title,workspace,cwd}))
       else if(method==='detail') value=await queue.detail(args.id,signal)

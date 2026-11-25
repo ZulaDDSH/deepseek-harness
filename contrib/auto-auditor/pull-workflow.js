@@ -4,7 +4,7 @@ import {createUserMessage} from '@deepseek-ai/dsh-llm'
 import {defineTool} from '@deepseek-ai/dsh-tools'
 import {branchState,checkFastForward,openPullForCommit,pushPullCommit,readPullViaGitCredentials} from './git.js'
 import {buildFixerOverview} from './master-awareness.js'
-import {activeFixerForPull,DEFAULT_MAX_REPAIR_ROUNDS,repairRounds} from './repair-inbox.js'
+import {activeFixerForPull,DEFAULT_MAX_REPAIR_ROUNDS,isCurrentRepairApproval,repairRounds} from './repair-inbox.js'
 
 const sha=/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/
 
@@ -89,8 +89,7 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
   async function publishApprovedRepair(reviewId,signal) {
     const rows=(await queue.read()).rows
     const repair=rows.find(row=>row.id===reviewId)
-    if (!repair?.repair || repair.status!=='ready' ||
-        rows.find(row=>row.repair?.original===repair.repair.original)?.id!==repair.id)
+    if (!isCurrentRepairApproval(rows,repair))
       throw new Error('Choose the latest approved repair for that PR.')
     const target=await resolvePullTarget(repair.repair.url,{},signal)
     if (target.prState!=='OPEN')
@@ -348,8 +347,7 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
       const caller=await author(exec)
       const state=await queue.read()
       const repair=state.rows.find(row=>row.id===args.review_id)
-      if (!repair?.repair || repair.status!=='ready' || repair.repair.published ||
-          state.rows.find(row=>row.repair?.original===repair.repair.original)?.id!==repair.id)
+      if (!isCurrentRepairApproval(state.rows,repair))
         throw new Error('Choose the latest approved, unpublished repair for that PR.')
       const original=state.rows.find(row=>row.id===repair.repair.original)
       const assigned=original?.fixerJob?.sessionId || repair.leadId
@@ -375,8 +373,7 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
       requirePushAccess(exec)
       const rows=(await queue.read()).rows
       const repair=rows.find(row=>row.id===args.review_id)
-      if (!repair?.repair || repair.status!=='ready' ||
-          rows.find(row=>row.repair?.original===repair.repair.original)?.id!==repair.id)
+      if (!isCurrentRepairApproval(rows,repair))
         throw new Error('Choose the latest approved repair for that PR.')
       const target=await resolvePullTarget(repair.repair.url,{},exec.signal)
       if (target.prState!=='OPEN')
