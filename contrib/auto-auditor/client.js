@@ -44,8 +44,8 @@ window.__ModuleLoader__.load({
       .mc-review-queue .mc-status[data-status="changes_requested"]::before{background:currentColor;border:0}
       .mc-review-queue .mc-status:is([data-status="ready"],[data-status="review_ready"],[data-status="published"]){color:var(--dsw-alias-state-business-primary,var(--audit-ok));border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary,var(--audit-ok)) 40%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,var(--audit-ok)) 12%,transparent)}
       .mc-review-queue .mc-status:is([data-status="ready"],[data-status="review_ready"],[data-status="published"])::before{background:currentColor;border:0}
-      .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"],[data-status="ci_failed"]){color:var(--dsw-alias-state-error-primary,var(--audit-err));border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 44%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 12%,transparent)}
-      .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"],[data-status="ci_failed"])::before{border-radius:1px;transform:rotate(45deg);background:currentColor;border:0}
+      .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"],[data-status="ci_failed"],[data-status="round_limit"]){color:var(--dsw-alias-state-error-primary,var(--audit-err));border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 44%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 12%,transparent)}
+      .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"],[data-status="ci_failed"],[data-status="round_limit"])::before{border-radius:1px;transform:rotate(45deg);background:currentColor;border:0}
       .mc-review-queue .mc-review-sub{display:block;margin:.22rem 0 0;color:var(--mc-muted);font-size:.73rem;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .mc-review-queue .mc-review-title{display:block;width:100%;margin:.24rem 0 0;font-size:.77rem;font-weight:400;line-height:1.38;letter-spacing:0;color:color-mix(in srgb,var(--mc-ink) 78%,var(--mc-muted));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .mc-review-queue .mc-review-card:hover .mc-review-title{color:var(--mc-accent)}
@@ -156,7 +156,7 @@ window.__ModuleLoader__.load({
         show && (problem(data.error) || (data.value ? h('img',{src:data.value,alt:capture.side+' · '+capture.ref.name,
           style:{display:'block',maxWidth:'100%',maxHeight:'50vh',marginTop:8}}) : h('small',null,' Loading…'))))
     }
-    function Detail({rpc,item,remote,revision,refresh,select}) {
+    function Detail({rpc,item,remote,revision,refresh,select,openSettings}) {
       const data=useData(rpc,'detail',{id:item.id},true,0,[item.status,item.revision,revision])
       const current=useData(rpc,'tip',{id:item.id},item.status==='ready',item.pull?60000:10000,revision)
       const action=useAction()
@@ -171,9 +171,21 @@ window.__ModuleLoader__.load({
       const list=items=>h('ul',null,items.map((s,i)=>h('li',{key:i},s)))
       const meta=(label,value)=>h('div',null,h('dt',null,label),h('dd',null,value))
       const input=needsInput(item,remote,row)
+      const leadDelivery=row.delivery?.lead_action
+      const bumpDelivery=row.delivery?.lead_bump
+      const pending=status=>['pending','sending'].includes(status)
+      const leadButton=input?.kind==='needs_run' || input?.kind==='ci_failed'
+      const recommended=input?.kind==='round_limit' ? button('Open reviewer settings',openSettings) :
+        leadButton ? button(input.kind==='needs_run'?'Ask lead to run this':'Ask lead to fix check',
+          ()=>act('request-lead',{id:row.id,kind:input.kind==='needs_run'?'run':'ci'}),
+          {disabled:action.busy || pending(leadDelivery)}) :
+        input && row.status==='failed' ? button('Retry review',()=>act('retry',{id:row.id}),{disabled:action.busy}) : null
       return h('article',{className:'stack'},h('div',null,h('small',{className:'status','data-state':row.status},
         input?'Needs input':changed && row.status==='ready'?'Earlier commit approved':labels[row.status]),h('h2',null,row.goal)),
-        input && h(InputNotice,{input}),
+        input && h(InputNotice,{input},
+          recommended && h('div',{className:'actions'},recommended,
+            leadButton && leadDelivery && h('small',{role:'status'},
+              ({pending:'Request queued',sending:'Sending request…',sent:'Request sent',failed:'Request delivery failed'})[leadDelivery]))),
         h('dl',null,meta('Lead',row.leadTitle),
           row.pull ? meta('Pull request',h('a',{href:row.pull.url,target:'_blank',rel:'noreferrer'},'PR #'+row.pull.number)) : meta('Branch',row.branch || 'Detached HEAD'),
           meta('Commit',h('code',{title:row.head},row.head.slice(0,12))),meta('Review ID',h('code',{title:row.id},row.id))),
@@ -192,12 +204,15 @@ window.__ModuleLoader__.load({
         row.captures?.length>0 && section('Captures',h('div',{className:'stack'},row.captures.map(capture=>h(Capture,{rpc,id:row.id,capture,key:capture.side})))),
         previous && button('Earlier review · '+previous.head.slice(0,10),()=>select(previous.id)),
         h('details',null,h('summary',null,'Reviewed diff'),h('pre',{tabIndex:0},patch)),
-        row.delivery && section('Delivery',h('div',{className:'stack'},Object.entries(row.delivery).map(([target,status])=>
-          h('div',{className:'actions',key:target},h('span',null,({lead:'Originating lead',master:'Master Control',fixer:'PR Fixer',publish:'Auto-publish',publish_failed:'Publish failure notice',origin_lead:'Originating PR lead',origin_published:'Lead sync notice'})[target]+' · '+status),
+        section('Delivery',h('div',{className:'stack'},
+          h('div',{className:'actions'},button('Bump lead',()=>act('request-lead',{id:row.id,kind:'bump'}),
+            {disabled:action.busy || pending(bumpDelivery)})),
+          Object.entries(row.delivery ?? {}).map(([target,status])=>
+          h('div',{className:'actions',key:target},h('span',null,({lead:'Originating lead',master:'Master Control',fixer:'PR Fixer',publish:'Auto-publish',publish_failed:'Publish failure notice',origin_lead:'Originating PR lead',origin_published:'Lead sync notice',lead_bump:'Lead reminder',lead_action:'Recommended step request'})[target]+' · '+status),
             row.deliveryErrors?.[target] && h('small',null,row.deliveryErrors[target]),
             ['failed','uncertain'].includes(status) && button('Retry delivery',()=>act('deliver',{id:row.id,target}),{disabled:action.busy}))))),
         problem(action.error || row.error || data.error || current.error),
-        row.status==='failed' && h('div',null,button('Retry review',()=>act('retry',{id:row.id}),{disabled:action.busy})))
+        row.status==='failed' && !input && h('div',null,button('Retry review',()=>act('retry',{id:row.id}),{disabled:action.busy})))
     }
     const shortStatus={
       queued:'Queued',reviewing:'In review',ready:'Approved',published:'Published',
@@ -221,7 +236,7 @@ window.__ModuleLoader__.load({
     function needsInput(row,remote,detail) {
       if(remote?.prState==='CLOSED' || remote?.prState==='MERGED') return null
       if(row.fixerState==='round_limit' || detail?.fixerJob?.state==='round_limit') return {
-        kind:'failed',
+        kind:'round_limit',
         summary:'PR Fixer reached the configured repair round limit.',
         action:'Review the findings and decide whether to raise Max repair rounds in Reviewer model.',
       }
@@ -245,12 +260,13 @@ window.__ModuleLoader__.load({
       }
       return null
     }
-    function InputNotice({input,compact=false}) {
+    function InputNotice({input,compact=false,children}) {
       return h(compact?'span':'section',{className:'audit-input',...(!compact && {'aria-label':'Needs input'})},
         !compact && h('strong',null,'Needs input'),
         h('span',null,input.summary),
         h('span',{className:'audit-input-action'},'Recommended next step · ',input.action),
-        !compact && input.url && h('a',{href:input.url,target:'_blank',rel:'noreferrer'},'Open failed check'))
+        !compact && input.url && h('a',{href:input.url,target:'_blank',rel:'noreferrer'},'Open failed check'),
+        children)
     }
     function matchesReviewFilter(row,mode,remote) {
       if(needsInput(row,remote)) return mode==='all' || mode==='attention'
@@ -365,7 +381,7 @@ window.__ModuleLoader__.load({
           const link=reviewLink(row)
           const pull=typeof link==='string' && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/([1-9]\d*)$/.exec(link)
           const subParts=[row.leadTitle,row.head.slice(0,8),...(count>1?[count+' rounds']:row.repair && !row.pull?['Repair']:[])]
-          const showReason=['needs_run','ci_failed','failed'].includes(kind) ||
+          const showReason=['needs_run','ci_failed','failed','round_limit'].includes(kind) ||
             remote?.audit==='changed' || (row.repair && !row.pull && row.status==='ready' && !row.repairPublished)
           return h('li',{key:row.id,className:'mc-session mc-review-card',onClick:e=>{if(!e.target.closest('a,button')) showReview(row.id)}},
             h('div',{className:'mc-review-top'},
@@ -471,7 +487,7 @@ window.__ModuleLoader__.load({
                 },h('option',{value:''},older.length+' earlier…'),
                   older.map((round,i)=>h('option',{key:round.id,value:round.id},roundLabel(round,i+5)))))
             })(),
-            h(Detail,{key:item.id,rpc,item,remote:checks.get(item.id),revision,refresh,select:openItem})):
+            h(Detail,{key:item.id,rpc,item,remote:checks.get(item.id),revision,refresh,select:openItem,openSettings:()=>setView('settings')})):
           h('div',{className:'stack'},h('h2',null,state?'No reviews yet':'Loading reviews…'),
             state && h('p',{className:'empty'},'In a lead chat, say “Send this PR to Auto Auditor” and include the PR link. Findings and replies appear here and in that chat.')))))
     }

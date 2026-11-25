@@ -186,13 +186,29 @@ export async function openQueue(ctx,deliver) {
     wake()
   }
   async function retryDelivery(id,target) {
-    if (!['lead','master','fixer','publish','publish_failed','origin_lead','origin_published'].includes(target))
+    if (!['lead','master','fixer','publish','publish_failed','origin_lead','origin_published','lead_action','lead_bump'].includes(target))
       throw new Error('Unknown recipient.')
     await change(id,row=>{
       if (!['failed','uncertain'].includes(row.delivery?.[target])) throw new Error('This delivery is not awaiting a retry.')
       row.delivery[target]='pending'
     })
     wake()
+  }
+  async function requestLead(id,kind,check) {
+    if (!['run','ci','bump'].includes(kind)) throw new Error('Unknown lead action.')
+    const target=kind==='bump'?'lead_bump':'lead_action'
+    await change(id,row=>{
+      if (kind==='run' && (row.status!=='needs_run' || !row.result?.runRequest))
+        throw new Error('This review no longer has a requested run.')
+      const delivery=row.delivery ??= {}
+      if (['pending','sending'].includes(delivery[target])) return
+      row.leadNotices ??= {}
+      row.leadNotices[target]={id:randomUUID(),kind,...(kind==='ci' && {check})}
+      delivery[target]='pending'
+      if (row.deliveryErrors) delete row.deliveryErrors[target]
+    })
+    wake()
+    return true
   }
   async function sendMessage(id,author,body) {
     const value=text(body,'message',4000,true)
@@ -318,6 +334,8 @@ export async function openQueue(ctx,deliver) {
             item.status=result.status
             item.finished=Date.now()
             const maxRounds=latest.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS
+            const leadNotices=Object.fromEntries(Object.entries(item.delivery ?? {})
+              .filter(([target])=>target==='lead_action' || target==='lead_bump'))
             if (row.repair) {
               const original=latest.rows.find(entry=>entry.id===row.repair.original)
               const rounds=repairRounds(latest.rows,row.repair.original)
@@ -331,6 +349,7 @@ export async function openQueue(ctx,deliver) {
               const notifyOriginLead=Boolean(original && original.leadId!==row.leadId &&
                 (result.status==='needs_run' || limitReached))
               item.delivery={
+                ...leadNotices,
                 lead:'pending',
                 ...(notifyOriginLead && {origin_lead:'pending'}),
                 ...(latest.fixerAutoPublish && result.status==='ready' && isLatestRepair && !item.repair.published && {publish:'pending'}),
@@ -338,6 +357,7 @@ export async function openQueue(ctx,deliver) {
             } else {
               const isLatestForPull=Boolean(row.pull && latest.rows.find(entry=>entry.pull?.url===row.pull.url)?.id===row.id)
               item.delivery={
+                ...leadNotices,
                 lead:'pending',
                 ...(latest.fixerAutoWake && isLatestForPull && result.status==='changes_requested' && {fixer:'pending'}),
               }
@@ -374,7 +394,7 @@ export async function openQueue(ctx,deliver) {
     return 'data:'+ref.mediaType+';base64,'+Buffer.from(data).toString('base64')
   }
   let publisher
-  const api={read,selectModel,setAutomaticWake,setAutoPublish,setMaxRepairRounds,submit,detail,tip,capture,retry,retryDelivery,sendMessage,recordPublishedRepair,setFixerJob,setPublisher(fn){publisher=fn}}
+  const api={read,selectModel,setAutomaticWake,setAutoPublish,setMaxRepairRounds,submit,detail,tip,capture,retry,retryDelivery,requestLead,sendMessage,recordPublishedRepair,setFixerJob,setPublisher(fn){publisher=fn}}
   api.fixer=createRepairInbox(ctx,api)
   wake()
   return api

@@ -114,6 +114,34 @@ export async function apply(ctx) {
       summary='Auto Auditor · Reply'
       body='Auto Auditor reply · Review '+row.id+'\n'+(row.pull?.url || row.head)+
         '\nYour message: '+message.body+'\n\n'+message.answer
+    } else if(target==='lead_action' || target==='lead_bump') {
+      const notice=row.leadNotices?.[target]
+      if(!notice) throw new Error('Lead notification is missing.')
+      const original=row.repair ? (await queue.read()).rows.find(item=>item.id===row.repair.original) : row
+      if(!original) throw new Error('The originating review could not be found.')
+      id=(await lead(original.leadId,signal)).id
+      exchangeId=notice.id
+      summary=notice.kind==='bump'?'Auto Auditor · Lead reminder':'Auto Auditor · Action requested'
+      const targetLabel=row.pull?.url || row.repair?.url || row.branch || 'Detached HEAD'
+      const requestedRun=row.status==='needs_run' && row.result?.runRequest
+      const detail=notice.kind==='ci' ? [
+        'Current PR head: '+notice.check.head,
+        'Failed required check: '+notice.check.name,
+        'Check details: '+notice.check.url,
+        'Inspect the failure, make and verify any needed fix, and send the current revision and results to Auto Auditor.',
+      ] : requestedRun ? [
+        'Requested run and evidence:',
+        requestedRun,
+        row.repo && 'Reviewed worktree: '+row.repo,
+        row.repair ? 'Run on the reviewed commit and return the evidence with auditor_reply_fixer using review_id='+original.id+'.' :
+          'Run on the reviewed commit and submit a follow-up with the results using auditor_submit with previous='+row.id+'.',
+      ] : [
+        row.error || row.result?.summary || 'Open the audit review for its latest status.',
+        'Check the current review and report progress or what is blocking the next step.',
+      ]
+      body=[summary+' for '+targetLabel,'Review ID: '+row.id,'Reviewed commit: '+row.head,
+        'Goal: '+row.goal,'',...detail,'If the work is already underway, report its status instead of starting a duplicate run.']
+        .filter(value=>value!==false).join('\n')
     } else if(target==='master') {
       const archived=new Set(ctx.workspaceRegistry.archivedSessionIds)
       const home=(await ctx.sessionQuery.listSessions(signal)).find(({header})=>
@@ -310,6 +338,19 @@ export async function apply(ctx) {
       else if(method==='fixer-max-rounds') value=await queue.setMaxRepairRounds(args.maxRounds)
       else if(method==='submit') value=await queue.submit(await lead(args.leadId,signal,true),args,false,signal)
       else if(method==='retry') {await queue.retry(args.id);value=true}
+      else if(method==='request-lead') {
+        let check
+        if(args.kind==='ci') {
+          const row=(await queue.read()).rows.find(item=>item.id===args.id)
+          const service=ctx.get('githubReviewStatus')
+          if(!row?.pull?.url || !service) throw new Error('GitHub status is unavailable for this review.')
+          const remote=await service.target(row.pull.url,signal)
+          if(remote.prState!=='OPEN' || remote.ci!=='failed') throw new Error('GitHub no longer reports a required check failure on this PR.')
+          check={head:remote.head,name:remote.check?.name || 'Required check',
+            url:remote.check?.url || row.pull.url+'/checks'}
+        }
+        value=await queue.requestLead(args.id,args.kind,check)
+      }
       else if(method==='deliver') {await queue.retryDelivery(args.id,args.target);value=true}
       else throw new Error('Unknown Auto Auditor action.')
       return {ok:true,value}
