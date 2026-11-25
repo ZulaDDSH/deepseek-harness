@@ -1,5 +1,6 @@
 export const DEFAULT_FEED_REPOSITORY: string
 export const FEED_TAG: string
+export const FEED_FILES: readonly string[]
 
 /**
  * Every url and path must become an absolute asset URL of the versioned release.
@@ -20,4 +21,4 @@ export function publishGithubFeed(options: {
   dryRun?: boolean
   gh?: (args: string[]) => string
   log?: (line: string) => void
-}): { tag: string, feedFile: string, yaml: string, uploaded: string[] }
+}): { tag: string, feedFiles: readonly string[], yaml: string, uploaded: string[] }

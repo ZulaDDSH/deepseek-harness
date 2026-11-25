@@ -236,6 +236,13 @@ describe('Desktop local packaging configuration', () => {
     })
   })
 
+  it('rejects the update feed URL in the macOS dotenv', async () => {
+    await withDirectory(async (directory) => {
+      await writeFile(join(directory, '.env.macos'), 'DSH_DESKTOP_UPDATE_FEED_URL=https://example.com/feed/\n')
+      expect(() => loadDesktopPackageEnvironment('darwin', {}, directory)).toThrow('only for unsigned Windows builds')
+    })
+  })
+
   it('requires the local file even when ambient configuration exists and rejects other-platform fields', async () => {
     await withDirectory(async (directory) => {
       expect(() => loadDesktopPackageEnvironment('win32', RELEASE, directory)).toThrow(/copy .*\.env.windows.example/u)

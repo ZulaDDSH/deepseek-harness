@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { load } from 'js-yaml'
 import { describe, expect, it, vi } from 'vitest'
 import { publishGithubFeed, rewriteFeedMetadata } from '../scripts/publish-github-feed.mjs'
@@ -75,8 +76,32 @@ describe('GitHub update feed publication', () => {
       ])
       expect(calls[2]).toEqual(expect.arrayContaining([join(directory, EXE), join(directory, `${EXE}.blockmap`), join(directory, 'SHA256SUMS.txt'), '--clobber']))
       expect(calls[2]).not.toContain(join(directory, 'nightly.yml'))
-      expect(calls[5]?.at(3)).toMatch(/nightly\.yml$/u)
+      expect(calls[5]?.slice(3, 5).map(file => basename(file))).toEqual(['nightly.yml', 'stable.yml'])
+      expect(result.feedFiles).toEqual(['nightly.yml', 'stable.yml'])
       expect(result.uploaded).toEqual([EXE, `${EXE}.blockmap`, 'SHA256SUMS.txt'])
+    })
+  })
+
+  it('uploads the same rewritten metadata under both channel names', async () => {
+    await withDirectory(files, (directory) => {
+      const contents: string[] = []
+      const gh = (args: string[]) => {
+        if (args[1] === 'upload' && args[2] === 'desktop-feed') contents.push(...args.slice(3, 5).map(file => readFileSync(file, 'utf8')))
+      }
+      const result = publishGithubFeed({ directory, repository: REPOSITORY, gh: gh as never, log: () => undefined })
+      expect(contents).toEqual([result.yaml, result.yaml])
+    })
+  })
+
+  it('never touches the feed when the versioned upload fails', async () => {
+    await withDirectory(files, (directory) => {
+      const calls: string[][] = []
+      const gh = (args: string[]) => {
+        calls.push(args)
+        if (args[1] === 'upload' && args[2] === 'v0.2.2-rc.3.20261124.1') throw new Error('upload failed')
+      }
+      expect(() => publishGithubFeed({ directory, repository: REPOSITORY, gh: gh as never, log: () => undefined })).toThrow('upload failed')
+      expect(calls.some(args => args.includes('desktop-feed'))).toBe(false)
     })
   })
 
@@ -114,6 +139,7 @@ describe('GitHub update feed publication', () => {
       const output = lines.join('\n')
       expect(output).toContain('gh release create v0.2.2-rc.3.20261124.1')
       expect(output).toContain('gh release create desktop-feed')
+      expect(output).toContain('<temporary>/nightly.yml <temporary>/stable.yml')
       expect(output).toContain(`url: https://github.com/${REPOSITORY}/releases/download/v0.2.2-rc.3.20261124.1/${EXE}`)
       expect(output.indexOf('gh release upload v0.2.2')).toBeLessThan(output.indexOf('gh release upload desktop-feed'))
     })

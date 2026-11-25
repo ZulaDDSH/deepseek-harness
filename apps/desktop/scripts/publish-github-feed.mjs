@@ -8,6 +8,7 @@ import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
 
 export const DEFAULT_FEED_REPOSITORY = 'ZulaDDSH/deepseek-harness'
 export const FEED_TAG = 'desktop-feed'
+export const FEED_FILES = ['nightly.yml', 'stable.yml']
 // Asset names must pass through GitHub unchanged, because the feed links to them by name.
 const ASSET_NAME = /^[A-Za-z0-9._-]+$/u
 
@@ -58,7 +59,7 @@ function releaseExists(gh, repository, tag) {
 
 // Ordering: assets must be uploaded before the metadata, so the feed never names a missing asset.
 export function publishGithubFeed({ directory, repository = DEFAULT_FEED_REPOSITORY, dryRun = false, gh = args => execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), log = console.log }) {
-  const { name: feedFile, text } = readMetadata(directory)
+  const { text } = readMetadata(directory)
   const { version, tag, assets, yaml } = rewriteFeedMetadata(text, repository)
   const uploaded = [...new Set(assets)]
   for (const name of [...uploaded]) {
@@ -76,19 +77,19 @@ export function publishGithubFeed({ directory, repository = DEFAULT_FEED_REPOSIT
   const uploadArgs = ['release', 'upload', tag, ...uploaded.map(name => join(directory, name)), '-R', repository, '--clobber']
   if (dryRun) log(`gh ${uploadArgs.join(' ')}`)
   else gh(uploadArgs)
-  create(FEED_TAG, 'Desktop update feed', `Rolling update feed: ${feedFile} points at the installer in the latest versioned release.`)
+  create(FEED_TAG, 'Desktop update feed', `Rolling update feed: ${FEED_FILES.join(' and ')} point at the installer in the latest versioned release.`)
   if (dryRun) {
-    log(`gh release upload ${FEED_TAG} <temporary>/${feedFile} -R ${repository} --clobber`)
-    log(`--- ${feedFile} ---\n${yaml}`)
+    log(`gh release upload ${FEED_TAG} ${FEED_FILES.map(name => `<temporary>/${name}`).join(' ')} -R ${repository} --clobber`)
+    log(`--- ${FEED_FILES.join(' = ')} ---\n${yaml}`)
   } else {
     const temporary = mkdtempSync(join(tmpdir(), 'dsh-feed-'))
     try {
-      const file = join(temporary, feedFile)
-      writeFileSync(file, yaml)
-      gh(['release', 'upload', FEED_TAG, file, '-R', repository, '--clobber'])
+      const files = FEED_FILES.map(name => join(temporary, name))
+      for (const file of files) writeFileSync(file, yaml)
+      gh(['release', 'upload', FEED_TAG, ...files, '-R', repository, '--clobber'])
     } finally { rmSync(temporary, { recursive: true, force: true }) }
   }
-  return { tag, feedFile, yaml, uploaded }
+  return { tag, feedFiles: FEED_FILES, yaml, uploaded }
 }
 
 function main() {
@@ -101,7 +102,7 @@ function main() {
   if (!/^[\w.-]+\/[\w.-]+$/u.test(repository)) throw new Error(`publish github feed: ${repository} is not owner/repo`)
   const directory = values.artifacts === undefined ? desktopTargetBuildPaths('win-x64').unsignedArtifacts : resolve(values.artifacts)
   const result = publishGithubFeed({ directory, repository, dryRun: values['dry-run'] })
-  console.log(`publish github feed: ${values['dry-run'] ? 'would publish' : 'published'} ${result.tag} and ${result.feedFile} to ${repository}`)
+  console.log(`publish github feed: ${values['dry-run'] ? 'would publish' : 'published'} ${result.tag} and ${result.feedFiles.join(' and ')} to ${repository}`)
 }
 
 if (process.argv[1] !== undefined && import.meta.filename === resolve(process.argv[1])) main()

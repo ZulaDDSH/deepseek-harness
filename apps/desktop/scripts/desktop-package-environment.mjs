@@ -72,6 +72,9 @@ export function loadDesktopPackageEnvironment(platform, environment = process.en
   const settings = readSettings(path, name => preset === undefined
     ? SHARED_SETTING.test(name) || platformSetting.test(name)
     : /^(?:DSH_DESKTOP_(?:APP_ID|AUTO_UPDATE_ENV|NPM_REGISTRY|UPDATE_FEED_URL|MANDATORY_UPDATE_(?:CONFIG|(?:TEST|PROD)_ORIGIN))|DOWNLOAD_TEST_(?:ORIGIN|RELEASE_ID))$/u.test(name) || publicPlatformSetting.test(name))
+  if (platform === 'darwin' && settings.DSH_DESKTOP_UPDATE_FEED_URL !== undefined) {
+    throw new Error('desktop package: DSH_DESKTOP_UPDATE_FEED_URL is supported only for unsigned Windows builds')
+  }
   if (preset !== undefined) {
     if (settings.DSH_DESKTOP_AUTO_UPDATE_ENV !== preset) throw new Error('desktop package: preset deployment must match its name')
     if (!options.unsigned && (platform === 'darwin' || !options.prepareOnly)) {
