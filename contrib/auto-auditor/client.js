@@ -44,6 +44,26 @@ window.__ModuleLoader__.load({
       .audit .fixer-controls a,.audit .fixer-work a{color:var(--accent)}
       .audit .fixer-work .fixer-revision{word-break:break-all}
       .audit button[aria-pressed="true"]{background:var(--fill);border-color:var(--accent)}
+      .audit .queue-head{display:flex;align-items:center;justify-content:space-between;gap:.4rem;margin:0 .35rem .55rem}
+      .audit .queue-head h2{margin:0;font-weight:500}
+      .audit .queue-mode{font-size:.73rem;padding:.18rem .46rem;color:var(--soft)}
+      .audit .queue-filters{display:flex;flex-wrap:wrap;gap:.3rem;margin:0 .35rem .65rem}
+      .audit .queue-filters button{font-size:.73rem;padding:.2rem .48rem;border-radius:999px;color:var(--soft);font-weight:500}
+      .audit .queue-filters button[aria-pressed="true"]{color:var(--ink);background:var(--fill);border-color:var(--accent)}
+      .audit button.item.audit-row{gap:.22rem;padding:.52rem .6rem;border-radius:.5rem}
+      .audit .audit-row-top{display:flex;align-items:center;justify-content:space-between;gap:.45rem;min-width:0}
+      .audit .audit-row-title{font-weight:500;font-size:.86rem;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .audit .audit-pill{flex:none;font-size:.7rem;font-weight:500;line-height:1.2;padding:.14rem .44rem;border-radius:999px;border:1px solid var(--rule);color:var(--soft)}
+      .audit .audit-pill:is([data-state="queued"],[data-state="reviewing"]){color:var(--accent);border-color:color-mix(in srgb,var(--accent) 42%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+      .audit .audit-pill:is([data-state="changes_requested"],[data-state="needs_run"]){color:var(--dsw-alias-state-warning-primary,#e2b16b);border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2b16b) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2b16b) 12%,transparent)}
+      .audit .audit-pill:is([data-state="failed"],[data-state="round_limit"]){color:var(--dsw-alias-state-error-primary,#e07a72);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e07a72) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e07a72) 12%,transparent)}
+      .audit .audit-pill:is([data-state="ready"],[data-state="published"]){color:var(--dsw-alias-state-business-primary,#72c29d);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary,#72c29d) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#72c29d) 12%,transparent)}
+      .audit .audit-row-meta{display:flex;align-items:center;gap:.35rem;font-size:.75rem;color:var(--soft);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .audit .audit-row-goal{font-size:.74rem;color:color-mix(in srgb,var(--soft) 82%,transparent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .audit .audit-rounds{display:flex;align-items:center;flex-wrap:wrap;gap:.35rem;padding-bottom:.75rem;margin-bottom:.75rem;border-bottom:1px solid var(--rule)}
+      .audit .audit-rounds small{font-size:.75rem;margin-inline-end:.2rem}
+      .audit .audit-rounds button{font-size:.74rem;padding:.2rem .5rem;font-weight:500}
+      .audit .audit-rounds select{width:auto;max-width:16rem;font-size:.74rem;padding:.2rem .45rem}
     `
     async function call(rpc,method,args={},path=channel) {
       const result=await rpc.call(path,method,args)
@@ -219,24 +239,108 @@ window.__ModuleLoader__.load({
           h('div',null,button('Previous',()=>setPage(currentPage-1),{className:'mc-button',disabled:currentPage===0}),
             button('Next',()=>setPage(currentPage+1),{className:'mc-button',disabled:currentPage===lastPage}))))
     }
+    const shortStatus={
+      queued:'Queued',reviewing:'In review',ready:'Approved',published:'Published',
+      changes_requested:'Changes',needs_run:'Run needed',failed:'Failed',round_limit:'Round limit',
+    }
+    const reviewLink=row=>row.pull || row.repair
+    const reviewPrNumber=row=>{
+      const link=reviewLink(row)
+      return typeof link==='string' ? link.match(/\/pull\/([1-9]\d*)$/)?.[1] : null
+    }
+    const reviewGroupKey=row=>reviewLink(row) || JSON.stringify([row.leadId,row.branch || row.id])
+    const reviewTargetLabel=row=>{
+      const num=reviewPrNumber(row)
+      return num ? 'PR #'+num : row.branch || 'Commit '+row.head.slice(0,8)
+    }
+    const rowBadgeState=row=>row.repairPublished?'published':row.fixerState==='round_limit'?'round_limit':row.status
     function Panel({rpc,takeReview}) {
       const [revision,refresh]=useReducer(n=>n+1,0),[selected,select]=useState(()=>takeReview?.() ?? null),[view,setView]=useState('queue')
+      const [filter,setFilter]=useState('all'),[grouped,setGrouped]=useState(true)
       const data=useData(rpc,'list',{},true,5000,revision)
       const last=React.useRef(null)
       if(data.value) last.current=data.value
       const state=data.value || last.current, rows=state?.rows || []
-      const item=rows.find(r=>r.id===selected) || rows[0]
+      const groups=React.useMemo(()=>{
+        const map=new Map()
+        for(const row of rows) {
+          const key=reviewGroupKey(row)
+          let group=map.get(key)
+          if(!group) {group={key,latest:row,rows:[]}; map.set(key,group)}
+          group.rows.push(row)
+        }
+        return [...map.values()]
+      },[rows])
+      const matchesFilter=(row,mode)=>{
+        const badge=rowBadgeState(row)
+        if(mode==='active') return badge==='queued' || badge==='reviewing'
+        if(mode==='attention') return ['changes_requested','needs_run','failed','round_limit'].includes(badge)
+        if(mode==='approved') return badge==='ready' || badge==='published'
+        return true
+      }
+      const sourceEntries=grouped ? groups.map(group=>({row:group.latest,count:group.rows.length,group})) :
+        rows.map(row=>({row,count:1,group:groups.find(g=>g.key===reviewGroupKey(row))}))
+      const counts={
+        all:sourceEntries.length,
+        active:sourceEntries.filter(e=>matchesFilter(e.row,'active')).length,
+        attention:sourceEntries.filter(e=>matchesFilter(e.row,'attention')).length,
+        approved:sourceEntries.filter(e=>matchesFilter(e.row,'approved')).length,
+      }
+      const visible=sourceEntries.filter(entry=>matchesFilter(entry.row,filter))
+      const item=rows.find(r=>r.id===selected) || visible[0]?.row || rows[0]
+      const activeGroup=item ? groups.find(g=>g.key===reviewGroupKey(item)) : null
       function openItem(id){select(id);setView('queue')}
+      const filterTabs=[
+        ['all','All'],
+        ['active','Active'],
+        ['attention','Action'],
+        ['approved','Approved'],
+      ]
       return h('div',{className:'audit'},h('header',null,h('div',{className:'actions'},h('h1',null,'Auto Auditor'),
         state && !data.error && h('small',{className:'worker'},state.pending ? state.pending+' in queue' : 'Listening for PRs')),
         button('Reviewer model',()=>setView('settings'),{disabled:!state})),
-        h('div',{className:'body'},h('nav',{className:'queue','aria-label':'Reviews'},h('h2',null,'Reviews'+(rows.length?' · '+rows.length:'')),
-          rows.map(row=>button(h(React.Fragment,null,h('strong',null,row.goal),
-            h('small',null,row.leadTitle),h('small',{className:'status','data-state':row.status},(row.status==='ready'?'Approved':labels[row.status])+' · '+row.head.slice(0,8))),
-            ()=>openItem(row.id),{key:row.id,className:'item','aria-current':view==='queue' && item?.id===row.id}))),
+        h('div',{className:'body'},h('nav',{className:'queue','aria-label':'Reviews'},
+          h('div',{className:'queue-head'},
+            h('h2',null,(grouped?'Pull requests':'Reviews')+(counts.all?' · '+counts.all:'')),
+            rows.length>groups.length && button(grouped?'Show all ('+rows.length+')':'Group by PR',()=>setGrouped(!grouped),{className:'queue-mode'})),
+          h('div',{className:'queue-filters',role:'group','aria-label':'Filter reviews'},
+            filterTabs.map(([key,label])=>button(label+(counts[key]?' · '+counts[key]:''),()=>setFilter(key),{
+              key,'aria-pressed':filter===key,
+            }))),
+          visible.length ? visible.map(({row,count,group})=>{
+            const badge=rowBadgeState(row)
+            const isCurrent=view==='queue' && (grouped ? activeGroup?.key===group.key : item?.id===row.id)
+            const metaParts=[row.leadTitle,row.head.slice(0,8),...(grouped && count>1 ? [count+' rounds'] : row.repair && !row.pull ? ['Repair'] : [])]
+            return button(h(React.Fragment,null,
+              h('div',{className:'audit-row-top'},
+                h('span',{className:'audit-row-title'},reviewTargetLabel(row)),
+                h('span',{className:'audit-pill','data-state':badge},shortStatus[badge] || labels[row.status] || row.status)),
+              h('span',{className:'audit-row-meta'},metaParts.join(' · ')),
+              h('span',{className:'audit-row-goal',title:row.goal},row.goal)),
+              ()=>openItem(row.id),{key:grouped?group.key:row.id,className:'item audit-row','aria-current':isCurrent})
+          }) : rows.length>0 && h('p',{className:'empty',style:{padding:'0 .45rem',fontSize:'.8rem'}},'No reviews match this filter.')),
         h('section',{className:'detail','aria-label':'Review details'},problem(data.error),
           view==='settings' ? h(Settings,{rpc,model:state?.model,onDone:()=>{refresh();setView('queue')}}):
-          item ? h(Detail,{key:item.id,rpc,item,revision,refresh,select:openItem}):
+          item ? h(React.Fragment,null,
+            activeGroup && activeGroup.rows.length>1 && (()=>{
+              const recent=activeGroup.rows.slice(0,5)
+              const older=activeGroup.rows.slice(5)
+              const roundLabel=(round,idx)=>{
+                const num=activeGroup.rows.length-idx
+                const badge=rowBadgeState(round)
+                return (idx===0?'Latest':'#'+num)+' · '+round.head.slice(0,7)+' · '+(shortStatus[badge] || round.status)
+              }
+              return h('div',{className:'audit-rounds',role:'group','aria-label':'Audit rounds'},
+                h('small',null,'Rounds · '+activeGroup.rows.length),
+                recent.map((round,idx)=>button(roundLabel(round,idx),()=>openItem(round.id),{key:round.id,'aria-pressed':round.id===item.id})),
+                older.length>0 && h('select',{
+                  'aria-label':'Earlier audit rounds',
+                  value:older.some(r=>r.id===item.id)?item.id:'',
+                  onChange:e=>{if(e.target.value) openItem(e.target.value)},
+                },h('option',{value:''},older.length+' earlier…'),
+                  older.map((round,i)=>h('option',{key:round.id,value:round.id},roundLabel(round,i+5)))))
+            })(),
+            h(Detail,{key:item.id,rpc,item,revision,refresh,select:openItem})):
           h('div',{className:'stack'},h('h2',null,state?'No reviews yet':'Loading reviews…'),
             state && h('p',{className:'empty'},'In a lead chat, say “Send this PR to Auto Auditor” and include the PR link. Findings and replies appear here and in that chat.')))))
     }
