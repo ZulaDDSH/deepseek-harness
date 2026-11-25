@@ -1,3 +1,5 @@
+import {spawn} from 'node:child_process'
+
 const query = `
   query AuditPullRequest($owner: String!, $repo: String!, $number: Int!) {
     repository(owner: $owner, name: $repo) {
@@ -122,6 +124,33 @@ export async function readPull(pull, token, signal) {
   if (payload.errors?.length || !payload.data?.repository?.pullRequest)
     throw new Error('GitHub could not verify this PR and its checks. Check the token permissions.')
   return parseSnapshot(payload.data.repository.pullRequest,pull)
+}
+
+/** Read the host GitHub token for a repository from Git’s credential helper without persisting it. */
+export async function readGitCredentialToken(repoKey, signal) {
+  return new Promise((resolveToken, reject) => {
+    const child = spawn('git', ['credential', 'fill'], {
+      windowsHide: true,
+      env: {...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never'},
+    })
+    let stdout = '', stderr = '', settled = false
+    const done = fn => { if (!settled) { settled = true; signal?.removeEventListener('abort', onAbort); clearTimeout(timer); fn() } }
+    const onAbort = () => { child.kill(); done(() => reject(new Error('Git credential lookup was aborted.'))) }
+    const timer = setTimeout(() => { child.kill(); done(() => reject(new Error('Git credential lookup timed out.'))) }, 10000)
+    signal?.addEventListener('abort', onAbort, {once: true})
+    child.stdout.on('data', chunk => { stdout += chunk })
+    child.stderr.on('data', chunk => { stderr += chunk })
+    child.on('error', error => done(() => reject(new Error('Could not read Git credentials: ' + error.message))))
+    child.on('close', code => done(() => {
+      if (code !== 0) return reject(new Error('Could not read GitHub credentials from Git. ' + stderr.trim().slice(0, 200)))
+      const fields = Object.fromEntries(stdout.split(/\r?\n/).filter(l => l.includes('=')).map(l => {
+        const idx = l.indexOf('='); return [l.slice(0, idx), l.slice(idx + 1)]
+      }))
+      if (!fields.password) return reject(new Error('Git has no stored GitHub credentials for ' + repoKey + '.'))
+      resolveToken(fields.password)
+    }))
+    child.stdin.end('protocol=https\nhost=github.com\npath=' + repoKey + '.git\n\n')
+  })
 }
 
 /** Relate the GitHub revision to the exact head and target recorded by Auto Auditor. */

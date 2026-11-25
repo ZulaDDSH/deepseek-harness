@@ -1,25 +1,55 @@
 import {createHash} from 'node:crypto'
-import {readFile} from 'node:fs/promises'
+import {mkdir,readFile} from 'node:fs/promises'
 import {join} from 'node:path'
-import {auditRevision,parsePull,readPull} from './github.js'
+import {withFileLock,writeFileAtomic} from '@deepseek-ai/dsh-atomic-write'
+import {auditRevision,parsePull,readGitCredentialToken,readPull} from './github.js'
 
 export const name = 'desktop-github-review-status'
 export const inject = ['profileContext','connection','webServer','credentials']
 const channel = '/desktop-github-review-status'
 const credential = key => 'DSH_GITHUB_REVIEW_'+createHash('sha256').update(key).digest('hex').toUpperCase()
 const limits = {rows:12,requests:4,cache:128,refreshMs:45000,failureMs:90000}
+const patPattern = /^(?:github_pat_[A-Za-z0-9_]{20,256}|ghp_[A-Za-z0-9]{20,256})$/
 
 /** Serve GitHub status for persisted audit submissions and manage their read credentials. */
 export function apply(ctx) {
-  const filename = join(ctx.profileContext.dir,'auto-auditor','queue.json')
+  const dir = join(ctx.profileContext.dir,'auto-auditor')
+  const filename = join(dir,'queue.json')
+  const gitAuthFile = join(dir,'github-git-auth.json')
   const cache = new Map()
   const lifetime = new AbortController()
   ctx.effect(()=>()=>lifetime.abort(),'GitHub status request lifetime')
+
+  async function readGitAuth() {
+    try {
+      const list = JSON.parse(await readFile(gitAuthFile,'utf8'))
+      return new Set(Array.isArray(list) ? list.filter(item=>typeof item==='string') : [])
+    } catch (error) {
+      if (error.code === 'ENOENT') return new Set()
+      throw error
+    }
+  }
+  async function setGitAuth(key, enabled) {
+    await mkdir(dir,{recursive:true})
+    return withFileLock(gitAuthFile,async()=>{
+      const repos = await readGitAuth()
+      if (enabled) repos.add(key)
+      else repos.delete(key)
+      await writeFileAtomic(gitAuthFile,JSON.stringify([...repos].sort()),{mode:0o600})
+    })
+  }
+  async function resolveToken(key, signal) {
+    const stored = (await ctx.credentials.resolve(credential(key)))?.value
+    if (stored) return stored
+    if ((await readGitAuth()).has(key)) return readGitCredentialToken(key,signal)
+    return undefined
+  }
+
   ctx.provide('githubReviewStatus',{
     async target(url,signal) {
       const pull=parsePull(url)
       if (!pull) throw new Error('Enter an existing GitHub PR URL.')
-      const token=(await ctx.credentials.resolve(credential(pull.key)))?.value
+      const token=await resolveToken(pull.key,signal)
       if (!token) throw new Error('Connect the PR’s repository in Settings → GitHub review status.')
       return {...await readPull(pull,token,signal),url:pull.url}
     },
@@ -45,7 +75,7 @@ export function apply(ctx) {
     entry.promise = (async()=>{
       let wait = limits.refreshMs
       try {
-        const token = (await ctx.credentials.resolve(credential(pull.key)))?.value
+        const token = await resolveToken(pull.key,lifetime.signal)
         if (!token) return {connection:'unconfigured',ci:'unverified'}
         return {connection:'connected',...await readPull(pull,token,lifetime.signal)}
       } catch (error) {
@@ -88,9 +118,12 @@ export function apply(ctx) {
 
   async function repositories(rows) {
     const unique = new Set(rows.map(({pull})=>pull.key))
-    return Promise.all([...unique].sort().map(async key=>({
-      key,configured:(await ctx.credentials.describe(credential(key))).configured,
-    })))
+    const gitRepos = await readGitAuth()
+    return Promise.all([...unique].sort().map(async key=>{
+      const hasToken = (await ctx.credentials.describe(credential(key))).configured
+      const hasGit = gitRepos.has(key)
+      return {key,configured:Boolean(hasToken || hasGit),authMode:hasToken?'token':hasGit?'git':'none'}
+    }))
   }
 
   async function configure(method, rows, args, signal) {
@@ -99,13 +132,21 @@ export function apply(ctx) {
     const reference = credential(pull.key)
     if (method==='disconnect') {
       await ctx.credentials.unset(reference)
+      await setGitAuth(pull.key,false)
+    } else if (method==='connect-git') {
+      const token = await readGitCredentialToken(pull.key,signal)
+      await readPull(pull,token,signal)
+      signal?.throwIfAborted()
+      await ctx.credentials.unset(reference)
+      await setGitAuth(pull.key,true)
     } else {
       const token = typeof args.token==='string' ? args.token.trim() : ''
-      if (!/^github_pat_[A-Za-z0-9_]{20,256}$/.test(token))
-        throw new Error('Enter a fine-grained GitHub personal access token.')
+      if (!patPattern.test(token))
+        throw new Error('Enter a GitHub personal access token (github_pat_… or ghp_…).')
       await readPull(pull,token,signal)
       signal?.throwIfAborted()
       await ctx.credentials.set(reference,token)
+      await setGitAuth(pull.key,false)
     }
     const prefix = 'https://github.com/'+pull.key+'/pull/'
     for (const url of cache.keys()) if (url.startsWith(prefix)) cache.delete(url)
@@ -120,7 +161,7 @@ export function apply(ctx) {
       let value
       if (method==='snapshot') value=await statuses(rows,args.ids,signal)
       else if (method==='repositories') value=await repositories(rows)
-      else if (method==='connect' || method==='disconnect') value=await configure(method,rows,args,signal)
+      else if (method==='connect' || method==='connect-git' || method==='disconnect') value=await configure(method,rows,args,signal)
       else throw new Error('Unknown GitHub review action.')
       return {ok:true,value}
     } catch (error) {
