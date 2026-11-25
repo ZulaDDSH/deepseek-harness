@@ -152,13 +152,18 @@ export async function openQueue(ctx,deliver) {
     const [patch,branch]=await Promise.all([readFile(patchPath(row.id),'utf8'),branchState(row,signal)])
     return {row,patch,branch,previous:row.previous ? lookup(state,row.previous) : undefined}
   }
+  const normalizePatchHeaders = text => text.replace(/^(@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@)[^\r\n]*/gm,'$1')
+
   async function recordPublishedRepair(id,signal) {
     const state=await read(), row=lookup(state,id), repair=row.repair
     if (!repair || row.status!=='ready') throw new Error('The proposed repair has no approval to publish.')
     const original=lookup(state,repair.original)
-    const pin=await pinSubmission({cwd:original.repo,pullRequest:repair.url,
+    const repoCwd=row.repo || original.repo
+    const pin=await pinSubmission({cwd:repoCwd,pullRequest:repair.url,
       commit:row.head,base:repair.target,restricted:true},signal)
-    if (pin.base!==row.base || pin.patch!==await readFile(patchPath(id),'utf8'))
+    const saved=await readFile(patchPath(id),'utf8')
+    if (pin.head!==row.head || pin.base!==row.base ||
+        (pin.patch!==saved && normalizePatchHeaders(pin.patch)!==normalizePatchHeaders(saved)))
       throw new Error('The pushed PR differs from the approved repair. Submit the current PR for another audit.')
     await change(id,item=>{
       item.pull=pin.pull
