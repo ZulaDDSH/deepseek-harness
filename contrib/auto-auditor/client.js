@@ -16,13 +16,14 @@ window.__ModuleLoader__.load({
       queued:['In review','Waiting for Auto Auditor.',3],
     }
     const css=`
-      .audit{--ink:var(--dsw-alias-label-primary,#eaecf1);--soft:var(--dsw-alias-label-secondary,#a5acb9);--fill:var(--dsw-alias-bg-layer-1,#22252a);--rule:color-mix(in srgb,var(--ink) 16%,transparent);--accent:var(--dsw-alias-link,#96aff7);color:var(--ink);background:var(--dsw-alias-bg-base,#17191d);display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;container-type:inline-size;font-size:.9rem}
-      .audit *{box-sizing:border-box}.audit :is(h1,h2,h3,p,dl,dd){margin:0}.audit h1{font-size:1.22rem;letter-spacing:-.035em}.audit h2{font-size:1.15rem;letter-spacing:-.02em}.audit h3{font-size:.9rem}.audit p,.audit li{line-height:1.55;overflow-wrap:anywhere}
-      .audit header,.audit .actions{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}.audit header{justify-content:space-between;padding:.9rem 1.15rem;border-bottom:1px solid var(--rule)}
-      .audit .body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(12rem,29%) minmax(0,1fr)}.audit .queue,.audit .detail{min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}.audit .queue{border-inline-end:1px solid var(--rule);padding:1rem .65rem}.audit .queue h2{font-size:.84rem;margin:0 .45rem .8rem;color:var(--soft)}.audit .detail{padding:clamp(1rem,3cqi,2.2rem)}.audit .stack{display:grid;gap:1rem;max-width:64rem}.audit .empty{max-width:32rem;color:var(--soft)}
-      .audit :is(button,input,textarea,select){font:inherit;color:inherit}.audit button{cursor:pointer;border:1px solid var(--rule);background:transparent;border-radius:.48rem;padding:.36rem .64rem}.audit button:enabled:hover{background:var(--fill)}.audit button:disabled{opacity:.5;cursor:default}.audit button.primary{background:var(--dsw-alias-button-info-fill,#445fb1);color:var(--dsw-alias-label-on-color,white);border-color:transparent}.audit button.item{display:grid;width:100%;text-align:start;border-color:transparent;gap:.32rem;padding:.6rem;margin-bottom:.18rem}.audit button.item[aria-current=true]{background:var(--fill);box-shadow:inset 2px 0 var(--accent)}.audit .item strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      .audit small,.audit dt{color:var(--soft)}.audit .status{font-size:.76rem;font-weight:600}.audit [data-state=ready]{color:var(--dsw-alias-state-business-primary,var(--accent))}.audit .notice{border-inline-start:2px solid var(--accent);padding:.42rem .7rem}.audit .section,.audit details{border-top:1px solid var(--rule);padding-top:.85rem}.audit .section h3{margin-bottom:.4rem}.audit ul{padding-inline-start:1.25rem;margin:.3rem 0}.audit dl{display:flex;flex-wrap:wrap;gap:.7rem 1.3rem}.audit dt{font-size:.76rem}.audit dd{overflow-wrap:anywhere}
-      .audit code,.audit pre{font-family:ui-monospace,Consolas,monospace}.audit pre{overflow:auto;max-height:55vh;padding:.85rem;background:var(--fill);border-radius:.45rem;font-size:.78rem;line-height:1.5}.audit details summary{cursor:pointer;font-weight:600}.audit form,.audit .fields{display:grid;gap:.8rem;max-width:38rem}.audit label{display:grid;gap:.3rem;font-size:.85rem}.audit input,.audit textarea,.audit select{border:1px solid var(--rule);background:var(--fill);border-radius:.4rem;padding:.45rem .6rem;width:100%;min-width:0}.audit textarea{resize:vertical;min-height:4.6rem}.audit :focus-visible{outline:2px solid var(--accent);outline-offset:2px}.audit .long{white-space:pre-wrap}.audit .detail h2{overflow-wrap:anywhere}
+      .audit{--ink:var(--dsw-alias-label-primary,#eaecf1);--soft:var(--dsw-alias-label-secondary,#a5acb9);--fill:var(--dsw-alias-bg-layer-1,#22252a);--rule:color-mix(in srgb,var(--ink) 16%,transparent);--accent:var(--dsw-alias-link,#96aff7);color:var(--ink);background:var(--dsw-alias-bg-base,#17191d);display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;container-type:inline-size}
+      .audit .audit-ui{font-size:.9rem;box-sizing:border-box}
+      .audit .audit-ui *{box-sizing:border-box}.audit .audit-ui :is(h1,h2,h3,p,dl,dd){margin:0}.audit .audit-ui h1{font-size:1.22rem;letter-spacing:-.035em}.audit .audit-ui h2{font-size:1.15rem;letter-spacing:-.02em}.audit .audit-ui h3{font-size:.9rem}.audit .audit-ui p,.audit .audit-ui li{line-height:1.55;overflow-wrap:anywhere}
+      .audit > header,.audit .audit-ui.actions,.audit .audit-ui .actions{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}.audit > header{justify-content:space-between;padding:.9rem 1.15rem;border-bottom:1px solid var(--rule)}
+      .audit .body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(12rem,29%) minmax(0,1fr)}.audit .queue,.audit .detail,.audit .audit-ui pre{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}.audit .queue,.audit .detail{min-height:0;overflow:auto;overscroll-behavior:contain}.audit .queue{border-inline-end:1px solid var(--rule);padding:1rem .65rem}.audit .queue h2{font-size:.84rem;margin:0 .45rem .8rem;color:var(--soft)}.audit .detail{padding:clamp(1rem,3cqi,2.2rem)}.audit .stack{display:grid;gap:1rem;max-width:64rem}.audit .empty{max-width:32rem;color:var(--soft)}
+      .audit .audit-ui :is(button,input,textarea,select){font:inherit;color:inherit}.audit .audit-ui button{cursor:pointer;border:1px solid var(--rule);background:transparent;border-radius:.48rem;padding:.36rem .64rem}.audit .audit-ui button:enabled:hover{background:var(--fill)}.audit .audit-ui button:disabled{opacity:.5;cursor:default}.audit .audit-ui button.primary{background:var(--dsw-alias-button-info-fill,#445fb1);color:var(--dsw-alias-label-on-color,white);border-color:transparent}.audit .audit-ui button.item{display:grid;width:100%;text-align:start;border-color:transparent;gap:.32rem;padding:.6rem;margin-bottom:.18rem}.audit .audit-ui button.item[aria-current=true]{background:var(--fill);box-shadow:inset 2px 0 var(--accent)}.audit .audit-ui .item strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .audit .audit-ui small,.audit .audit-ui dt{color:var(--soft)}.audit .audit-ui .status{font-size:.76rem;font-weight:600}.audit .audit-ui [data-state=ready]{color:var(--dsw-alias-state-business-primary,var(--accent))}.audit .audit-ui .notice{border-inline-start:2px solid var(--accent);padding:.42rem .7rem}.audit .audit-ui .section,.audit .audit-ui details{border-top:1px solid var(--rule);padding-top:.85rem}.audit .audit-ui .section h3{margin-bottom:.4rem}.audit .audit-ui ul{padding-inline-start:1.25rem;margin:.3rem 0}.audit .audit-ui dl{display:flex;flex-wrap:wrap;gap:.7rem 1.3rem}.audit .audit-ui dt{font-size:.76rem}.audit .audit-ui dd{overflow-wrap:anywhere}
+      .audit .audit-ui code,.audit .audit-ui pre{font-family:ui-monospace,Consolas,monospace}.audit .audit-ui pre{overflow:auto;max-height:55vh;padding:.85rem;background:var(--fill);border-radius:.45rem;font-size:.78rem;line-height:1.5}.audit .audit-ui details summary{cursor:pointer;font-weight:600}.audit .audit-ui form,.audit .audit-ui .fields{display:grid;gap:.8rem;max-width:38rem}.audit .audit-ui label{display:grid;gap:.3rem;font-size:.85rem}.audit .audit-ui input,.audit .audit-ui textarea,.audit .audit-ui select{border:1px solid var(--rule);background:var(--fill);border-radius:.4rem;padding:.45rem .6rem;width:100%;min-width:0}.audit .audit-ui select option{background:var(--dsw-menu-surface-fill,var(--fill));color:var(--ink)}body[data-ds-dark-theme] .audit .audit-ui :is(select,input,textarea){color-scheme:dark}.audit .audit-ui textarea{resize:vertical;min-height:4.6rem}.audit .audit-ui :focus-visible{outline:2px solid var(--accent);outline-offset:2px}.audit .audit-ui .long{white-space:pre-wrap}.audit .detail h2{overflow-wrap:anywhere}
       @container(max-width:690px){.audit .body{display:flex;flex-direction:column}.audit .queue{max-height:28%;flex-shrink:0;border-inline-end:0;border-bottom:1px solid var(--rule)}.audit .detail{flex:1}}
       .audit-icon{position:relative;display:inline-flex;align-items:center}.audit-icon small{position:absolute;inset-inline-start:62%;top:-.4em;background:var(--dsw-alias-button-info-fill,#465da0);color:var(--dsw-alias-label-on-color,white);border-radius:1em;padding:0 .23em;font:600 9px/1.2 system-ui}
       .audit,.mc-review-queue{--audit-warn:#9a6510;--audit-ok:#1f7a53;--audit-err:#b83c34}
@@ -60,9 +61,16 @@ window.__ModuleLoader__.load({
       .audit .fixer-controls{padding:.7rem 1rem;border-bottom:1px solid var(--rule)}
       .audit .fixer-controls a,.audit .fixer-work a{color:var(--accent)}
       .audit .fixer-work .fixer-revision{word-break:break-all}
-      .audit .fixer-rounds{display:inline-flex;align-items:center;gap:.4rem;font-size:.82rem;color:var(--soft);border:1px solid var(--rule);border-radius:.48rem;padding:.18rem .48rem}
-      .audit .fixer-rounds select{width:auto;min-width:3.2rem;padding:.16rem .34rem;border:0;background:transparent;color:var(--ink);font-weight:500;cursor:pointer}
-      .audit button[aria-pressed="true"]{background:var(--fill);border-color:var(--accent)}
+      .audit .fixer-rounds-wrap{position:relative;display:inline-flex}
+      .audit .audit-ui button.fixer-rounds-btn{display:inline-flex;align-items:center;gap:.4rem;font-weight:500}
+      .audit .audit-ui button.fixer-rounds-btn span{color:var(--soft);font-weight:400}
+      .audit .audit-ui .audit-rounds-menu{position:absolute;inset-inline-end:0;top:calc(100% + .35rem);z-index:40;min-width:11.5rem;padding:.4rem;border-radius:.62rem;border:1px solid var(--rule);background:var(--dsw-menu-surface-fill,var(--fill));box-shadow:0 10px 28px rgb(0 0 0 / 28%);display:grid;gap:.35rem}
+      .audit .audit-ui .audit-rounds-menu small{padding:.1rem .25rem;font-size:.72rem;color:var(--soft)}
+      .audit .audit-ui .audit-rounds-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.25rem}
+      .audit .audit-ui .audit-rounds-grid button{padding:.3rem .25rem;font-size:.8rem;font-weight:500;text-align:center;border-color:transparent;border-radius:.42rem}
+      .audit .audit-ui .audit-rounds-grid button:enabled:hover{background:var(--dsw-alias-interactive-bg-hover,var(--fill));border-color:var(--rule)}
+      .audit .audit-ui .audit-rounds-grid button[aria-selected="true"]{background:color-mix(in srgb,var(--accent) 18%,transparent);border-color:var(--accent);color:var(--ink)}
+      .audit .audit-ui button[aria-pressed="true"]{background:var(--fill);border-color:var(--accent)}
       .audit .queue-head{display:flex;align-items:center;justify-content:space-between;gap:.4rem;margin:0 .35rem .55rem}
       .audit .queue-head h2{margin:0;font-weight:500}
       .audit .queue-mode{font-size:.73rem;padding:.18rem .46rem;color:var(--soft)}
@@ -352,10 +360,10 @@ window.__ModuleLoader__.load({
         ['attention','Action'],
         ['approved','Approved'],
       ]
-      return h('div',{className:'audit'},h('header',null,h('div',{className:'actions'},h('h1',null,'Auto Auditor'),
+      return h('div',{className:'audit'},h('header',{className:'audit-ui'},h('div',{className:'actions'},h('h1',null,'Auto Auditor'),
         state && !data.error && h('small',{className:'worker'},state.pending ? state.pending+' in queue' : 'Listening for PRs')),
         button('Reviewer model',()=>setView('settings'),{disabled:!state})),
-        h('div',{className:'body'},h('nav',{className:'queue','aria-label':'Reviews'},
+        h('div',{className:'body'},h('nav',{className:'queue audit-ui','aria-label':'Reviews'},
           h('div',{className:'queue-head'},
             h('h2',null,(grouped?'Pull requests':'Reviews')+(counts.all?' · '+counts.all:'')),
             rows.length>groups.length && button(grouped?'Show all ('+rows.length+')':'Group by PR',()=>setGrouped(!grouped),{className:'queue-mode'})),
@@ -375,7 +383,7 @@ window.__ModuleLoader__.load({
               h('span',{className:'audit-row-goal',title:row.goal},row.goal)),
               ()=>openItem(row.id),{key:grouped?group.key:row.id,className:'item audit-row','aria-current':isCurrent})
           }) : rows.length>0 && h('p',{className:'empty',style:{padding:'0 .45rem',fontSize:'.8rem'}},'No reviews match this filter.')),
-        h('section',{className:'detail','aria-label':'Review details'},problem(data.error),
+        h('section',{className:'detail audit-ui','aria-label':'Review details'},problem(data.error),
           view==='settings' ? h(Settings,{rpc,model:state?.model,maxRounds:state?.maxRepairRounds,onDone:()=>{refresh();setView('queue')}}):
           item ? h(React.Fragment,null,
             activeGroup && activeGroup.rows.length>1 && (()=>{
@@ -428,7 +436,32 @@ window.__ModuleLoader__.load({
       },[sessions,sessionId])
       return h('div',{className:'fixer-chat'},bound ? h(SessionProvider,{session:bound},
         renderFactorySlot('conversation.content',{variant:'embedded',phase:'active',hero:false})) :
-        problem(error) || h('p',{role:'status',className:'detail'},'Opening the repair chat…'))
+        h('div',{className:'detail audit-ui'},problem(error) || h('p',{role:'status'},'Opening the repair chat…')))
+    }
+    function RoundMenu({value,choices,disabled,onChange}) {
+      const [open,setOpen]=useState(false)
+      const wrapRef=React.useRef(null)
+      useEffect(()=>{
+        if (!open) return
+        const onPointer=event=>{if(!wrapRef.current?.contains(event.target)) setOpen(false)}
+        const onKey=event=>{if(event.key==='Escape') setOpen(false)}
+        document.addEventListener('pointerdown',onPointer,true)
+        document.addEventListener('keydown',onKey)
+        return ()=>{document.removeEventListener('pointerdown',onPointer,true);document.removeEventListener('keydown',onKey)}
+      },[open])
+      return h('div',{className:'fixer-rounds-wrap',ref:wrapRef},
+        button(h(React.Fragment,null,h('span',null,'Max rounds'),value,
+          h('svg',{width:12,height:12,viewBox:'0 0 12 12',fill:'none',stroke:'currentColor',strokeWidth:1.5,'aria-hidden':true},
+            h('path',{d:'M3 4.5 6 7.5 9 4.5',strokeLinecap:'round',strokeLinejoin:'round'}))),
+          ()=>setOpen(!open),{
+            className:'fixer-rounds-btn',disabled,'aria-haspopup':'listbox','aria-expanded':open,
+            'aria-label':'Max repair rounds · '+value,title:'Maximum repair rounds before stopping for owner review',
+          }),
+        open && h('div',{className:'audit-rounds-menu',role:'listbox','aria-label':'Max repair rounds'},
+          h('small',null,'Max repair rounds'),
+          h('div',{className:'audit-rounds-grid'},choices.map(n=>button(String(n),()=>{setOpen(false);if(n!==value) onChange(n)},{
+            key:n,role:'option','aria-selected':n===value,
+          })))))
     }
     function FixerPage({rpc,sessions,SessionProvider,renderFactorySlot}) {
       const [revision,refresh]=useReducer(n=>n+1,0)
@@ -483,37 +516,30 @@ window.__ModuleLoader__.load({
       const currentRounds=state?.maxRepairRounds ?? 3
       const roundChoices=[...new Set([1,2,3,4,5,6,8,10,15,20,30,50,currentRounds])].sort((a,b)=>a-b)
       return h('div',{className:'audit dsh-pr-fixer'},
-        h('header',null,h('h1',null,'PR Fixer'),h('div',{className:'actions'},
+        h('header',{className:'audit-ui'},h('h1',null,'PR Fixer'),h('div',{className:'actions'},
           button('Automatic wake',toggle,{disabled:!state || action.busy,'aria-pressed':state?.automaticWake===true,
             title:'Wake PR Fixer when Auto Auditor requests changes'}),
           button('Auto-publish',togglePublish,{disabled:!state || action.busy,'aria-pressed':state?.autoPublish===true,
             title:'Automatically push approved repairs to the original PR branch'}),
-          h('label',{className:'fixer-rounds',title:'Maximum repair rounds before stopping for owner review'},
-            h('span',null,'Max rounds'),
-            h('select',{
-              'aria-label':'Max repair rounds',
-              disabled:!state || action.busy,
-              value:String(currentRounds),
-              onChange:e=>changeMaxRounds(Number(e.target.value)),
-            },roundChoices.map(n=>h('option',{key:n,value:String(n)},String(n))))),
+          h(RoundMenu,{value:currentRounds,choices:roundChoices,disabled:!state || action.busy,onChange:changeMaxRounds}),
           button(fixerModelLabel,()=>setSettings(!settings),
             {disabled:!state,'aria-expanded':settings}))),
         h('div',{className:'body'},
-          h('nav',{className:'queue','aria-label':'Repair inbox'},
+          h('nav',{className:'queue audit-ui','aria-label':'Repair inbox'},
             h('h2',null,'Repair inbox'+(rows.length?' · '+rows.length:'')),
             rows.map(row=>button(h(React.Fragment,null,h('strong',null,'PR #'+row.number+' · '+row.lead),
               h('small',null,repairLabels[row.status] || row.status)),
               ()=>show(row),{key:row.id,className:'item','aria-current':item?.id===row.id}))),
           h('div',{className:'fixer-content'},
-            (data.error || action.error) && h('div',{className:'fixer-controls'},problem(action.error || data.error)),
-            settings ? h('div',{className:'detail'},h(Settings,{rpc,model:state.model,fixer:true,
+            (data.error || action.error) && h('div',{className:'fixer-controls audit-ui'},problem(action.error || data.error)),
+            settings ? h('div',{className:'detail audit-ui'},h(Settings,{rpc,model:state.model,fixer:true,
               onDone:()=>{setSettings(false);refresh()}})) :
             chat ? h(React.Fragment,null,
-              h('div',{className:'actions fixer-controls'},
+              h('div',{className:'actions fixer-controls audit-ui'},
                 h('a',{href:item.url,target:'_blank',rel:'noreferrer'},'PR #'+item.number),
                 button('View findings',()=>setOpen(null))),
               h(FixerChat,{key:chat,sessionId:chat,sessions,SessionProvider,renderFactorySlot})) :
-            h('section',{className:'detail fixer-work','aria-label':'Repair work order'},
+            h('section',{className:'detail fixer-work audit-ui','aria-label':'Repair work order'},
               item ? h('div',{className:'stack'},
                 h('div',{className:'actions'},h('a',{href:item.url,target:'_blank',rel:'noreferrer'},'PR #'+item.number),
                   h('small',{role:'status'},repairLabels[item.status] || item.status),
