@@ -140,6 +140,18 @@ window.__ModuleLoader__.load({
       }
     `
     const css = `
+      .mc-nav-indicator { display:inline-flex; flex:none; align-items:center; justify-content:center; width:18px; height:18px }
+      .mc-nav-indicator[data-status="running"] { color:var(--dsw-alias-link,currentColor) }
+      .mc-nav-indicator[data-status="running"] line {
+        transform-box:fill-box; transform-origin:center; animation:mc-signal 1s ease-in-out infinite alternate;
+      }
+      .mc-nav-indicator line:nth-child(2) { animation-delay:-.55s }
+      .mc-nav-indicator line:nth-child(3) { animation-delay:-.8s }
+      .mc-nav-indicator line:nth-child(4) { animation-delay:-.3s }
+      @keyframes mc-signal { from { transform:scaleY(.45) } to { transform:scaleY(1.25) } }
+      @media (prefers-reduced-motion:reduce) {
+        .mc-nav-indicator[data-status="running"] line { animation:none }
+      }
       [data-row-key^="session:desktop-master-control-"] { display:none !important }
       .dsh-control-shell {
         --mc-base:var(--dsw-alias-bg-base,#161619);
@@ -472,7 +484,20 @@ window.__ModuleLoader__.load({
                 h('p',{className:'mc-roster-note'},'Enable the Auto Auditor plugin to see reviews here.')),
             }))))
     }
-    const Icon = () => glyph('M3 16V9m6 10V5m6 12V8m6 6v-4',18)
+    function Icon({sessions}) {
+      const list = sessions.list
+      const running = React.useSyncExternalStore(
+        React.useCallback(listener=>list.subscribe(listener),[list]),
+        React.useCallback(()=>Object.entries(list.getSnapshot().byId)
+          .some(([sessionId,session])=>sessionId.startsWith('desktop-master-control-') && session.running),[list]),
+      )
+      return h('span',{className:'mc-nav-indicator','data-status':running?'running':'idle',
+        title:running?'Master Control is running':'Master Control is idle'},
+        h('svg',{width:18,height:18,viewBox:'0 0 24 24',stroke:'currentColor',strokeWidth:1.6,
+          strokeLinecap:'round','aria-hidden':true},
+          [[3,9,16],[9,5,19],[15,8,17],[21,10,14]].map(([x,y1,y2])=>h('line',{key:x,x1:x,x2:x,y1,y2}))),
+        h('span',{className:'mc-visually-hidden'},running?'Running':'Idle'))
+    }
     return {
       inject:['slots','connection','sessions','uiWorkspace','layout'],
       apply(ctx) {
@@ -489,7 +514,8 @@ window.__ModuleLoader__.load({
             'desktop-master-control.review-queue':{kind:'single',scope:'root'},
           },
           inject:()=>({rpc:ctx.get('connection').rpc,sessions:ctx.get('sessions'),uiWorkspace:ctx.get('uiWorkspace'),layout:ctx.get('layout')})},Page))
-        ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({name:'sidebar.panellist',id,order:-20,priority:seatPriority,label:()=> 'Master Control'},Icon))
+        ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({name:'sidebar.panellist',id,order:-20,
+          priority:seatPriority,label:()=> 'Master Control',inject:()=>({sessions:ctx.get('sessions')})},Icon))
       },
     }
   },
