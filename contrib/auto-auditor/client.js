@@ -184,7 +184,7 @@ window.__ModuleLoader__.load({
           {disabled:action.busy || pending(leadDelivery)}) :
         input && row.status==='failed' ? button('Retry review',()=>act('retry',{id:row.id}),{disabled:action.busy}) : null
       return h('article',{className:'stack'},h('div',null,h('small',{className:'status','data-state':row.status},
-        input?'Needs input':work?.[0] || (changed && row.status==='ready'?'Earlier commit approved':labels[row.status])),h('h2',null,row.goal)),
+        input?'Needs input':work?.[0] || (item.repairPublished?'Published':changed && row.status==='ready'?'Earlier commit approved':labels[row.status])),h('h2',null,row.goal)),
         input && h(InputNotice,{input},
           recommended && h('div',{className:'actions'},recommended,
             leadButton && leadDelivery && h('small',{role:'status'},
@@ -251,6 +251,7 @@ window.__ModuleLoader__.load({
         ['pending','sending','sent'].includes(assignment.state)
     }
     function assignedWork(row,remote) {
+      if(row.repairPublished) return
       const pending=status=>status==='pending' || status==='sending'
       if(assignedCheck(row,remote))
         return row.ciAssignment.state==='sent'
@@ -329,12 +330,13 @@ window.__ModuleLoader__.load({
     function matchesReviewFilter(row,mode,remote) {
       if(remote?.prState==='CLOSED' || remote?.prState==='MERGED') return mode==='all'
       if(needsInput(row,remote)) return mode==='all' || mode==='attention'
+      if(row.repairPublished) return mode==='all' || mode==='approved'
       const badge=rowBadgeState(row)
       if(remote?.audit==='changed' || assignedWork(row,remote) ||
         (row.status==='ready' && remote?.audit==='current' && remote.ci==='pending')) return mode==='all' || mode==='active'
       if(mode==='active') return badge==='queued' || badge==='reviewing'
       if(mode==='attention') return ['changes_requested','needs_run','failed','round_limit'].includes(badge)
-      if(mode==='approved') return badge==='ready' || badge==='published'
+      if(mode==='approved') return badge==='ready'
       return true
     }
     function queueState(row, remote) {
@@ -342,6 +344,8 @@ window.__ModuleLoader__.load({
       if (remote?.prState==='CLOSED') return ['Closed','GitHub closed this PR.',4,'closed']
       const input=needsInput(row,remote)
       if(input) return ['Needs input',input.summary,0,input.kind]
+      if (row.repairPublished)
+        return ['Published','Approved repair pushed to the PR branch.',2,'published']
       const work=assignedWork(row,remote)
       if (remote?.audit==='changed' && !row.publishBlocked && !row.publishPending && !assignedCheck(row,remote))
         return ['In review','The PR revision changed and needs a fresh audit.',3,'reviewing']
@@ -350,8 +354,6 @@ window.__ModuleLoader__.load({
         if (remote.ci==='passed') return ['Ready for review','The audit and required checks passed for this revision.',2,'review_ready']
         if (remote.ci==='pending') return ['In review','The auditor approved this revision. Required checks are pending.',3,'reviewing']
       }
-      if (row.repairPublished && !row.pull)
-        return ['Published','Approved repair pushed to the PR branch.',2,'published']
       if (row.repair && !row.pull && row.status==='ready')
         return ['Repair approved','Master Control can publish this commit to the original PR.',2,'ready']
       return [...queueStatuses[row.status],row.status]
