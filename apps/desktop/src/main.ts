@@ -125,6 +125,18 @@ let operationReportsStopping = false
 let operationReportStop: Promise<void> | undefined
 
 /** Bound application shutdown waiting without claiming that an unresponsive Worker has exited. */
+const LEGACY_COOKIE_CLEANUP_TIMEOUT_MS = 3000
+
+async function cleanLegacyHostCookies(url: string): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const finished = await Promise.race([removeLegacyHostCookies(session.defaultSession.cookies, url).then(() => true),
+      new Promise<false>((resolve) => { timer = setTimeout(() => { resolve(false) }, LEGACY_COOKIE_CLEANUP_TIMEOUT_MS) })])
+    if (!finished) console.error('desktop: legacy Host cookie cleanup timed out')
+  } catch (error) { console.error('desktop: legacy Host cookie cleanup failed', error) }
+  finally { clearTimeout(timer) }
+}
+
 function stopOperationReports(): Promise<void> {
   operationReportStop ??= waitForOperationReports()
   return operationReportStop
@@ -559,8 +571,7 @@ async function main(): Promise<void> {
         hostUrl = ready.url
         if (ready.injections === undefined) throw new Error('Desktop Host did not provide boot injections')
         injections = ready.injections
-        await removeLegacyHostCookies(session.defaultSession.cookies, ready.url)
-          .catch((error: unknown) => { console.error('desktop: legacy Host cookie cleanup failed', error) })
+        await cleanLegacyHostCookies(ready.url)
         welcomeBackend = await connectDesktopWelcome(ready.url,
           (input, init) => net.fetch(input, init),
           () => Promise.resolve(ready.authenticationCookie))

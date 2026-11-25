@@ -224,7 +224,8 @@ const harness = await vi.hoisted(async () => {
     failWindow(error: Error) { windowFailure = error },
     windows, views, hosts, handlers, app, FakeWindow, FakeView, FakeHost, powerMonitor, nativeTheme, analytics,
     trays, FakeTray, backgroundNotice, shellDialog,
-    menu, popup, socketHeaders: vi.fn(), removeLegacyHostCookies: vi.fn((..._args: unknown[]): Promise<void> => Promise.resolve()),
+    menu, popup, socketHeaders: vi.fn(), connectWelcome: vi.fn(),
+    removeLegacyHostCookies: vi.fn((..._args: unknown[]): Promise<void> => Promise.resolve()),
     loginShell, readLoginShell, updateCheck, updateDownload, updateInstall,
     platformDispose,
     platformCloseAndWait,
@@ -422,10 +423,10 @@ vi.mock('../src/platform-view.ts', async importOriginal => ({
   },
 }))
 vi.mock('../src/welcome-backend.ts', () => ({
-  connectDesktopWelcome: async () => ({
+  connectDesktopWelcome: async (...args: unknown[]) => { harness.connectWelcome(...args); return {
     analyticsEnabled: async () => harness.analyticsEnabled, report: harness.analytics,
     readLocalePreference: async () => (await (await harness.hosts.at(-1)!.fetch()).json() as { localePreference: string }).localePreference,
-    account: { watch: harness.watchAccount, state: async () => ({ status: 'signed-out', attempt: null }) } }),
+    account: { watch: harness.watchAccount, state: async () => ({ status: 'signed-out', attempt: null }) } } },
 }))
 
 function configureTestAuthPopup(allow: boolean): void {
@@ -1443,7 +1444,31 @@ describe('desktop main startup', () => {
     harness.hosts[0]!.ready.resolve()
     await Promise.resolve(invoke(DESKTOP_IPC.boot))
     expect(harness.removeLegacyHostCookies).toHaveBeenCalledWith(expect.anything(), 'http://127.0.0.1:3080/')
+    expect(harness.removeLegacyHostCookies.mock.invocationCallOrder[0]).toBeLessThan(harness.connectWelcome.mock.invocationCallOrder[0]!)
+    expect(harness.connectWelcome).toHaveBeenCalledOnce()
     if (fails) expect(log).toHaveBeenCalledWith('desktop: legacy Host cookie cleanup failed', expect.any(Error))
+    log.mockRestore()
+  })
+
+  it('continues startup after a bounded wait when the legacy Host cookie cleanup never settles', async () => {
+    harness.removeLegacyHostCookies.mockClear()
+    harness.connectWelcome.mockClear()
+    harness.removeLegacyHostCookies.mockReturnValueOnce(new Promise<void>(() => {}))
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    harness.prepared.resolve()
+    await harness.hostStarted.promise
+    harness.hosts[0]!.url = 'http://127.0.0.1:3080/'
+    harness.hosts[0]!.ready.resolve()
+    const boot = Promise.resolve(invoke(DESKTOP_IPC.boot))
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(harness.removeLegacyHostCookies).toHaveBeenCalledOnce()
+    expect(harness.connectWelcome).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    await boot
+    expect(log).toHaveBeenCalledWith('desktop: legacy Host cookie cleanup timed out')
+    expect(harness.connectWelcome).toHaveBeenCalledOnce()
     log.mockRestore()
   })
 
