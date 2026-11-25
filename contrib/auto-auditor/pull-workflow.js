@@ -287,7 +287,7 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
         'Requested check / evidence:',
         request,
         '',
-        'Run this under your lane’s job queue and return the verified results to PR Fixer with auditor_reply_fixer using review_id='+original.id+'.',
+        'Run this under your lane’s job queue. As soon as the task is done, call auditor_reply_fixer using review_id='+original.id+' with the verified results and the full commit SHA if you made a fix. Send the reply before marking the task complete or picking up other work.',
       ].join('\n')
       await deliverNotice(original.leadId,{
         text,summary:'PR Fixer · Run request',reviewId:original.id,exchangeId:'run-request:'+digest,
@@ -298,10 +298,11 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
 
   ctx.tools.register(defineTool({
     name:'auditor_reply_fixer',
-    description:'Originating lead (or Master Control) tool. Deliver verified build, test, or GPU run results back to the assigned PR Fixer chat so it can attach the evidence to auditor_stage_fix.',
+    description:'Originating lead (or Master Control) tool. Notify the assigned PR Fixer immediately when an assigned audit fix or evidence run is complete. Include the verified result and the full commit SHA for any code changes.',
     parameters:{
       review_id:parameter('Original PR review ID whose PR Fixer requested evidence.',true),
-      evidence:parameter('Verified build, test, capture, or benchmark results.',true),
+      evidence:parameter('What was completed and the verified test results or remaining blocker.',true),
+      commit:parameter('Full commit SHA of a completed fix from the lead’s worktree, when code changed.'),
     },
     output,
     async execute(args,exec) {
@@ -313,18 +314,26 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
         throw new Error('Only the originating lead or Master Control can reply to the active PR Fixer for this review.')
       const evidence=typeof args.evidence==='string' ? args.evidence.trim() : ''
       if (!evidence || evidence.length>16000) throw new Error('Enter run evidence (up to 16000 characters).')
-      const digest=createHash('sha256').update(evidence).digest('hex').slice(0,16)
+      const commit=args.commit
+      if (commit!==undefined) {
+        if (!sha.test(commit)) throw new Error('Specify the complete SHA of the completed fix.')
+        const source=await lead(original.leadId,exec.signal)
+        await checkFastForward(source.cwd,commit,commit,exec.signal)
+      }
+      const digest=createHash('sha256').update(commit ? commit+'\n'+evidence : evidence).digest('hex').slice(0,16)
       const text=[
-        'Originating lead run evidence for '+original.pull.url,
+        'Originating lead '+(commit?'completed audit fix':'audit task results')+' for '+original.pull.url,
         'Source review ID: '+original.id,
         'From: '+(caller.master ? 'Master Control' : original.leadTitle),
+        ...(commit ? ['Completed fix commit: '+commit] : []),
         '',
         evidence,
         '',
-        'Attach this evidence when staging your repair commit with auditor_stage_fix using review_id='+original.id+'.',
+        commit ? 'Inspect the supplied commit and incorporate the relevant fix before staging the repair with auditor_stage_fix using review_id='+original.id+'.' :
+          'Attach this evidence when staging your repair commit with auditor_stage_fix using review_id='+original.id+'.',
       ].join('\n')
       await deliverNotice(assigned,{
-        text,summary:'Lead · Run evidence',reviewId:original.id,exchangeId:'run-reply:'+digest,
+        text,summary:commit?'Lead · Audit fix completed':'Lead · Run evidence',reviewId:original.id,exchangeId:'run-reply:'+digest,
       },exec.signal)
       return JSON.stringify({status:'delivered',reviewId:original.id,fixerSessionId:assigned})
     },

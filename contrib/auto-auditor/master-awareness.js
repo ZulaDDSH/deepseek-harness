@@ -90,7 +90,8 @@ function renderLeadContract(maxRounds) {
     '- Open a pull request only when you believe the change is necessary or important — not for every minor change.',
     '- Use auditor_open_and_review to push a branch, open a draft PR, and queue Auto Auditor in one step. Use auditor_push_and_review to push a new commit to an existing open PR and audit it. Never push unaudited fixes onto an audited PR branch or open a second PR / side-branch PR for audit fixes.',
     '- When Auto Auditor requests changes on a PR, PR Fixer repairs it automatically in an isolated worktree (up to '+maxRounds+' rounds) and Harness publishes the approved repair back to the original PR. Do not push to a PR while PR Fixer is active on it. Local-branch reviews (with no PR yet) stay with you.',
-    '- When Auto Auditor requests a run (needs_run) or PR Fixer requests evidence (auditor_request_run), run the build/test/render on your lane and return the evidence (auditor_submit with previous for needs_run, or auditor_reply_fixer for PR Fixer).',
+    '- If an assigned audit fix or evidence run is for a PR with an assigned PR Fixer, call auditor_reply_fixer with the source review ID immediately when the task is done, before marking it complete or picking up other work. Include the verified results and the full commit SHA if you made a fix.',
+    '- For a run requested by Auto Auditor without an assigned PR Fixer, report the verified evidence with auditor_submit using previous.',
     '- After an approved repair is published to your PR, fetch and fast-forward your local checkout to the notified head SHA before making further edits. Nolan decides every merge.',
     '- If any tool call is refused, quote the refusal verbatim and stop — never use workaround pushes.',
   ].join('\n')

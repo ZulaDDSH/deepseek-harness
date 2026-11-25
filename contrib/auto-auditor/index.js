@@ -124,16 +124,20 @@ export async function apply(ctx) {
       summary=notice.kind==='bump'?'Auto Auditor · Lead reminder':'Auto Auditor · Action requested'
       const targetLabel=row.pull?.url || row.repair?.url || row.branch || 'Detached HEAD'
       const requestedRun=row.status==='needs_run' && row.result?.runRequest
+      const completion=original.fixerJob?.state==='sent' ?
+        'As soon as the assigned task is done, call auditor_reply_fixer using review_id='+original.id+
+          ' with the verified results and the full commit SHA if you made a fix. Send it before marking the task complete or picking up other work.' : null
       const detail=notice.kind==='ci' ? [
         'Current PR head: '+notice.check.head,
         'Failed required check: '+notice.check.name,
         'Check details: '+notice.check.url,
         'Inspect the failure, make and verify any needed fix, and send the current revision and results to Auto Auditor.',
+        ...(completion ? [completion] : []),
       ] : requestedRun ? [
         'Requested run and evidence:',
         requestedRun,
         row.repo && 'Reviewed worktree: '+row.repo,
-        row.repair ? 'Run on the reviewed commit and return the evidence with auditor_reply_fixer using review_id='+original.id+'.' :
+        completion ? 'Run on the reviewed commit. '+completion :
           'Run on the reviewed commit and submit a follow-up with the results using auditor_submit with previous='+row.id+'.',
       ] : [
         row.error || row.result?.summary || 'Open the audit review for its latest status.',
@@ -194,7 +198,8 @@ export async function apply(ctx) {
         body='Auto Auditor · Run requested on PR Fixer repair\nPR '+row.repair.url+' · Repair review '+row.id+' (source review '+original.id+')'+
           '\nRepair worktree: '+row.repo+'\nRepair commit: '+row.head+
           '\nRequested evidence: '+row.result.runRequest+
-          '\nRun this under your lane’s job queue and send the verified results back to PR Fixer with auditor_reply_fixer using review_id='+original.id+'.'
+          '\nRun this under your lane’s job queue. As soon as the task is done, call auditor_reply_fixer using review_id='+original.id+
+          ' with the verified results and the full commit SHA if you made a fix. Send it before marking the task complete or picking up other work.'
       } else {
         const rounds=repairRounds(state.rows,original.id)
         const maxRounds=state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS
