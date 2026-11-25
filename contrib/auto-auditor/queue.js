@@ -4,7 +4,7 @@ import {basename,extname,isAbsolute,join,relative,resolve,sep} from 'node:path'
 import {withFileLock,writeFileAtomic} from '@deepseek-ai/dsh-atomic-write'
 import {branchState,checkFastForward,pinSubmission} from './git.js'
 import {answer,review} from './review.js'
-import {createRepairInbox} from './repair-inbox.js'
+import {createRepairInbox,DEFAULT_MAX_REPAIR_ROUNDS,repairRounds} from './repair-inbox.js'
 
 function text(value,label,limit,required=false) {
   if (value == null && !required) return ''
@@ -93,6 +93,15 @@ export async function openQueue(ctx,deliver) {
     if (typeof enabled!=='boolean') throw new Error('Choose whether to wake PR Fixer automatically.')
     return mutate(state=>state.fixerAutoWake=enabled)
   }
+  function setAutoPublish(enabled) {
+    if (typeof enabled!=='boolean') throw new Error('Choose whether to publish approved repairs automatically.')
+    return mutate(state=>state.fixerAutoPublish=enabled)
+  }
+  function setMaxRepairRounds(limit) {
+    if (!Number.isSafeInteger(limit) || limit<1 || limit>10)
+      throw new Error('Choose a repair round limit between 1 and 10.')
+    return mutate(state=>state.fixerMaxRounds=limit)
+  }
   async function submit(lead,args,restricted,signal,repair) {
     const state = await read()
     const model=state.model ?? lead.model
@@ -143,7 +152,9 @@ export async function openQueue(ctx,deliver) {
     await change(id,item=>{
       item.pull=pin.pull
       item.repair.published=true
+      item.delivery={...(item.delivery ?? {}),origin_published:'pending'}
     })
+    wake()
     return {id:row.id,status:'ready',head:row.head}
   }
   async function retry(id) {
@@ -159,7 +170,8 @@ export async function openQueue(ctx,deliver) {
     wake()
   }
   async function retryDelivery(id,target) {
-    if (!['lead','master','fixer'].includes(target)) throw new Error('Unknown recipient.')
+    if (!['lead','master','fixer','publish','origin_lead','origin_published'].includes(target))
+      throw new Error('Unknown recipient.')
     await change(id,row=>{
       if (!['failed','uncertain'].includes(row.delivery?.[target])) throw new Error('This delivery is not awaiting a retry.')
       row.delivery[target]='pending'
@@ -206,7 +218,10 @@ export async function openQueue(ctx,deliver) {
     await update('sending')
     try {
       if (target==='fixer') await api.fixer.start(row.id,life.signal)
-      else await deliver(row,target,life.signal,message)
+      else if (target==='publish') {
+        if (!publisher) throw new Error('Automatic repair publication is unavailable.')
+        await publisher(row.id,life.signal)
+      } else await deliver(row,target,life.signal,message)
     } catch(error) {
       await update(life.signal.aborted?'pending':'failed',error.message)
       return
@@ -274,9 +289,31 @@ export async function openQueue(ctx,deliver) {
             item.result=result
             item.status=result.status
             item.finished=Date.now()
-            item.delivery={lead:'pending',...(result.status==='needs_run' && {master:'pending'}),
-              ...(latest.fixerAutoWake && row.pull && !row.repair && result.status==='changes_requested' &&
-                latest.rows.find(entry=>entry.pull?.url===row.pull.url)?.id===row.id && {fixer:'pending'})}
+            const maxRounds=latest.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS
+            if (row.repair) {
+              const original=latest.rows.find(entry=>entry.id===row.repair.original)
+              const rounds=repairRounds(latest.rows,row.repair.original)
+              const isLatestRepair=latest.rows.find(entry=>entry.repair?.original===row.repair.original)?.id===row.id
+              const limitReached=result.status==='changes_requested' && rounds>=maxRounds
+              if (limitReached && original) {
+                original.fixerJob={...(original.fixerJob ?? {}),state:'round_limit',
+                  error:'Stopped after '+rounds+'/'+maxRounds+' repair rounds. Owner review needed.'}
+                original.revision=(original.revision || 0)+1
+              }
+              const notifyOriginLead=Boolean(original && original.leadId!==row.leadId &&
+                (result.status==='needs_run' || limitReached))
+              item.delivery={
+                lead:'pending',
+                ...(notifyOriginLead && {origin_lead:'pending'}),
+                ...(latest.fixerAutoPublish && result.status==='ready' && isLatestRepair && !item.repair.published && {publish:'pending'}),
+              }
+            } else {
+              const isLatestForPull=Boolean(row.pull && latest.rows.find(entry=>entry.pull?.url===row.pull.url)?.id===row.id)
+              item.delivery={
+                lead:'pending',
+                ...(latest.fixerAutoWake && isLatestForPull && result.status==='changes_requested' && {fixer:'pending'}),
+              }
+            }
           })
         } catch(error) {
           if(life.signal.aborted) return
@@ -308,7 +345,8 @@ export async function openQueue(ctx,deliver) {
     const {data}=await ctx.attachments.readImage(ref,signal)
     return 'data:'+ref.mediaType+';base64,'+Buffer.from(data).toString('base64')
   }
-  const api={read,selectModel,setAutomaticWake,submit,detail,tip,capture,retry,retryDelivery,sendMessage,recordPublishedRepair,setFixerJob}
+  let publisher
+  const api={read,selectModel,setAutomaticWake,setAutoPublish,setMaxRepairRounds,submit,detail,tip,capture,retry,retryDelivery,sendMessage,recordPublishedRepair,setFixerJob,setPublisher(fn){publisher=fn}}
   api.fixer=createRepairInbox(ctx,api)
   wake()
   return api

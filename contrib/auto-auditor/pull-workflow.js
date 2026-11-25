@@ -1,10 +1,13 @@
+import {createHash} from 'node:crypto'
+import {createUserMessage} from '@deepseek-ai/dsh-llm'
 import {defineTool} from '@deepseek-ai/dsh-tools'
-import {pushPullCommit} from './git.js'
+import {checkFastForward,openPullForCommit,pushPullCommit} from './git.js'
 import {buildFixerOverview} from './master-awareness.js'
+import {activeFixerForPull,DEFAULT_MAX_REPAIR_ROUNDS,repairRounds} from './repair-inbox.js'
 
 const sha=/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/
 
-/** Register the workflow for an existing PR and its locally reviewed repairs. */
+/** Register the full PR workflow: open-and-audit, push-and-audit, fixer inbox/staging, run handoff, and publication. */
 export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
   function github() {
     const service=ctx.get('githubReviewStatus')
@@ -28,20 +31,114 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
         message:error.message,retry:'Retry this action with the same revision.'}
     }
   }
+  async function deliverNotice(targetId,{text,summary,reviewId,exchangeId},signal) {
+    if (ctx.workspaceRegistry.archivedSessionIds.includes(targetId))
+      throw new Error('Recipient session has been archived.')
+    const {agent,error}=await ctx.sessionController.resolveAgent(targetId)
+    if (!agent || error) throw new Error(error?.message || 'Recipient session is unavailable.')
+    signal?.throwIfAborted()
+    const seen=source=>source?.kind==='auto-auditor' && source.reviewId===reviewId && source.exchangeId===exchangeId
+    using history=await ctx.sessionQuery.observeSession(targetId,{signal,projectionMode:'none'})
+    if (!agent.inbox.nextTurn.some(item=>seen(item.source)) &&
+        !history.events.some(event=>event.type==='user/message' && seen(event.data.source))) {
+      agent.followup(createUserMessage({content:[{type:'text',text}],source:{
+        kind:'auto-auditor',form:'notice',summary,reviewId,exchangeId,
+      }}))
+    }
+    if (!await ctx.sessions.flush(agent.session))
+      throw new Error('Could not confirm that the handoff message was saved.')
+  }
+  async function publishApprovedRepair(reviewId,signal) {
+    const rows=(await queue.read()).rows
+    const repair=rows.find(row=>row.id===reviewId)
+    if (!repair?.repair || repair.status!=='ready' ||
+        rows.find(row=>row.repair?.original===repair.repair.original)?.id!==repair.id)
+      throw new Error('Choose the latest approved repair for that PR.')
+    const target=await github().target(repair.repair.url,signal)
+    if (target.base!==repair.repair.target)
+      throw new Error('The target branch changed since the repair audit. Submit a fresh review.')
+    const outcome=await pushAndConfirm(repair.repo,target,repair.head,repair.repair.head,signal,
+      latest=>{
+        if (latest.base!==repair.repair.target) throw new Error('The target moved during the push. Submit the current PR for a fresh audit.')
+        return queue.recordPublishedRepair(repair.id,signal)
+      })
+    if (outcome.status!=='submitted') throw new Error(outcome.message || 'Could not confirm the published repair on GitHub.')
+    return outcome
+  }
+  queue.setPublisher(publishApprovedRepair)
+
+  ctx.tools.register(defineTool({
+    name:'auditor_open_and_review',
+    description:'Push a committed local branch, open a GitHub PR (Draft by default) using host Git credentials, and immediately queue that exact commit for Auto Auditor in one idempotent step. Retry a pushed_pending_audit result with the same arguments without opening a duplicate PR.',
+    parameters:{
+      commit:parameter('Complete SHA of the local commit to publish.',true),
+      title:parameter('Pull request title.',true),
+      branch:parameter('Local branch name to push. Defaults to the currently checked-out branch.'),
+      base:parameter('Target base branch on GitHub (for example main). Defaults to the remote default branch.'),
+      body:parameter('Pull request description body.'),
+      draft:parameter('Open as a draft pull request ("true" or "false"). Defaults to "true".'),
+      remote:parameter('Configured Git push remote. Defaults to origin.'),
+      base_remote:parameter('Configured Git remote for the target repository if pushing to a fork. Defaults to remote.'),
+      lead_id:parameter('Lead session ID, required when invoking from Master Control.'),
+      goal:parameter('Review goal. Defaults to the pull request title.'),
+      evidence:parameter('Test results, timings, or reproduction evidence.'),
+      beforeCapture:parameter('Path to a before image for visual review.'),
+      afterCapture:parameter('Path to an after image for visual review.'),
+    },
+    output,
+    async execute(args,exec) {
+      const caller=await author(exec)
+      requirePushAccess(exec)
+      if (caller.master ? !args.lead_id : args.lead_id && args.lead_id!==caller.id)
+        throw new Error('Use the originating lead chat or identify the lead in Master Control.')
+      if (!sha.test(args.commit ?? ''))
+        throw new Error('Specify the complete commit SHA to publish.')
+      const title=typeof args.title==='string' ? args.title.trim() : ''
+      if (!title || title.length>256) throw new Error('Enter a pull request title (up to 256 characters).')
+      const source=await lead(args.lead_id || caller.id,exec.signal,true)
+      const draft=args.draft==='false' ? false : true
+      const opened=await openPullForCommit(source.cwd,{
+        branch:args.branch,commit:args.commit,base:args.base,title,body:args.body,draft,
+        remote:args.remote,baseRemote:args.base_remote,
+      },exec.signal)
+      const active=activeFixerForPull((await queue.read()).rows,opened.url)
+      if (active && !caller.master && active.head!==opened.head)
+        throw new Error('PR Fixer is actively repairing this pull request ('+active.sessionId+'). Wait for the repair to finish or escalate before updating it.')
+      try {
+        const audit=await queue.submit(source,{
+          pull_request:opened.url,commit:opened.head,base:opened.base,
+          goal:args.goal || title,evidence:args.evidence,
+          beforeCapture:args.beforeCapture,afterCapture:args.afterCapture,
+        },true,exec.signal)
+        return JSON.stringify({
+          status:'submitted',pullRequest:opened.url,number:opened.number,head:opened.head,
+          draft:opened.draft,alreadyPushed:opened.alreadyPushed,alreadyOpened:opened.alreadyOpened,audit,
+        })
+      } catch (error) {
+        return JSON.stringify({
+          status:'pushed_pending_audit',pullRequest:opened.url,number:opened.number,head:opened.head,
+          draft:opened.draft,alreadyPushed:opened.alreadyPushed,alreadyOpened:opened.alreadyOpened,
+          message:error.message,retry:'Retry this action with the same arguments.',
+        })
+      }
+    },
+  }))
+
   ctx.tools.register(defineTool({
     name:'auditor_fixer_status',
-    description:'Master Control only. Inspect the PR Fixer repair inbox, active fixer chat IDs/statuses, Fixer model, Automatic wake setting, and Auto Auditor pending count. PR Fixer is a per-review repair inbox (not a single standing session); each started repair creates desktop-pr-fixer-<review-id> in a detached Git worktree and can be read/messaged with mc_read_session and mc_send.',
+    description:'Master Control only. Inspect the PR Fixer repair inbox, active fixer chat IDs/statuses, Fixer model, Automatic wake, Auto-publish, max repair rounds, and Auto Auditor pending count. PR Fixer is a per-review repair inbox (not a single standing session); Master Control stays out of the routine repair/publish loop unless asked or a review hits the round limit.',
     parameters:{},
     output,
     async execute(_args,exec) {
       if (!(await author(exec)).master) throw new Error('Read the PR Fixer inbox from Master Control.')
-      const {reviewerModel,pendingAudits,fixerModel,automaticWake,inbox}=await buildFixerOverview(ctx,queue)
-      return JSON.stringify({reviewerModel,pendingAudits,fixerModel,automaticWake,inbox})
+      const {reviewerModel,pendingAudits,fixerModel,automaticWake,autoPublish,maxRepairRounds,inbox}=await buildFixerOverview(ctx,queue)
+      return JSON.stringify({reviewerModel,pendingAudits,fixerModel,automaticWake,autoPublish,maxRepairRounds,inbox})
     },
   }))
+
   ctx.tools.register(defineTool({
     name:'auditor_send_to_fixer',
-    description:'Master Control only. Start a per-review PR Fixer chat (desktop-pr-fixer-<review-id>) and isolated detached Git worktree for an Auto Auditor PR that needs changes. PR Fixer is a per-review repair inbox, not a single standing session. Use auditor_fixer_status to inspect the repair inbox and active fixer chats.',
+    description:'Master Control fallback tool. Start a per-review PR Fixer chat (desktop-pr-fixer-<review-id>) and isolated detached Git worktree for an Auto Auditor PR that needs changes when Automatic wake is off or needs manual retry.',
     parameters:{review_id:parameter('The Auto Auditor review ID with changes requested.',true)},
     output,
     async execute(args,exec) {
@@ -49,9 +146,10 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
       return JSON.stringify(await queue.fixer.start(args.review_id,exec.signal))
     },
   }))
+
   ctx.tools.register(defineTool({
     name:'auditor_push_and_review',
-    description:'When the owner requests publication, push a specific committed revision to an existing GitHub PR and queue that exact commit for audit. Retry a pushed_pending_audit result with the same arguments.',
+    description:'Push a specific committed revision to an existing open GitHub PR under an exact-head lease and queue that exact commit for Auto Auditor. Refused while PR Fixer is actively repairing that PR. Retry a pushed_pending_audit result with the same arguments.',
     parameters:{pull_request:parameter('Full URL of an existing open GitHub PR.',true),
       expected_head:parameter('Complete SHA of the current PR head before publishing.',true),
       commit:parameter('Complete SHA of the local commit to publish.',true),
@@ -67,13 +165,17 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
         throw new Error('Specify complete commit SHAs for the expected and proposed PR head.')
       const source=await lead(args.lead_id || caller.id,exec.signal,true)
       const target=await github().target(args.pull_request,exec.signal)
+      const active=activeFixerForPull((await queue.read()).rows,target.url)
+      if (active && !caller.master)
+        throw new Error('PR Fixer is actively repairing this pull request ('+active.sessionId+'). Wait for the repair to finish or escalate before pushing to this PR.')
       return JSON.stringify(await pushAndConfirm(source.cwd,target,args.commit,args.expected_head,exec.signal,
         latest=>queue.submit(source,{pull_request:latest.url,commit:latest.head,goal:args.goal,evidence:args.evidence},true,exec.signal)))
     },
   }))
+
   ctx.tools.register(defineTool({
     name:'auditor_stage_fix',
-    description:'Queue a local repair for an existing pull request for audit before publication. The originating lead can submit its own fix. Master Control can identify a PR Fixer session and submit its commit.',
+    description:'Queue a local, unpushed repair commit for an existing pull request for Auto Auditor review before publication. While PR Fixer owns a review, only the assigned PR Fixer chat (or Master Control) may stage fixes for it, up to the configured repair round limit.',
     parameters:{review_id:parameter('Original PR review ID whose findings are being fixed.',true),
       commit:parameter('Complete SHA of the local repair commit.',true),
       fixer_id:parameter('PR Fixer or originating lead session ID when invoking from Master Control.'),
@@ -81,15 +183,28 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
     output,
     async execute(args,exec) {
       const caller=await author(exec)
-      const rows=(await queue.read()).rows
+      const state=await queue.read()
+      const rows=state.rows
       const original=rows.find(row=>row.id===args.review_id && row.pull)
       const latest=original && rows.find(row=>row.pull?.url===original.pull.url)
-      const assigned=original?.fixerJob?.state==='sent' ? original.fixerJob.sessionId : undefined
-      if (!original || original.status!=='changes_requested' || latest?.id!==original.id ||
-          (!caller.master && caller.id!==original.leadId && caller.id!==assigned))
-        throw new Error('Choose the latest pull request review with changes requested from its assigned fixer, lead, or Master Control.')
-      if (!caller.master && args.fixer_id && args.fixer_id!==caller.id)
-        throw new Error('Master Control must choose another session’s repair.')
+      const jobState=original?.fixerJob?.state
+      const assigned=jobState==='sent' ? original.fixerJob.sessionId : undefined
+      if (!original || original.status!=='changes_requested' || latest?.id!==original.id)
+        throw new Error('Choose the latest pull request review with changes requested.')
+      const maxRounds=state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS
+      const rounds=repairRounds(rows,original.id)
+      if (jobState==='round_limit' || rounds>=maxRounds)
+        throw new Error('Repair round limit ('+rounds+'/'+maxRounds+') reached for this review. Stop automatic repairs and wait for owner review or a fresh PR audit.')
+      if (!caller.master) {
+        if (assigned) {
+          if (caller.id!==assigned)
+            throw new Error('PR Fixer ('+assigned+') owns repairs for this review. Wait for it to finish rather than staging a competing fix.')
+        } else if (caller.id!==original.leadId) {
+          throw new Error('Choose a pull request review with changes requested from its assigned fixer, lead, or Master Control.')
+        }
+        if (args.fixer_id && args.fixer_id!==caller.id)
+          throw new Error('Master Control must choose another session’s repair.')
+      }
       if (!sha.test(args.commit ?? '') || args.commit===original.head)
         throw new Error('Choose the complete SHA of a new repair commit.')
       const target=await github().target(original.pull.url,exec.signal)
@@ -100,9 +215,86 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
         true,exec.signal,{original:original.id,url:target.url,head:target.head,target:target.base}))
     },
   }))
+
+  ctx.tools.register(defineTool({
+    name:'auditor_request_run',
+    description:'PR Fixer tool. Ask the originating lead to run a build, test, capture, or GPU benchmark for a local repair commit under the lead’s lane and job queue. Routes directly to the originating lead, not Master Control.',
+    parameters:{
+      review_id:parameter('Original PR review ID assigned to this PR Fixer chat.',true),
+      commit:parameter('Complete SHA of the local repair commit in this worktree to verify.',true),
+      request:parameter('Exact build, test, capture, or benchmark needed from the originating lead.',true),
+    },
+    output,
+    async execute(args,exec) {
+      const caller=await author(exec)
+      const state=await queue.read()
+      const original=state.rows.find(row=>row.id===args.review_id && row.pull)
+      const assigned=original?.fixerJob?.state==='sent' ? original.fixerJob.sessionId : undefined
+      if (!original || !assigned || (!caller.master && caller.id!==assigned))
+        throw new Error('Only the assigned PR Fixer chat can request a lane run for this review.')
+      if (!sha.test(args.commit ?? ''))
+        throw new Error('Specify the complete SHA of the local repair commit.')
+      const request=typeof args.request==='string' ? args.request.trim() : ''
+      if (!request || request.length>4000) throw new Error('Describe the run or evidence needed (up to 4000 characters).')
+      const fixerSession=await lead(assigned,exec.signal)
+      await checkFastForward(fixerSession.cwd,original.head,args.commit,exec.signal)
+      const digest=createHash('sha256').update(args.commit+'\n'+request).digest('hex').slice(0,16)
+      const text=[
+        'PR Fixer requests a lane run for '+original.pull.url,
+        'Source review ID: '+original.id,
+        'PR Fixer chat: '+assigned,
+        'Repair worktree: '+fixerSession.cwd,
+        'Repair commit: '+args.commit,
+        '',
+        'Requested check / evidence:',
+        request,
+        '',
+        'Run this under your lane’s job queue and return the verified results to PR Fixer with auditor_reply_fixer using review_id='+original.id+'.',
+      ].join('\n')
+      await deliverNotice(original.leadId,{
+        text,summary:'PR Fixer · Run request',reviewId:original.id,exchangeId:'run-request:'+digest,
+      },exec.signal)
+      return JSON.stringify({status:'requested',reviewId:original.id,targetLeadId:original.leadId,commit:args.commit})
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name:'auditor_reply_fixer',
+    description:'Originating lead (or Master Control) tool. Deliver verified build, test, or GPU run results back to the assigned PR Fixer chat so it can attach the evidence to auditor_stage_fix.',
+    parameters:{
+      review_id:parameter('Original PR review ID whose PR Fixer requested evidence.',true),
+      evidence:parameter('Verified build, test, capture, or benchmark results.',true),
+    },
+    output,
+    async execute(args,exec) {
+      const caller=await author(exec)
+      const state=await queue.read()
+      const original=state.rows.find(row=>row.id===args.review_id && row.pull)
+      const assigned=original?.fixerJob?.state==='sent' ? original.fixerJob.sessionId : undefined
+      if (!original || !assigned || (!caller.master && caller.id!==original.leadId))
+        throw new Error('Only the originating lead or Master Control can reply to the active PR Fixer for this review.')
+      const evidence=typeof args.evidence==='string' ? args.evidence.trim() : ''
+      if (!evidence || evidence.length>16000) throw new Error('Enter run evidence (up to 16000 characters).')
+      const digest=createHash('sha256').update(evidence).digest('hex').slice(0,16)
+      const text=[
+        'Originating lead run evidence for '+original.pull.url,
+        'Source review ID: '+original.id,
+        'From: '+(caller.master ? 'Master Control' : original.leadTitle),
+        '',
+        evidence,
+        '',
+        'Attach this evidence when staging your repair commit with auditor_stage_fix using review_id='+original.id+'.',
+      ].join('\n')
+      await deliverNotice(assigned,{
+        text,summary:'Lead · Run evidence',reviewId:original.id,exchangeId:'run-reply:'+digest,
+      },exec.signal)
+      return JSON.stringify({status:'delivered',reviewId:original.id,fixerSessionId:assigned})
+    },
+  }))
+
   ctx.tools.register(defineTool({
     name:'auditor_publish_fix',
-    description:'Master Control only. After owner authorization, publish the exact approved repair commit to its original PR branch. A different PR head or target requires a fresh audit.',
+    description:'Master Control manual fallback. Publish the exact approved repair commit to its original PR branch under an exact-head lease when Auto-publish is off or needs manual retry.',
     parameters:{review_id:parameter('Approved repair review ID from auditor_stage_fix.',true)},
     output,
     async execute(args,exec) {

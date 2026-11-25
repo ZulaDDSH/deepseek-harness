@@ -134,7 +134,7 @@ window.__ModuleLoader__.load({
         previous && button('Earlier review · '+previous.head.slice(0,10),()=>select(previous.id)),
         h('details',null,h('summary',null,'Reviewed diff'),h('pre',{tabIndex:0},patch)),
         row.delivery && section('Delivery',h('div',{className:'stack'},Object.entries(row.delivery).map(([target,status])=>
-          h('div',{className:'actions',key:target},h('span',null,({lead:'Originating lead',master:'Master Control',fixer:'PR Fixer'})[target]+' · '+status),
+          h('div',{className:'actions',key:target},h('span',null,({lead:'Originating lead',master:'Master Control',fixer:'PR Fixer',publish:'Auto-publish',origin_lead:'Originating PR lead',origin_published:'Lead sync notice'})[target]+' · '+status),
             row.deliveryErrors?.[target] && h('small',null,row.deliveryErrors[target]),
             ['failed','uncertain'].includes(status) && button('Retry delivery',()=>act('deliver',{id:row.id,target}),{disabled:action.busy}))))),
         problem(action.error || row.error || data.error || current.error),
@@ -143,6 +143,7 @@ window.__ModuleLoader__.load({
     function queueState(row, remote) {
       if (remote?.prState==='MERGED') return ['Merged','GitHub merged this PR.',4,'merged']
       if (remote?.prState==='CLOSED') return ['Closed','GitHub closed this PR.',4,'closed']
+      if (row.fixerState==='round_limit') return ['Needs input','Repair round limit reached. Owner review needed.',0,'failed']
       if (remote?.ci==='failed') {
         const audit=remote.audit==='changed' ? 'The current revision needs a fresh audit.' :
           row.status==='ready' && remote.audit==='current' ? 'The auditor approved this revision.' : queueStatuses[row.status][1]
@@ -244,7 +245,7 @@ window.__ModuleLoader__.load({
       available:'Ready to start',preparing:'Preparing worktree',handoff_failed:'Handoff needs attention',sent:'Handoff sent',
       queued:'Repair queued for audit',reviewing:'Repair in audit',ready:'Repair approved',
       changes_requested:'More changes requested',needs_run:'Run requested',failed:'Repair audit failed',
-      published:'Published to PR',superseded:'Newer audit available',
+      round_limit:'Needs owner · round limit',published:'Published to PR',superseded:'Newer audit available',
     }
     function FixerChat({sessionId,sessions,SessionProvider,renderFactorySlot}) {
       const [bound,setBound]=useState(null),[error,setError]=useState('')
@@ -279,6 +280,10 @@ window.__ModuleLoader__.load({
         await call(rpc,'fixer-autowake',{enabled:!state.automaticWake})
         refresh()
       })}
+      function togglePublish() {action.run(async()=>{
+        await call(rpc,'fixer-autopublish',{enabled:!state.autoPublish})
+        refresh()
+      })}
       function start() {action.run(async()=>{
         const id=item.id
         const job=await call(rpc,'fixer-start',{id})
@@ -293,6 +298,8 @@ window.__ModuleLoader__.load({
         h('header',null,h('h1',null,'PR Fixer'),h('div',{className:'actions'},
           button('Automatic wake',toggle,{disabled:!state || action.busy,'aria-pressed':state?.automaticWake===true,
             title:'Wake PR Fixer when Auto Auditor requests changes'}),
+          button('Auto-publish',togglePublish,{disabled:!state || action.busy,'aria-pressed':state?.autoPublish===true,
+            title:'Automatically push approved repairs to the original PR branch'}),
           button(fixerModelLabel,()=>setSettings(!settings),
             {disabled:!state,'aria-expanded':settings}))),
         h('div',{className:'body'},
@@ -313,7 +320,8 @@ window.__ModuleLoader__.load({
             h('section',{className:'detail fixer-work','aria-label':'Repair work order'},
               item ? h('div',{className:'stack'},
                 h('div',{className:'actions'},h('a',{href:item.url,target:'_blank',rel:'noreferrer'},'PR #'+item.number),
-                  h('small',{role:'status'},repairLabels[item.status] || item.status)),
+                  h('small',{role:'status'},repairLabels[item.status] || item.status),
+                  item.rounds>0 && h('small',null,'Round '+item.rounds+'/'+item.maxRounds)),
                 h('h2',null,item.goal),
                 h('div',null,h('h3',null,'Starting commit'),h('code',{className:'fixer-revision'},item.head)),
                 h('div',null,h('h3',null,'Auto Auditor findings'),h('ul',null,item.findings.map((finding,index)=>h('li',{key:index},finding)))),

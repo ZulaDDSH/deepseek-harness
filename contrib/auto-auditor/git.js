@@ -1,4 +1,4 @@
-import {execFile} from 'node:child_process'
+import {execFile,spawn} from 'node:child_process'
 import {promisify} from 'node:util'
 import {lstat,mkdir,realpath} from 'node:fs/promises'
 import {isAbsolute, relative, resolve, sep} from 'node:path'
@@ -87,6 +87,126 @@ export async function pushPullCommit(cwd,target,candidate,expectedHead,signal) {
     return {alreadyPushed:false}
   }
   throw new Error('This worktree needs a configured push remote for the PR’s source repository.')
+}
+
+async function gitCredentialToken(repoKey,signal) {
+  return new Promise((resolveToken,reject)=>{
+    const child=spawn('git',['credential','fill'],{
+      windowsHide:true,
+      env:{...process.env,GIT_TERMINAL_PROMPT:'0',GCM_INTERACTIVE:'Never'},
+    })
+    let stdout='',stderr='',settled=false
+    const done=fn=>{if(!settled){settled=true;signal?.removeEventListener('abort',onAbort);clearTimeout(timer);fn()}}
+    const onAbort=()=>{child.kill();done(()=>reject(new Error('Git credential lookup was aborted.')))}
+    const timer=setTimeout(()=>{child.kill();done(()=>reject(new Error('Git credential lookup timed out.')))},10000)
+    signal?.addEventListener('abort',onAbort,{once:true})
+    child.stdout.on('data',chunk=>{stdout+=chunk})
+    child.stderr.on('data',chunk=>{stderr+=chunk})
+    child.on('error',error=>done(()=>reject(new Error('Could not run git credential fill: '+error.message))))
+    child.on('close',code=>done(()=>{
+      if(code!==0) return reject(new Error('Could not read GitHub credentials from Git. '+stderr.trim().slice(0,200)))
+      const fields=Object.fromEntries(stdout.split(/\r?\n/).filter(l=>l.includes('=')).map(l=>{
+        const idx=l.indexOf('='); return [l.slice(0,idx),l.slice(idx+1)]
+      }))
+      if(!fields.password) return reject(new Error('Git has no stored GitHub token for '+repoKey+'.'))
+      resolveToken(fields.password)
+    }))
+    child.stdin.end('protocol=https\nhost=github.com\npath='+repoKey+'.git\n\n')
+  })
+}
+
+async function remotePushKey(repo,remote,signal) {
+  const pushUrls=await git(repo,['config','--get-all','remote.'+remote+'.pushurl'],signal)
+    .catch(error=>{if(error.cause?.code!==1) throw error;return ''})
+  const configured=(pushUrls.trim() || await git(repo,['config','--get-all','remote.'+remote+'.url'],signal)).trim().split(/\r?\n/)
+  const key=configured.length===1 ? remoteRepository(configured[0]) : undefined
+  if(!key) throw new Error('Remote '+remote+' is not configured for a single GitHub repository.')
+  return key
+}
+
+/** Push a pinned commit and find or open a GitHub PR (draft by default) in one idempotent step. */
+export async function openPullForCommit(cwd,{branch,commit,base,title,body,draft=true,remote='origin',baseRemote},signal) {
+  if (!sha.test(commit ?? '')) throw new Error('Specify the complete commit SHA to publish.')
+  const repo=await workspaceRepo(cwd,signal)
+  if (await revision(repo,commit,signal)!==commit)
+    throw new Error('The proposed revision is not a commit in this workspace.')
+  let headBranch=branch
+  if (!headBranch) {
+    try {headBranch=(await git(repo,['symbolic-ref','-q','HEAD'],signal)).trim().replace(/^refs\/heads\//,'')}
+    catch {throw new Error('Specify a branch name when the workspace is on a detached HEAD.')}
+  }
+  headBranch=checkedRef(headBranch.replace(/^refs\/heads\//,''))
+  const destination='refs/heads/'+headBranch
+  await git(repo,['check-ref-format',destination],signal)
+  const pushRemote=checkedRef(remote || 'origin')
+  const headRepoKey=await remotePushKey(repo,pushRemote,signal)
+  const targetRemote=checkedRef(baseRemote || pushRemote)
+  const baseRepoKey=targetRemote===pushRemote ? headRepoKey : await remotePushKey(repo,targetRemote,signal)
+  let baseBranch=base?.replace(/^refs\/heads\//,'')
+  if (!baseBranch) {
+    const sym=(await git(repo,['symbolic-ref','-q','refs/remotes/'+targetRemote+'/HEAD'],signal).catch(()=> '')).trim()
+    baseBranch=sym ? sym.replace('refs/remotes/'+targetRemote+'/','') : 'main'
+  }
+  baseBranch=checkedRef(baseBranch)
+
+  const remoteHeads=await git(repo,['ls-remote','--heads',pushRemote,destination],signal)
+  const remoteTip=remoteHeads.trim().split(/\s+/)[0]
+  let alreadyPushed=false
+  if (sha.test(remoteTip ?? '')) {
+    if (remoteTip===commit) {
+      alreadyPushed=true
+    } else {
+      await checkFastForward(repo,remoteTip,commit,signal)
+      await git(repo,['push','--no-follow-tags','--recurse-submodules=no',
+        '--force-with-lease='+destination+':'+remoteTip,'--',pushRemote,commit+':'+destination],signal)
+    }
+  } else {
+    await git(repo,['push','--no-follow-tags','--recurse-submodules=no',
+      '--force-with-lease='+destination+':','--',pushRemote,commit+':'+destination],signal)
+  }
+
+  const token=await gitCredentialToken(baseRepoKey,signal)
+  const headOwner=headRepoKey.split('/')[0]
+  const baseOwner=baseRepoKey.split('/')[0]
+  const headers={Authorization:'Bearer '+token,Accept:'application/vnd.github+json',
+    'Content-Type':'application/json','User-Agent':'DeepSeek-Harness-Auto-Auditor'}
+  const apiBase='https://api.github.com/repos/'+baseRepoKey+'/pulls'
+  const deadline=AbortSignal.timeout(15000)
+  const reqSignal=signal ? AbortSignal.any([signal,deadline]) : deadline
+
+  const query=new URLSearchParams({state:'open',head:headOwner+':'+headBranch,base:baseBranch})
+  const listRes=await fetch(apiBase+'?'+query.toString(),{method:'GET',redirect:'error',headers,signal:reqSignal})
+  if (!listRes.ok) throw new Error('GitHub could not check open pull requests (HTTP '+listRes.status+').')
+  const existing=await listRes.json()
+  let pr=Array.isArray(existing) ? existing.find(item=>item?.state==='open' && item.head?.ref===headBranch && item.base?.ref===baseBranch) : undefined
+  let alreadyOpened=Boolean(pr)
+  if (!pr) {
+    const headSpec=headOwner===baseOwner ? headBranch : headOwner+':'+headBranch
+    const createRes=await fetch(apiBase,{
+      method:'POST',redirect:'error',headers,signal:reqSignal,
+      body:JSON.stringify({title,head:headSpec,base:baseBranch,body:body || '',draft:draft!==false}),
+    })
+    if (!createRes.ok) {
+      const detail=(await createRes.text().catch(()=> '')).slice(0,220)
+      throw new Error('GitHub could not open the pull request (HTTP '+createRes.status+'). '+detail)
+    }
+    pr=await createRes.json()
+  }
+  if (!pr?.number || !sha.test(pr.head?.sha ?? '') || !sha.test(pr.base?.sha ?? ''))
+    throw new Error('GitHub did not return the opened pull request revision.')
+  if (pr.head.sha!==commit)
+    throw new Error('The open pull request head ('+pr.head.sha.slice(0,10)+') does not match the pushed commit ('+commit.slice(0,10)+').')
+  return {
+    url:'https://github.com/'+baseRepoKey+'/pull/'+pr.number,
+    number:String(pr.number),
+    head:pr.head.sha,
+    base:pr.base.sha,
+    baseBranch:pr.base.ref,
+    headBranch:pr.head.ref,
+    draft:pr.draft===true,
+    alreadyPushed,
+    alreadyOpened,
+  }
 }
 
 /** Compare two existing filesystem paths using canonical targets and platform casing. */

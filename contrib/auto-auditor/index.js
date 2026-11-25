@@ -3,13 +3,16 @@ import {defineTool} from '@deepseek-ai/dsh-tools'
 import {openQueue} from './queue.js'
 import {branchState} from './git.js'
 import {registerPullTools} from './pull-workflow.js'
-import {registerMasterAwareness} from './master-awareness.js'
+import {registerWorkflowAwareness} from './master-awareness.js'
+import {DEFAULT_MAX_REPAIR_ROUNDS,repairRounds} from './repair-inbox.js'
 
 export const name='desktop-auto-auditor'
 export const inject=['profileContext','connection','webServer','tools','agents','sessions','llm','sessionController','sessionQuery','workspaceRegistry','permissionPresets','attachments']
 const controlPrefix='desktop-master-control-'
+const fixerPrefix='desktop-pr-fixer-'
 const channel='/desktop-auto-auditor'
 const isMaster=agent=>agent.id.startsWith(controlPrefix) && agent.session.header.agentPreset==='desktop-master-control'
+const isFixer=agent=>agent.id.startsWith(fixerPrefix)
 
 function header(row) {
   return {id:row.id,leadId:row.leadId,leadTitle:row.leadTitle,goal:row.goal,status:row.status,head:row.head,
@@ -43,12 +46,14 @@ export async function apply(ctx) {
     }
     return item
   }
+  let queue
   async function deliver(row,target,signal,message) {
-    let id
+    let id,summary,exchangeId=message?.id
     const label={ready:row.repair?'Repair approved':'Ready to push',changes_requested:'Changes requested',needs_run:'Run requested'}[row.status]
     let body
     if(message) {
       id=message.author
+      summary='Auto Auditor · Reply'
       body='Auto Auditor reply · Review '+row.id+'\n'+(row.pull?.url || row.head)+
         '\nYour message: '+message.body+'\n\n'+message.answer
     } else if(target==='master') {
@@ -57,38 +62,82 @@ export async function apply(ctx) {
         header.id.startsWith(controlPrefix) && header.agentPreset==='desktop-master-control' && !archived.has(header.id))
       if(!home) throw new Error('Open the dedicated Master Control chat, then retry delivery.')
       id=home.header.id
+      summary='Auto Auditor · '+label
       body='Auto Auditor requests a run slot for '+row.leadTitle+' ('+row.leadId+').\nReview '+row.id+' · '+(row.pull?.url || row.head)+
         '\nRequested evidence: '+row.result.runRequest+'\nCoordinate the slot with the originating lead.'
+    } else if(target==='origin_published') {
+      const state=await queue.read()
+      const original=state.rows.find(item=>item.id===row.repair?.original)
+      if(!original) throw new Error('Original review not found for post-publish notification.')
+      id=(await lead(original.leadId,signal)).id
+      summary='Auto Auditor · Repair published'
+      exchangeId='origin-published'
+      body='Auto Auditor · Repair published\nPR '+(row.pull?.url || row.repair.url)+' was updated to approved repair commit '+row.head+' (review '+row.id+').'+
+        '\nYour local checkout is now behind the PR branch. Fetch and fast-forward before making further changes.'
+    } else if(target==='origin_lead') {
+      const state=await queue.read()
+      const original=state.rows.find(item=>item.id===row.repair?.original)
+      if(!original) throw new Error('Original review not found for originating lead notification.')
+      id=(await lead(original.leadId,signal)).id
+      exchangeId='origin-lead'
+      if(row.status==='needs_run') {
+        summary='Auto Auditor · Run requested'
+        body='Auto Auditor · Run requested on PR Fixer repair\nPR '+row.repair.url+' · Repair review '+row.id+' (source review '+original.id+')'+
+          '\nRepair worktree: '+row.repo+'\nRepair commit: '+row.head+
+          '\nRequested evidence: '+row.result.runRequest+
+          '\nRun this under your lane’s job queue and send the verified results back to PR Fixer with auditor_reply_fixer using review_id='+original.id+'.'
+      } else {
+        const rounds=repairRounds(state.rows,original.id)
+        const maxRounds=state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS
+        summary='Auto Auditor · Repair round limit reached'
+        body='Auto Auditor · Repair round limit reached ('+rounds+'/'+maxRounds+')\nPR '+row.repair.url+' · Source review '+original.id+
+          '\nLatest findings:\n'+row.result.findings.map(item=>'• '+item).join('\n')+
+          '\nAutomatic PR Fixer repairs have stopped and been flagged for owner review.'
+      }
     } else {
       id=(await lead(row.leadId,signal)).id
+      summary='Auto Auditor · '+label
       const current=await branchState(row,signal)
+      const state=await queue.read()
+      const maxRounds=state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS
+      const rounds=row.repair ? repairRounds(state.rows,row.repair.original) : 0
+      const limitHit=Boolean(row.repair && row.status==='changes_requested' && rounds>=maxRounds)
+      const autoPublishNote=row.repair && state.fixerAutoPublish ?
+        '\nAuto-publish is enabled: the Harness is pushing this approved commit to the original PR branch.' :
+        '\nMaster Control can use auditor_publish_fix with review_id='+row.id+'.'
+      const nextStep=row.status==='ready'
+        ? (row.repair ? autoPublishNote : '\nThis verdict covers only the listed SHA. Pushing is a separate owner action.')
+        : row.status==='needs_run' && row.repair && state.rows.find(item=>item.id===row.repair.original)?.leadId!==row.leadId
+          ? '\nThe originating lead has been notified to run this check on its lane and send results back via auditor_reply_fixer.'
+        : limitHit
+          ? '\nRepair round limit ('+rounds+'/'+maxRounds+') reached. Stop automatic repairs and wait for owner review.'
+        : row.repair
+          ? '\nUse auditor_stage_fix with review_id='+row.repair.original+' to review a new repair commit (round '+(rounds+1)+'/'+maxRounds+').'
+          : '\nUse auditor_submit with previous='+row.id+' to submit the fix or new evidence.'
       body='Auto Auditor · '+label+'\nReview '+row.id+'\nReviewed commit '+row.head+' on '+(row.pull?.url || row.repair?.url || row.branch || 'detached HEAD')+
         '\n'+row.result.summary+'\n'+row.result.findings.map(item=>'• '+item).join('\n')+
         (row.result.checks.length ? '\nReviewed checks:\n'+row.result.checks.map(item=>'• '+item).join('\n') : '')+
-        (row.result.runRequest ? '\nRun requested through Master Control: '+row.result.runRequest : '')+
+        (row.result.runRequest ? '\nRequested run evidence: '+row.result.runRequest : '')+
         (current.kind!=='current' ? '\nThe current PR or branch differs or could not be verified. Check its latest state before relying on this verdict.' : '')+
-        (row.status==='ready' ? (row.repair ? '\nMaster Control can use auditor_publish_fix with review_id='+row.id+'.' :
-          '\nThis verdict covers only the listed SHA. Pushing is a separate owner action.') : row.repair ?
-          '\nUse auditor_stage_fix with review_id='+row.repair.original+' to review a new repair commit.' :
-          '\nUse auditor_submit with previous='+row.id+' to submit the fix or new evidence.')+
+        nextStep+
         '\nUse auditor_message with review_id='+row.id+' to discuss this review.'
     }
     const {agent,error}=await ctx.sessionController.resolveAgent(id)
     if(!agent || error) throw new Error(error?.message || 'Recipient unavailable.')
     signal.throwIfAborted()
     if(ctx.workspaceRegistry.archivedSessionIds.includes(id)) throw new Error('Recipient has been archived.')
-    const seen=source=>source?.kind==='auto-auditor' && source.reviewId===row.id && source.exchangeId===message?.id
+    const seen=source=>source?.kind==='auto-auditor' && source.reviewId===row.id && source.exchangeId===exchangeId
     using history=await ctx.sessionQuery.observeSession(id,{signal,projectionMode:'none'})
     if(!agent.inbox.nextTurn.some(item=>seen(item.source)) &&
         !history.events.some(event=>event.type==='user/message' && seen(event.data.source))) {
       agent.followup(createUserMessage({content:[{type:'text',text:body}],source:{
-        kind:'auto-auditor',form:'notice',summary:message?'Auto Auditor · Reply':'Auto Auditor · '+label,
-        reviewId:row.id,...(message && {exchangeId:message.id}),
+        kind:'auto-auditor',form:'notice',summary,
+        reviewId:row.id,...(exchangeId!==undefined && {exchangeId}),
       }}))
     }
     if(!await ctx.sessions.flush(agent.session)) throw new Error('The Harness could not confirm that the message was saved.')
   }
-  const queue=await openQueue(ctx,deliver)
+  queue=await openQueue(ctx,deliver)
   const parameter=(description,required=false)=>({type:'string',description,...(required && {required:true})})
   const output={schema:{type:'string'},render:(_args,result)=>[{type:'text',text:result}]}
   async function author(exec) {
@@ -98,10 +147,10 @@ export async function apply(ctx) {
     return {id:exec.agent.id,master:false}
   }
   registerPullTools(ctx,{queue,lead,author,parameter,output})
-  registerMasterAwareness(ctx,{queue,isMaster})
+  registerWorkflowAwareness(ctx,{queue,isMaster,isFixer})
   ctx.tools.register(defineTool({
     name:'auditor_submit',
-    description:'Send a ready GitHub PR or local commit to the always-on Auto Auditor. It reviews the pinned changes and replies to the lead chat. Master Control can submit on behalf of a lead. Use previous for a follow-up verdict.',
+    description:'Send a ready GitHub PR or local commit to the always-on Auto Auditor. For a brand-new PR, prefer auditor_open_and_review. For updating an existing PR, prefer auditor_push_and_review. Local-branch (non-PR) reviews stay with the originating lead; PR reviews with changes requested route to PR Fixer automatically.',
     parameters:{pull_request:parameter('Full GitHub PR URL, or PR number if the repository origin is on GitHub.'),
       lead_id:parameter('Exact originating session ID, when submitting on behalf of a lead from Master Control.'),
       goal:parameter('What the change must accomplish. Optional when submitting a GitHub PR.'),
@@ -134,7 +183,7 @@ export async function apply(ctx) {
       if(!row) throw new Error('Review not found.')
       const fixerJob=row.fixerJob ? {
         ...row.fixerJob,
-        ...(row.fixerJob.state==='sent' && {agentStatus:ctx.agents.get(row.fixerJob.sessionId)?.status || 'closed'}),
+        ...(['sent','round_limit'].includes(row.fixerJob.state) && {agentStatus:ctx.agents.get(row.fixerJob.sessionId)?.status || 'closed'}),
       } : null
       return JSON.stringify({...header(row),result:row.result,error:row.error,delivery:row.delivery,fixerJob,
         current:await queue.tip(row.id,exec.signal),messages:row.messages?.slice(-12)})
@@ -170,6 +219,8 @@ export async function apply(ctx) {
       else if(method==='fixer-start') value=await queue.fixer.start(args.id,signal)
       else if(method==='fixer-model') value=await queue.selectModel(args,'fixerModel')
       else if(method==='fixer-autowake') value=await queue.setAutomaticWake(args.enabled)
+      else if(method==='fixer-autopublish') value=await queue.setAutoPublish(args.enabled)
+      else if(method==='fixer-max-rounds') value=await queue.setMaxRepairRounds(args.maxRounds)
       else if(method==='submit') value=await queue.submit(await lead(args.leadId,signal,true),args,false,signal)
       else if(method==='retry') {await queue.retry(args.id);value=true}
       else if(method==='deliver') {await queue.retryDelivery(args.id,args.target);value=true}
