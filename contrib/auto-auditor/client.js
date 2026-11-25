@@ -171,6 +171,7 @@ window.__ModuleLoader__.load({
       const list=items=>h('ul',null,items.map((s,i)=>h('li',{key:i},s)))
       const meta=(label,value)=>h('div',null,h('dt',null,label),h('dd',null,value))
       const input=needsInput(item,remote,row)
+      const work=assignedWork(item,remote)
       const leadDelivery=row.delivery?.lead_action
       const bumpDelivery=row.delivery?.lead_bump
       const pending=status=>['pending','sending'].includes(status)
@@ -181,11 +182,13 @@ window.__ModuleLoader__.load({
           {disabled:action.busy || pending(leadDelivery)}) :
         input && row.status==='failed' ? button('Retry review',()=>act('retry',{id:row.id}),{disabled:action.busy}) : null
       return h('article',{className:'stack'},h('div',null,h('small',{className:'status','data-state':row.status},
-        input?'Needs input':changed && row.status==='ready'?'Earlier commit approved':labels[row.status]),h('h2',null,row.goal)),
+        input?'Needs input':work?.[0] || (changed && row.status==='ready'?'Earlier commit approved':labels[row.status])),h('h2',null,row.goal)),
         input && h(InputNotice,{input},
           recommended && h('div',{className:'actions'},recommended,
             leadButton && leadDelivery && h('small',{role:'status'},
               ({pending:'Request queued',sending:'Sending request…',sent:'Request sent',failed:'Request delivery failed'})[leadDelivery]))),
+        !input && work && h('p',{className:'notice'},work[1]),
+        !input && remote?.ci==='failed' && remote.prState==='OPEN' && h(CheckStatus,{remote}),
         h('dl',null,meta('Lead',row.leadTitle),
           row.pull ? meta('Pull request',h('a',{href:row.pull.url,target:'_blank',rel:'noreferrer'},'PR #'+row.pull.number)) : meta('Branch',row.branch || 'Detached HEAD'),
           meta('Commit',h('code',{title:row.head},row.head.slice(0,12))),meta('Review ID',h('code',{title:row.id},row.id))),
@@ -211,8 +214,8 @@ window.__ModuleLoader__.load({
           h('div',{className:'actions',key:target},h('span',null,({lead:'Originating lead',master:'Master Control',fixer:'PR Fixer',publish:'Auto-publish',publish_failed:'Publish failure notice',origin_lead:'Originating PR lead',origin_published:'Lead sync notice',lead_bump:'Lead reminder',lead_action:'Recommended step request'})[target]+' · '+status),
             row.deliveryErrors?.[target] && h('small',null,row.deliveryErrors[target]),
             ['failed','uncertain'].includes(status) && button('Retry delivery',()=>act('deliver',{id:row.id,target}),{disabled:action.busy}))))),
-        problem(action.error || row.error || data.error || current.error),
-        row.status==='failed' && !input && h('div',null,button('Retry review',()=>act('retry',{id:row.id}),{disabled:action.busy})))
+        problem(action.error || (!work && row.error) || data.error || current.error),
+        row.status==='failed' && !input && !work && h('div',null,button('Retry review',()=>act('retry',{id:row.id}),{disabled:action.busy})))
     }
     const shortStatus={
       queued:'Queued',reviewing:'In review',ready:'Approved',published:'Published',
@@ -233,6 +236,31 @@ window.__ModuleLoader__.load({
       const text=typeof value==='string' ? value.trim().replace(/\s+/g,' ') : ''
       return text.length<=220 ? text : text.slice(0,217).replace(/\s+\S*$/,'')+'…'
     }
+    function assignedCheck(row,remote) {
+      const assignment=row.ciAssignment
+      return remote?.ci==='failed' && assignment?.head===remote.head &&
+        assignment?.name===(remote.check?.name || 'Required check') &&
+        ['pending','sending','sent'].includes(assignment.state)
+    }
+    function assignedWork(row,remote) {
+      const pending=status=>status==='pending' || status==='sending'
+      if(assignedCheck(row,remote))
+        return row.ciAssignment.state==='sent'
+          ? ['CI with lead','The failed check was sent to the originating lead.']
+          : ['Sending to lead','Auto Auditor is delivering the failed check to the originating lead.']
+      if(row.status==='failed' && row.reviewerRetryAt)
+        return ['Retry scheduled','Auto Auditor will retry the review automatically.']
+      if(row.status==='needs_run') {
+        if(row.runDelivery==='sent') return ['Waiting on lead','The requested run was sent to the originating lead.']
+        if(pending(row.runDelivery)) return ['Sending to lead','Auto Auditor is delivering the requested run.']
+      }
+      if(row.status==='changes_requested') {
+        if(row.fixerState==='sent') return ['With PR Fixer','PR Fixer has the audit findings.']
+        if(pending(row.fixerDelivery)) return ['Queued for PR Fixer','Auto Auditor is delivering its findings to PR Fixer.']
+        if(row.leadDelivery==='sent') return ['With lead','The lead received the audit findings.']
+        if(pending(row.leadDelivery)) return ['Sending to lead','Auto Auditor is delivering its findings to the lead.']
+      }
+    }
     function needsInput(row,remote,detail) {
       if(remote?.prState==='CLOSED' || remote?.prState==='MERGED') return null
       if(row.fixerState==='round_limit' || detail?.fixerJob?.state==='round_limit') return {
@@ -240,7 +268,8 @@ window.__ModuleLoader__.load({
         summary:'PR Fixer reached the configured repair round limit.',
         action:'Review the findings and decide whether to raise Max repair rounds in Reviewer model.',
       }
-      if(remote?.ci==='failed') return {
+      const work=assignedWork(row,remote)
+      if(remote?.ci==='failed' && !assignedCheck(row,remote) && (!work || remote.audit==='changed')) return {
         kind:'ci_failed',
         summary:remote.check?.name ? 'Required GitHub check failed · '+remote.check.name : 'A required GitHub check failed.',
         action:remote.audit==='changed' ? 'Inspect the failure and submit the current PR revision for audit.' :
@@ -248,6 +277,7 @@ window.__ModuleLoader__.load({
         url:remote.url,
       }
       if(remote?.audit==='changed') return null
+      if(work) return null
       if(row.status==='needs_run') return {
         kind:'needs_run',
         summary:brief(detail?.result?.runRequest || row.inputNote) || 'Auto Auditor is waiting for evidence from a requested run.',
@@ -269,8 +299,11 @@ window.__ModuleLoader__.load({
         children)
     }
     function matchesReviewFilter(row,mode,remote) {
+      if(remote?.prState==='CLOSED' || remote?.prState==='MERGED') return mode==='all'
       if(needsInput(row,remote)) return mode==='all' || mode==='attention'
       const badge=rowBadgeState(row)
+      if(remote?.audit==='changed' || assignedWork(row,remote) ||
+        (row.status==='ready' && remote?.audit==='current' && remote.ci==='pending')) return mode==='all' || mode==='active'
       if(mode==='active') return badge==='queued' || badge==='reviewing'
       if(mode==='attention') return ['changes_requested','needs_run','failed','round_limit'].includes(badge)
       if(mode==='approved') return badge==='ready' || badge==='published'
@@ -281,7 +314,9 @@ window.__ModuleLoader__.load({
       if (remote?.prState==='CLOSED') return ['Closed','GitHub closed this PR.',4,'closed']
       const input=needsInput(row,remote)
       if(input) return ['Needs input',input.summary,0,input.kind]
-      if (remote?.audit==='changed') return ['In review','The PR revision changed and needs a fresh audit.',3,'reviewing']
+      const work=assignedWork(row,remote)
+      if (remote?.audit==='changed' && !assignedCheck(row,remote)) return ['In review','The PR revision changed and needs a fresh audit.',3,'reviewing']
+      if(work) return [...work,3,'assigned']
       if (row.status==='ready' && remote?.audit==='current') {
         if (remote.ci==='passed') return ['Ready for review','The audit and required checks passed for this revision.',2,'review_ready']
         if (remote.ci==='pending') return ['In review','The auditor approved this revision. Required checks are pending.',3,'reviewing']
@@ -292,11 +327,11 @@ window.__ModuleLoader__.load({
         return ['Repair approved','Master Control can publish this commit to the original PR.',2,'ready']
       return [...queueStatuses[row.status],row.status]
     }
-    function CheckStatus({remote,unavailable}) {
+    function CheckStatus({remote}) {
       const label=remote?.connection==='unconfigured' ? 'Connect this repository in Settings → GitHub review status.' :
         ({passed:'Required checks satisfied',pending:'Required check pending',failed:'Required check failed',
           unverified:remote?.error || 'Required checks unverified'})[remote?.ci] ??
-          (unavailable ? 'GitHub status unavailable' : 'Checking GitHub…')
+          (remote?.connection==='unavailable' ? 'GitHub status unavailable' : 'Checking GitHub…')
       return h('p',{className:'mc-review-ci'},
         h('span',null,label),
         remote?.url && h('a',{href:remote.url,target:'_blank',rel:'noreferrer'},remote.check?.name || 'View checks'),
@@ -312,11 +347,9 @@ window.__ModuleLoader__.load({
         async function load() {
           const pending=JSON.parse(key),rows=[]
           for(let offset=0;active && offset<pending.length;offset+=12) {
-            try {rows.push(...await call(rpc,'snapshot',{ids:pending.slice(offset,offset+12)},githubChannel))}
-            catch(error) {
-              // Local review blockers remain visible when GitHub status is unavailable.
-              continue
-            }
+            const ids=pending.slice(offset,offset+12)
+            try {rows.push(...await call(rpc,'snapshot',{ids},githubChannel))}
+            catch(error) {rows.push(...ids.map(id=>({id,connection:'unavailable'})))}
           }
           if(active) {
             setSnapshot({key,rows})
@@ -334,7 +367,6 @@ window.__ModuleLoader__.load({
       const [filter,setFilter]=useState('all')
       const pageSize=12
       const data=useData(rpc,'list',{},true,5000,revision)
-      const rowPriority=row=>row.fixerState==='round_limit'?0:queueStatuses[row.status][2]
       const grouped=new Map()
       for(const row of data.value?.rows ?? []) {
         if(!Object.hasOwn(queueStatuses,row.status)) continue
@@ -343,23 +375,23 @@ window.__ModuleLoader__.load({
         if(!entry) {entry={key,row,count:0}; grouped.set(key,entry)}
         entry.count++
       }
-      const allGroups=[...grouped.values()].sort((first,second)=>rowPriority(first.row)-rowPriority(second.row))
+      const ids=[...grouped.values()].filter(entry=>entry.row.pull).map(entry=>entry.row.id)
+      const byId=useAuditorChecks(rpc,ids,true,revision)
+      const matches=(entry,mode)=>matchesReviewFilter(entry.row,mode,byId.get(entry.row.id))
+      const allGroups=[...grouped.values()].map(entry=>{
+        const remote=byId.get(entry.row.id)
+        return {...entry,remote,status:queueState(entry.row,remote)}
+      }).sort((first,second)=>first.status[2]-second.status[2])
       const counts={
         all:allGroups.length,
-        attention:allGroups.filter(entry=>matchesReviewFilter(entry.row,'attention')).length,
-        active:allGroups.filter(entry=>matchesReviewFilter(entry.row,'active')).length,
-        approved:allGroups.filter(entry=>matchesReviewFilter(entry.row,'approved')).length,
+        attention:allGroups.filter(entry=>matches(entry,'attention')).length,
+        active:allGroups.filter(entry=>matches(entry,'active')).length,
+        approved:allGroups.filter(entry=>matches(entry,'approved')).length,
       }
-      const filtered=allGroups.filter(entry=>matchesReviewFilter(entry.row,filter))
+      const filtered=allGroups.filter(entry=>matches(entry,filter))
       const lastPage=Math.floor(Math.max(0,filtered.length-1)/pageSize)
       const currentPage=Math.min(page,lastPage)
-      const visible=filtered.slice(currentPage*pageSize,(currentPage+1)*pageSize)
-      const ids=visible.filter(entry=>entry.row.pull).map(entry=>entry.row.id)
-      const checks=useData(rpc,'snapshot',{ids},ids.length>0,15000,revision,githubChannel)
-      const byId=new Map((checks.error ? [] : checks.value ?? []).map(status=>[status.id,status]))
-      const cards=visible.map(entry=>({
-        row:entry.row,count:entry.count,remote:byId.get(entry.row.id),status:queueState(entry.row,byId.get(entry.row.id)),
-      })).sort((first,second)=>first.status[2]-second.status[2])
+      const cards=filtered.slice(currentPage*pageSize,(currentPage+1)*pageSize)
       const filterTabs=[
         ['all','All'],
         ['attention','Action'],
@@ -381,7 +413,7 @@ window.__ModuleLoader__.load({
           const link=reviewLink(row)
           const pull=typeof link==='string' && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/([1-9]\d*)$/.exec(link)
           const subParts=[row.leadTitle,row.head.slice(0,8),...(count>1?[count+' rounds']:row.repair && !row.pull?['Repair']:[])]
-          const showReason=['needs_run','ci_failed','failed','round_limit'].includes(kind) ||
+          const showReason=['needs_run','ci_failed','failed','round_limit','assigned'].includes(kind) ||
             remote?.audit==='changed' || (row.repair && !row.pull && row.status==='ready' && !row.repairPublished)
           return h('li',{key:row.id,className:'mc-session mc-review-card',onClick:e=>{if(!e.target.closest('a,button')) showReview(row.id)}},
             h('div',{className:'mc-review-top'},
@@ -391,7 +423,7 @@ window.__ModuleLoader__.load({
             h('span',{className:'mc-review-sub',title:subParts.join(' · ')},subParts.join(' · ')),
             button(row.goal,()=>showReview(row.id),{className:'mc-session-title mc-review-title',title:row.goal}),
             showReason && h('p',{className:'mc-review-reason'},reason),
-            row.pull && pull && (!remote?.prState || remote.prState==='OPEN') && h(CheckStatus,{remote,unavailable:!!checks.error}))
+            row.pull && pull && (!remote?.prState || remote.prState==='OPEN') && h(CheckStatus,{remote}))
         })) : !data.error && h('p',{className:'mc-roster-note',role:'status'},
           !data.value ? 'Loading reviews…' :
           allGroups.length>0 ? 'No reviews match this filter.' :
@@ -453,14 +485,16 @@ window.__ModuleLoader__.load({
               key,'aria-pressed':filter===key,
             }))),
           visible.length ? visible.map(({row,count,group})=>{
-            const input=needsInput(row,checks.get(row.id))
-            const badge=input?'needs-input':rowBadgeState(row)
+            const remote=checks.get(row.id)
+            const input=needsInput(row,remote)
+            const work=assignedWork(row,remote)
+            const badge=input?'needs-input':work?'reviewing':rowBadgeState(row)
             const isCurrent=view==='queue' && (grouped ? activeGroup?.key===group.key : item?.id===row.id)
             const metaParts=[row.leadTitle,row.head.slice(0,8),...(grouped && count>1 ? [count+' rounds'] : row.repair && !row.pull ? ['Repair'] : [])]
             return button(h(React.Fragment,null,
               h('div',{className:'audit-row-top'},
                 h('span',{className:'audit-row-title'},reviewTargetLabel(row)),
-                h('span',{className:'audit-pill','data-state':badge},input?'Needs input':shortStatus[badge] || labels[row.status] || row.status)),
+                h('span',{className:'audit-pill','data-state':badge},input?'Needs input':work?.[0] || shortStatus[badge] || labels[row.status] || row.status)),
               h('span',{className:'audit-row-meta'},metaParts.join(' · ')),
               h('span',{className:'audit-row-goal',title:row.goal},row.goal),
               input && h(InputNotice,{input,compact:true})),
@@ -474,7 +508,8 @@ window.__ModuleLoader__.load({
               const older=activeGroup.rows.slice(5)
               const roundLabel=(round,idx)=>{
                 const num=activeGroup.rows.length-idx
-                const label=needsInput(round,checks.get(round.id))?'Needs input':shortStatus[rowBadgeState(round)] || round.status
+                const remote=checks.get(round.id)
+                const label=needsInput(round,remote)?'Needs input':assignedWork(round,remote)?.[0] || shortStatus[rowBadgeState(round)] || round.status
                 return (idx===0?'Latest':'#'+num)+' · '+round.head.slice(0,7)+' · '+label
               }
               return h('div',{className:'audit-rounds',role:'group','aria-label':'Audit rounds'},

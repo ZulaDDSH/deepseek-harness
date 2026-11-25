@@ -6,7 +6,7 @@ Auto Auditor reads the PR through a matching configured Git remote and pins the 
 
 Open **Review queue** in Master Control for the latest audit on each submitted PR or lead branch. Select a review to open its findings in Auto Auditor. Install the optional GitHub review status plugin and connect the PR repository to add live GitHub status and required checks.
 
-Auto Auditor marks **Needs input** in the review list and shows the blocker and recommended next step in both the list and review detail. For required-check failures, the detail links to the failing check when GitHub provides a link.
+Both review queues show **Waiting on lead** after the requested run is delivered and **With PR Fixer** when a fixer owns the repair. Auto Auditor retries transient reviewer failures up to twice, after 30 seconds and 2 minutes. **Needs input** shows the blocker and next step when delivery or retry fails, a repair reaches its round limit, or a required check fails without an assigned recovery path. Master Control shows the required check and links to GitHub when available.
 
 Use **Ask lead to run this** to send the full run request to the originating lead, or **Ask lead to fix check** for a current required-check failure. Under **Delivery**, **Bump lead** sends a separate reminder with the review context. Delivery status records whether the request or reminder was sent.
 

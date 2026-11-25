@@ -25,11 +25,13 @@ Offline runs, once `npm ci` has been done:
 - `DSH_CLAUDE_BRIDGE_TARBALL=/path/to/dsh-plugin-claude-code-0.2.5.tgz npm test` builds the bridge from a local copy of the pinned tarball (the digest is still checked).
 - `DSH_CLAUDE_BRIDGE_SKIP=1 npm test` skips the bridge build. The tests that need the bridge (`accounts.test.mjs`, `login.test.mjs`) are then reported as skipped unless `bridge/` already exists; the ownership and settings-page tests still run.
 
-Install the resulting `dsh-claude-account-manager-1.1.0.tgz` as a local plugin bundle in a desktop profile for this fork's `0.2.2-rc.3` release. The desktop needs the official Claude Code executable. The bundle includes its main provider and the account manager. It owns the `claude-code-session` route and should be the only enabled plugin registering that route.
+Install the resulting `dsh-claude-account-manager-1.1.1.tgz` as a local plugin bundle in a desktop profile for this fork's `0.2.2-rc.3` release. The desktop needs the official Claude Code executable. The bundle includes its main provider and the account manager. It owns the `claude-code-session` route and should be the only enabled plugin registering that route.
 
 ## Components
 
 Model discovery and inference use the official Claude executable and Agent SDK through Shantanu Goel's adapter. The package includes the adapter's license in `bridge/LICENSE`. The settings page starts `claude auth login --claudeai`. Claude Code handles browser authorization and stores credentials. See [NOTICE.md](NOTICE.md) for the third-party components and their licenses. [Upstream Claude Code adapter](https://github.com/shantanugoel/dsh-plugin-claude-code)
+
+The Harness request retry service allows up to three retries for transient Claude model failures, including provider overload and a tool stop without any published calls. It retries the failed model step using the recorded tool results. A native execution error with an unknown outcome still requires manual recovery.
 
 ## Limitations
 

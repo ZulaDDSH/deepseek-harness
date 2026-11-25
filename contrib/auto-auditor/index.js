@@ -1,7 +1,7 @@
 import {symbols} from '@deepseek-ai/cordis'
 import {createUserMessage} from '@deepseek-ai/dsh-llm'
 import {defineTool} from '@deepseek-ai/dsh-tools'
-import {openQueue} from './queue.js'
+import {openQueue,reviewGroup,scheduledReviewRetry} from './queue.js'
 import {branchState} from './git.js'
 import {registerPullTools} from './pull-workflow.js'
 import {registerWorkflowAwareness} from './master-awareness.js'
@@ -70,13 +70,26 @@ function installFixerPermissionLock(ctx) {
   return Promise.all(ctx.agents.list().filter(isFixer).map(lock))
 }
 
-function header(row) {
+function header(row,rows) {
+  const original=row.repair && rows.find(item=>item.id===row.repair.original)
+  const job=(original || row).fixerJob
+  const notice=row.leadNotices?.lead_action
+  const deliveries=[row.delivery?.[original && original.leadId!==row.leadId?'origin_lead':'lead']]
+  if(notice?.kind==='run') deliveries.push(row.delivery?.lead_action)
+  const runDelivery=['sent','sending','pending','failed','uncertain'].find(status=>deliveries.includes(status))
+  const group=row.status==='failed' ? reviewGroup(row) : undefined
+  const reviewerRetryAt=group===undefined ? undefined :
+    scheduledReviewRetry(row,rows.find(item=>reviewGroup(item)===group))
+  const ciAssignment=notice?.kind==='ci' && notice.check ?
+    {head:notice.check.head,name:notice.check.name,state:row.delivery?.lead_action} : undefined
   return {id:row.id,leadId:row.leadId,leadTitle:row.leadTitle,goal:row.goal,status:row.status,head:row.head,
     branch:row.branch,pull:row.pull?.url,repair:row.repair?.url,created:row.created,revision:row.revision,
+    reviewerRetryAt,runDelivery,ciAssignment,leadDelivery:row.delivery?.lead,
+    fixerDelivery:(original || row).delivery?.fixer,
     ...(row.status==='needs_run' && row.result?.runRequest && {inputNote:row.result.runRequest.slice(0,300)}),
     ...(row.status==='failed' && row.error && {inputNote:row.error.slice(0,300)}),
-    ...(row.fixerJob?.state==='sent' && {fixerSessionId:row.fixerJob.sessionId}),
-    ...(row.fixerJob?.state && {fixerState:row.fixerJob.state}),
+    ...(job?.state==='sent' && {fixerSessionId:job.sessionId}),
+    ...(job?.state && {fixerState:job.state}),
     ...(row.repair && {repairOriginal:row.repair.original,repairPublished:row.repair.published===true})}
 }
 
@@ -293,14 +306,14 @@ export async function apply(ctx) {
       const caller=await author(exec)
       const state=await queue.read()
       const rows=state.rows.filter(row=>caller.master || row.leadId===caller.id || row.fixerJob?.sessionId===caller.id)
-      if(!review_id) return JSON.stringify(rows.slice(0,25).map(header))
+      if(!review_id) return JSON.stringify(rows.slice(0,25).map(row=>header(row,state.rows)))
       const row=rows.find(item=>item.id===review_id)
       if(!row) throw new Error('Review not found.')
       const fixerJob=row.fixerJob ? {
         ...row.fixerJob,
         ...(['sent','round_limit'].includes(row.fixerJob.state) && {agentStatus:ctx.agents.get(row.fixerJob.sessionId)?.status || 'closed'}),
       } : null
-      return JSON.stringify({...header(row),result:row.result,error:row.error,delivery:row.delivery,fixerJob,
+      return JSON.stringify({...header(row,state.rows),result:row.result,error:row.error,delivery:row.delivery,fixerJob,
         current:await queue.tip(row.id,exec.signal),messages:row.messages?.slice(-12)})
     },
   }))
@@ -325,7 +338,7 @@ export async function apply(ctx) {
           model:state.model,
           maxRepairRounds:state.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS,
           pending,
-          rows:state.rows.map(header),
+          rows:state.rows.map(row=>header(row,state.rows)),
         }
       } else if(method==='leads') value=(await leads(signal)).map(({id,title,workspace,cwd})=>({id,title,workspace,cwd}))
       else if(method==='detail') value=await queue.detail(args.id,signal)

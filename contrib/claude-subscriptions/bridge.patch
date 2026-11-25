@@ -1,7 +1,13 @@
 diff --git a/package/dist/adapter.js b/package/dist/adapter.js
 --- a/package/dist/adapter.js
 +++ b/package/dist/adapter.js
-@@ -45 +45 @@
+@@ -39,2 +39,3 @@
+-            maxRetries: 0,
+-            retryableCodes: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'],
++            maxRetries: 3,
++            retryableCodes: ['EMPTY_RESPONSE', 'NATIVE_TOOL_STOP_WITHOUT_CALLS', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'],
++            backoff: { initialDelayMs: 5000, maxDelayMs: 30000 },
+@@ -45 +46 @@
 -        return { id: provider, name: 'Claude Code session' };
 +        return { id: provider, name: 'Claude subscription (Claude Code)' };
 diff --git a/package/dist/auth-process.js b/package/dist/auth-process.js
@@ -53,3 +59,12 @@ diff --git a/package/dist/official-session.js b/package/dist/official-session.js
 +    }
 +    for (const directory of directories.filter(isAbsolute)) {
 +        const candidate = join(directory, windows ? 'claude.exe' : 'claude');
+diff --git a/package/dist/stream.js b/package/dist/stream.js
+--- a/package/dist/stream.js
++++ b/package/dist/stream.js
+@@ -1 +1 @@
+-import { ToolCallId } from '@deepseek-ai/dsh-llm';
++import { LlmError, ToolCallId } from '@deepseek-ai/dsh-llm';
+@@ -244 +244 @@
+-        throw pluginFailure('MALFORMED_RESPONSE', 'The native response stopped for tools but published none.');
++        throw new LlmError('The native response stopped for tools but published none.', 'NATIVE_TOOL_STOP_WITHOUT_CALLS');

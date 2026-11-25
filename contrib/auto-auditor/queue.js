@@ -21,6 +21,23 @@ const sameScope = (left,right) => left.leadId===right.leadId && left.repo===righ
   (left.repair || right.repair ? left.repair?.original===right.repair?.original &&
     left.repair?.head===right.repair?.head && left.repair?.target===right.repair?.target :
     left.pull || right.pull ? left.pull?.url===right.pull?.url : left.branch===right.branch)
+const retryDelays=[30000,120000]
+const transientReviewCodes=new Set([
+  'EMPTY_RESPONSE','NATIVE_TOOL_STOP_WITHOUT_CALLS','TIMEOUT','TRANSPORT','STREAM_CLOSED','SERVER','RATE_LIMIT',
+  'HTTP_502','HTTP_503','HTTP_504','HTTP_529',
+])
+const deadlineError=message=>typeof message==='string' && /exceeded the generation deadline/i.test(message)
+export const reviewGroup=row=>row.pull?.url || row.repair?.url || JSON.stringify([row.leadId,row.branch || row.id])
+export function scheduledReviewRetry(row,latest) {
+  if(row!==latest || row.status!=='failed' || (row.reviewerRetries ?? 0)>=retryDelays.length) return
+  return row.reviewerRetryAt ?? (row.reviewerRetries===undefined && deadlineError(row.error) ? row.finished || row.created : undefined)
+}
+function dueRetry(row,rows,now) {
+  if(row.status!=='failed') return false
+  const group=reviewGroup(row)
+  const scheduled=scheduledReviewRetry(row,rows.find(item=>reviewGroup(item)===group))
+  return scheduled!==undefined && scheduled<=now
+}
 
 async function capturePair(ctx,args,repo,restricted,selection,signal) {
   const paths=[args.beforeCapture,args.afterCapture]
@@ -180,6 +197,8 @@ export async function openQueue(ctx,deliver) {
       row.model=state.model ?? row.model
       row.status='queued'
       row.interruptions=0
+      row.reviewerRetries=0
+      delete row.reviewerRetryAt
       row.revision=(row.revision || 0)+1
       delete row.error
     })
@@ -306,7 +325,8 @@ export async function openQueue(ctx,deliver) {
           await notify(outbound,target)
           continue
         }
-        const row=state.rows.findLast(item=>item.status==='queued')
+        const row=state.rows.findLast(item=>item.status==='queued') ||
+          state.rows.findLast(item=>dueRetry(item,state.rows,Date.now()))
         if (!row) {
           const threaded=state.rows.findLast(item=>item.messages?.some(message=>message.status==='queued' || message.delivery==='pending'))
           if(!threaded) return
@@ -325,14 +345,27 @@ export async function openQueue(ctx,deliver) {
           }
           continue
         }
-        await change(row.id,item=>{item.status='reviewing'})
+        const claimed=await mutate(latest=>{
+          const item=lookup(latest,row.id)
+          if (item.status!=='queued') {
+            if (!dueRetry(item,latest.rows,Date.now())) return false
+            item.reviewerRetries=(item.reviewerRetries ?? 0)+1
+          }
+          item.status='reviewing'
+          delete item.reviewerRetryAt
+          item.revision=(item.revision ?? 0)+1
+          return true
+        })
+        if(!claimed) continue
+        const deadline=AbortSignal.timeout(10*60_000)
         try {
-          const signal=AbortSignal.any([life.signal,AbortSignal.timeout(10*60_000)])
+          const signal=AbortSignal.any([life.signal,deadline])
           const result=await review(ctx,row,await readFile(patchPath(row.id),'utf8'),state.rows.find(x=>x.id===row.previous),signal)
           await change(row.id,(item,latest)=>{
             item.result=result
             item.status=result.status
             item.finished=Date.now()
+            delete item.error
             const maxRounds=latest.fixerMaxRounds ?? DEFAULT_MAX_REPAIR_ROUNDS
             const leadNotices=Object.fromEntries(Object.entries(item.delivery ?? {})
               .filter(([target])=>target==='lead_action' || target==='lead_bump'))
@@ -365,7 +398,13 @@ export async function openQueue(ctx,deliver) {
           })
         } catch(error) {
           if(life.signal.aborted) return
-          await change(row.id,item=>{item.status='failed';item.error=String(error.message).slice(0,800)})
+          await change(row.id,item=>{
+            item.status='failed'
+            item.error=String(error.message).slice(0,800)
+            const wait=retryDelays[item.reviewerRetries ?? 0]
+            if(wait && (deadline.aborted || transientReviewCodes.has(error.code) || deadlineError(error.message)))
+              item.reviewerRetryAt=Date.now()+wait
+          })
         }
       }
     },{signal:life.signal})

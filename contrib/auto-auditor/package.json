@@ -1,6 +1,6 @@
 {
   "name": "dsh-auto-auditor-background",
-  "version": "1.4.14",
+  "version": "1.4.15",
   "private": true,
   "type": "module",
   "engines": {"node": ">=24.9.0", "dsh": "0.2.2-rc.5"},
