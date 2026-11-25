@@ -1,11 +1,12 @@
 export const preset = 'desktop-master-control'
 export const homePrefix = 'desktop-master-control-'
+export const fixerPrefix = 'desktop-pr-fixer-'
 
 export function isControl(header) {
   return header?.id.startsWith(homePrefix) && header.agentPreset === preset
 }
 
-export async function listTargets(ctx, signal) {
+export async function listTargets(ctx, signal, kind = 'workspace') {
   const archived = new Set(ctx.workspaceRegistry.archivedSessionIds)
   const workspaces = new Map()
   for (const workspace of ctx.workspaceRegistry.list()) {
@@ -17,9 +18,12 @@ export async function listTargets(ctx, signal) {
   return items.flatMap(({sessionId: id, cwd, origin, blank, formatStatus}) => {
     if (!cwd || origin === 'subagent' || id.startsWith(homePrefix) || blank ||
         archived.has(id) || formatStatus === 'migration-required') return []
+    const isFixer = id.startsWith(fixerPrefix)
+    if (kind === 'workspace' && isFixer) return []
+    if (kind === 'fixer' && !isFixer) return []
     return [{
       id,
-      workspace: workspaces.get(id) || 'Ungrouped',
+      workspace: isFixer ? 'Repair station' : workspaces.get(id) || 'Ungrouped',
       cwd,
       status: ctx.agents.get(id)?.status || 'closed',
     }]
@@ -83,7 +87,7 @@ export async function describeTargets(ctx, rows, signal) {
 }
 
 export async function assertTarget(ctx, id, signal) {
-  if (typeof id !== 'string' || !(await listTargets(ctx,signal)).some(row=>row.id===id))
+  if (typeof id !== 'string' || !(await listTargets(ctx,signal,'all')).some(row=>row.id===id))
     throw new Error('That session is unavailable.')
 }
 

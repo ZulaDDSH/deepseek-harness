@@ -273,6 +273,23 @@ window.__ModuleLoader__.load({
     function FixerPage({rpc,sessions,SessionProvider,renderFactorySlot}) {
       const [revision,refresh]=useReducer(n=>n+1,0)
       const [selected,select]=useState(null),[open,setOpen]=useState(null),[settings,setSettings]=useState(false)
+      useEffect(()=>{
+        function openBySession(sessionId) {
+          if (typeof sessionId!=='string' || !sessionId.startsWith('desktop-pr-fixer-')) return
+          const id=sessionId.slice('desktop-pr-fixer-'.length)
+          select(id)
+          setOpen({id,sessionId})
+          setSettings(false)
+        }
+        if (window.__dshPrFixerPending) {
+          const pending=window.__dshPrFixerPending
+          window.__dshPrFixerPending=undefined
+          openBySession(pending)
+        }
+        const listener=event=>openBySession(event.detail?.sessionId)
+        window.addEventListener('dsh-pr-fixer:open',listener)
+        return ()=>window.removeEventListener('dsh-pr-fixer:open',listener)
+      },[])
       const data=useData(rpc,'fixer-list',{},true,5000,revision)
       const action=useAction()
       const last=React.useRef(null)

@@ -124,6 +124,33 @@ async function remotePushKey(repo,remote,signal) {
   return key
 }
 
+/** Read PR metadata via GitHub REST API using host Git credentials as a fallback when GitHub review status is unconfigured. */
+export async function readPullViaGitCredentials(pullUrl,signal) {
+  const match=typeof pullUrl==='string' && pullUrl.match(githubPR)
+  if (!match) throw new Error('Enter an existing GitHub PR URL.')
+  const key=match[1].toLowerCase(), number=match[2]
+  const token=await gitCredentialToken(key,signal)
+  const deadline=AbortSignal.timeout(12000)
+  const reqSignal=signal ? AbortSignal.any([signal,deadline]) : deadline
+  const res=await fetch('https://api.github.com/repos/'+key+'/pulls/'+number,{
+    method:'GET',redirect:'error',signal:reqSignal,
+    headers:{Authorization:'Bearer '+token,Accept:'application/vnd.github+json','User-Agent':'DeepSeek-Harness-Auto-Auditor'},
+  })
+  if (!res.ok) throw new Error('GitHub could not read PR #'+number+' using Git credentials (HTTP '+res.status+').')
+  const pr=await res.json()
+  if (!sha.test(pr?.head?.sha ?? '') || !sha.test(pr?.base?.sha ?? ''))
+    throw new Error('GitHub did not return the current pull request revision.')
+  return {
+    url:'https://github.com/'+key+'/pull/'+number,
+    prState:pr.merged?'MERGED':String(pr.state || '').toUpperCase(),
+    draft:pr.draft===true,
+    head:pr.head.sha,
+    base:pr.base.sha,
+    headBranch:pr.head.ref,
+    headRepo:pr.head.repo?.full_name?.toLowerCase(),
+  }
+}
+
 /** Push a pinned commit and find or open a GitHub PR (draft by default) in one idempotent step. */
 export async function openPullForCommit(cwd,{branch,commit,base,title,body,draft=true,remote='origin',baseRemote},signal) {
   if (!sha.test(commit ?? '')) throw new Error('Specify the complete commit SHA to publish.')

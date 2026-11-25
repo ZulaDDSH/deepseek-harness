@@ -79,10 +79,11 @@ export async function apply(ctx) {
         return {ok:true,value:{selected:selection}}
       }
       if (method !== 'list') throw new Error('Unknown Master Control action.')
-      const candidates = await listTargets(ctx, signal)
+      const kind = args?.kind === 'fixer' ? 'fixer' : 'workspace'
+      const candidates = await listTargets(ctx, signal, kind)
       const offset = Number.isSafeInteger(args?.offset) && args.offset > 0 ? args.offset : 0
       const rows = await describeTargets(ctx, candidates.slice(offset, offset + 36), signal)
-      return {ok:true, value:{rows, total:candidates.length}}
+      return {ok:true, value:{rows, total:candidates.length, kind}}
     } catch (error) {
       return {ok:false, error:{code:'master-control/unavailable', message:error.message, details:{}}}
     }

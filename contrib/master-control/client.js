@@ -328,7 +328,7 @@ window.__ModuleLoader__.load({
           [next.model,next.provider,next.effortLabel].filter(Boolean).join(' · ')),
         editing && h(ModelEditor,{rpc,row,onClose,onSaved}))
     }
-    function Page({rpc, sessions, uiWorkspace, SessionProvider, renderFactorySlot, renderSlot}) {
+    function Page({rpc, sessions, uiWorkspace, layout, SessionProvider, renderFactorySlot, renderSlot}) {
       const [state,setState] = React.useState(null)
       const [offset,setOffset] = React.useState(0)
       const [revision,refresh] = React.useReducer(n=>n+1,0)
@@ -343,7 +343,9 @@ window.__ModuleLoader__.load({
       const rosterScroll = React.useRef(null)
       const panelsId = React.useId()
       const showSessions = view === 'sessions'
+      const showRepairs = view === 'repairs'
       const showReviews = view === 'reviews'
+      const rosterKind = showRepairs ? 'fixer' : showSessions ? 'workspace' : null
       React.useEffect(()=>{
         let active = true
         rpc.call(channel,'current',{}).then(result=>{
@@ -366,17 +368,17 @@ window.__ModuleLoader__.load({
         return ()=>{active=false; reference?.release()}
       },[sessions,sessionId,bindRevision])
       React.useEffect(()=>{
-        if (!showSessions) return
+        if (!rosterKind) return
         let active = true
         let timer
         async function load() {
           try {
-            const result = await rpc.call(channel,'list',{offset})
+            const result = await rpc.call(channel,'list',{offset,kind:rosterKind})
             if (!result.ok) throw new Error(result.error.message)
             if (active) {
               const lastOffset = Math.floor(Math.max(0,result.value.total-1)/36)*36
               if (offset > lastOffset) setOffset(lastOffset)
-              else setState({...result.value,offset})
+              else setState({...result.value,offset,kind:rosterKind})
               setRosterError('')
             }
           } catch(error) { if (active) setRosterError(error.message) }
@@ -384,7 +386,7 @@ window.__ModuleLoader__.load({
         }
         void load()
         return ()=>{active=false;clearTimeout(timer)}
-      },[rpc,offset,revision,showSessions])
+      },[rpc,offset,revision,rosterKind])
       async function open() {
         setBusy(true); setChatError('')
         try {
@@ -395,16 +397,28 @@ window.__ModuleLoader__.load({
         } catch(error) {setChatError(error.message)}
         finally {setBusy(false)}
       }
-      const rows = state?.offset === offset ? state.rows : undefined
-      const total = state?.total
+      const rows = state?.kind === rosterKind && state?.offset === offset ? state.rows : undefined
+      const total = state?.kind === rosterKind ? state.total : undefined
       function changePage(next) {
         setEditing(null)
         setOffset(next)
         if (rosterScroll.current) rosterScroll.current.scrollTop = 0
       }
       function togglePanel(next) {
+        setEditing(null)
+        setOffset(0)
         setView(current=>current === next ? 'chat' : next)
       }
+      function openRepairSession(id) {
+        window.__dshPrFixerPending = id
+        window.dispatchEvent(new CustomEvent('dsh-pr-fixer:open',{detail:{sessionId:id}}))
+        layout.selectPanel('desktop-pr-fixer')
+      }
+      const rosterTitle = showRepairs ? 'Repair station' : 'Workspace sessions'
+      const rosterCount = total === undefined ? null : showRepairs
+        ? (total === 1 ? '1 repair' : total + ' repairs')
+        : (total === 1 ? '1 session' : total + ' sessions')
+      const rosterEmpty = showRepairs ? 'No repair chats yet.' : 'No workspace sessions yet.'
       return h('div',{className:'dsh-control-shell'},
         h('div',{className:'dsh-control-bar'},
           h('div',{className:'dsh-control-brand'},
@@ -414,6 +428,8 @@ window.__ModuleLoader__.load({
             h('button',{type:'button','aria-pressed':view==='chat','aria-controls':panelsId+'-chat',onClick:()=>setView('chat')},'Chat'),
             h('button',{type:'button','aria-pressed':showSessions,'aria-controls':panelsId+'-sessions',
               onClick:()=>togglePanel('sessions')},'Workspace sessions'),
+            h('button',{type:'button','aria-pressed':showRepairs,'aria-controls':panelsId+'-sessions',
+              onClick:()=>togglePanel('repairs')},'Repair station'),
             h('button',{type:'button','aria-pressed':showReviews,'aria-controls':panelsId+'-reviews',
               onClick:()=>togglePanel('reviews')},'Review queue'))),
         h('div',{className:'dsh-control-grid','data-view':view},
@@ -427,21 +443,23 @@ window.__ModuleLoader__.load({
                   h('button',{className:'mc-button mc-primary',type:'button',disabled:busy || (sessionId && !chatError),onClick:open},
                     busy || (sessionId && !chatError) ? 'Opening…' : 'Open control chat'),
                   chatError && h('p',{className:'mc-failure',role:'alert'},chatError)))),
-          h('div',{id:panelsId+'-sessions',className:'dsh-control-scroll',ref:rosterScroll,hidden:!showSessions,
-            tabIndex:0,role:'region','aria-label':'Scrollable workspace sessions'},
-            h('section',{className:'mc-roster','aria-label':'Workspace sessions'},
+          h('div',{id:panelsId+'-sessions',className:'dsh-control-scroll',ref:rosterScroll,hidden:!rosterKind,
+            tabIndex:0,role:'region','aria-label':'Scrollable '+rosterTitle.toLowerCase()},
+            h('section',{className:'mc-roster','aria-label':rosterTitle},
               h('header',{className:'mc-heading'},
-                h('div',null,h('h2',null,'Workspace sessions'),
-                  total !== undefined && h('span',{className:'mc-count'},total === 1 ? '1 session' : total + ' sessions')),
-                h('button',{className:'mc-button mc-refresh',type:'button',title:'Refresh sessions','aria-label':'Refresh sessions',onClick:refresh},
+                h('div',null,h('h2',null,rosterTitle),
+                  rosterCount && h('span',{className:'mc-count'},rosterCount)),
+                h('button',{className:'mc-button mc-refresh',type:'button',title:'Refresh '+rosterTitle.toLowerCase(),
+                  'aria-label':'Refresh '+rosterTitle.toLowerCase(),onClick:refresh},
                   glyph('M19.5 10a7.5 7.5 0 1 0-.9 6M20 4v6h-6',16))),
               rosterError && h('p',{className:'mc-roster-note mc-failure',role:'alert'},rosterError),
               rows?.length ? h('ul',{className:'mc-sessions'},rows.map(row=>h(SessionRow,{
                 key:row.id,row,rpc,editing:editing===row.id,
-                onOpen:()=>uiWorkspace.openSession(row.id),onEdit:()=>setEditing(row.id),
+                onOpen:()=>showRepairs ? openRepairSession(row.id) : uiWorkspace.openSession(row.id),
+                onEdit:()=>setEditing(row.id),
                 onClose:()=>setEditing(null),onSaved:()=>{setEditing(null);refresh()},
               }))) : !rosterError && h('p',{className:'mc-roster-note',role:'status'},
-                rows ? 'No workspace sessions yet.' : 'Loading sessions…'),
+                rows ? rosterEmpty : 'Loading sessions…'),
               total > 36 && h('div',{className:'mc-pages'},
                 h('span',null,(offset+1)+'–'+Math.min(offset+36,total)+' of '+total),
                 h('div',null,
@@ -456,7 +474,7 @@ window.__ModuleLoader__.load({
     }
     const Icon = () => glyph('M3 16V9m6 10V5m6 12V8m6 6v-4',18)
     return {
-      inject:['slots','connection','sessions','uiWorkspace'],
+      inject:['slots','connection','sessions','uiWorkspace','layout'],
       apply(ctx) {
         ctx.effect(()=>{
           const style = document.createElement('style')
@@ -470,7 +488,7 @@ window.__ModuleLoader__.load({
             'desktop-master-control.private-binding':{kind:'single',scope:'session-maybe'},
             'desktop-master-control.review-queue':{kind:'single',scope:'root'},
           },
-          inject:()=>({rpc:ctx.get('connection').rpc,sessions:ctx.get('sessions'),uiWorkspace:ctx.get('uiWorkspace')})},Page))
+          inject:()=>({rpc:ctx.get('connection').rpc,sessions:ctx.get('sessions'),uiWorkspace:ctx.get('uiWorkspace'),layout:ctx.get('layout')})},Page))
         ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({name:'sidebar.panellist',id,order:-20,priority:seatPriority,label:()=> 'Master Control'},Icon))
       },
     }

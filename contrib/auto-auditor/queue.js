@@ -182,7 +182,7 @@ export async function openQueue(ctx,deliver) {
     const value=text(body,'message',4000,true)
     const msg=await mutate(state=>{
       const row=lookup(state,id)
-      if(!author.master && author.id!==row.leadId) throw new Error('Review not found.')
+      if(!author.master && author.id!==row.leadId && author.id!==row.fixerJob?.sessionId) throw new Error('Review not found.')
       const messages=row.messages ??= []
       const existing=messages.findLast(item=>item.author===author.id && item.body===value && item.status!=='failed')
       if(existing) {

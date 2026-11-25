@@ -234,7 +234,7 @@ export async function apply(ctx) {
     async execute({review_id},exec) {
       const caller=await author(exec)
       const state=await queue.read()
-      const rows=state.rows.filter(row=>caller.master || row.leadId===caller.id)
+      const rows=state.rows.filter(row=>caller.master || row.leadId===caller.id || row.fixerJob?.sessionId===caller.id)
       if(!review_id) return JSON.stringify(rows.slice(0,25).map(header))
       const row=rows.find(item=>item.id===review_id)
       if(!row) throw new Error('Review not found.')

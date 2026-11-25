@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto'
 import {createUserMessage} from '@deepseek-ai/dsh-llm'
 import {defineTool} from '@deepseek-ai/dsh-tools'
-import {checkFastForward,openPullForCommit,pushPullCommit} from './git.js'
+import {branchState,checkFastForward,openPullForCommit,pushPullCommit,readPullViaGitCredentials} from './git.js'
 import {buildFixerOverview} from './master-awareness.js'
 import {activeFixerForPull,DEFAULT_MAX_REPAIR_ROUNDS,repairRounds} from './repair-inbox.js'
 
@@ -9,10 +9,29 @@ const sha=/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/
 
 /** Register the full PR workflow: open-and-audit, push-and-audit, fixer inbox/staging, run handoff, and publication. */
 export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
-  function github() {
+  async function resolvePullTarget(url,{originalRow,allowGitOnly=false}={},signal) {
     const service=ctx.get('githubReviewStatus')
-    if (!service) throw new Error('Enable the GitHub review status plugin.')
-    return service
+    let primaryError
+    if (service) {
+      try { return await service.target(url,signal) }
+      catch (error) {
+        const unconfigured=/Connect the PR|Enable the GitHub review status/i.test(error?.message || '')
+        if (!unconfigured) throw error
+        primaryError=error
+      }
+    }
+    try { return await readPullViaGitCredentials(url,signal) }
+    catch (fallbackError) {
+      if (allowGitOnly && originalRow) {
+        const state=await branchState(originalRow,signal)
+        if (state.kind==='current') {
+          return {url:originalRow.pull.url,prState:'OPEN',head:originalRow.head,base:originalRow.pull.target}
+        }
+        if (state.kind==='pull-changed' || state.kind==='pull-base-changed')
+          throw new Error('The PR changed since this review. Submit the current PR for a new audit first.')
+      }
+      throw primaryError || fallbackError
+    }
   }
   function requirePushAccess(exec) {
     if (ctx.permissionPresets.current(exec.agent.session)!=='danger-full-access')
@@ -21,7 +40,7 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
   async function pushAndConfirm(cwd,target,commit,expected,signal,afterPush) {
     const pushing=await pushPullCommit(cwd,target,commit,expected,signal)
     try {
-      const latest=await github().target(target.url,signal)
+      const latest=await resolvePullTarget(target.url,{},signal)
       if (latest.prState!=='OPEN' || latest.head!==commit)
         throw new Error('GitHub has not confirmed this commit as the current open PR head.')
       const audit=await afterPush(latest)
@@ -54,7 +73,7 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
     if (!repair?.repair || repair.status!=='ready' ||
         rows.find(row=>row.repair?.original===repair.repair.original)?.id!==repair.id)
       throw new Error('Choose the latest approved repair for that PR.')
-    const target=await github().target(repair.repair.url,signal)
+    const target=await resolvePullTarget(repair.repair.url,{},signal)
     if (target.base!==repair.repair.target)
       throw new Error('The target branch changed since the repair audit. Submit a fresh review.')
     const outcome=await pushAndConfirm(repair.repo,target,repair.head,repair.repair.head,signal,
@@ -164,7 +183,7 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
       if (!sha.test(args.commit ?? '') || !sha.test(args.expected_head ?? ''))
         throw new Error('Specify complete commit SHAs for the expected and proposed PR head.')
       const source=await lead(args.lead_id || caller.id,exec.signal,true)
-      const target=await github().target(args.pull_request,exec.signal)
+      const target=await resolvePullTarget(args.pull_request,{},exec.signal)
       const active=activeFixerForPull((await queue.read()).rows,target.url)
       if (active && !caller.master)
         throw new Error('PR Fixer is actively repairing this pull request ('+active.sessionId+'). Wait for the repair to finish or escalate before pushing to this PR.')
@@ -207,7 +226,7 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
       }
       if (!sha.test(args.commit ?? '') || args.commit===original.head)
         throw new Error('Choose the complete SHA of a new repair commit.')
-      const target=await github().target(original.pull.url,exec.signal)
+      const target=await resolvePullTarget(original.pull.url,{originalRow:original,allowGitOnly:true},exec.signal)
       if (target.prState!=='OPEN' || target.head!==original.head || target.base!==original.pull.target)
         throw new Error('The PR changed since this review. Submit the current PR for a new audit first.')
       const fixer=await lead(caller.master ? args.fixer_id || assigned || original.leadId : caller.id,exec.signal,true)
@@ -306,7 +325,7 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
       if (!repair?.repair || repair.status!=='ready' ||
           rows.find(row=>row.repair?.original===repair.repair.original)?.id!==repair.id)
         throw new Error('Choose the latest approved repair for that PR.')
-      const target=await github().target(repair.repair.url,exec.signal)
+      const target=await resolvePullTarget(repair.repair.url,{},exec.signal)
       if (target.base!==repair.repair.target)
         throw new Error('The target branch changed since the repair audit. Submit a fresh review.')
       return JSON.stringify(await pushAndConfirm(repair.repo,target,repair.head,repair.repair.head,exec.signal,
