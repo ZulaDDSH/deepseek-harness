@@ -25,14 +25,31 @@ window.__ModuleLoader__.load({
       .audit code,.audit pre{font-family:ui-monospace,Consolas,monospace}.audit pre{overflow:auto;max-height:55vh;padding:.85rem;background:var(--fill);border-radius:.45rem;font-size:.78rem;line-height:1.5}.audit details summary{cursor:pointer;font-weight:600}.audit form,.audit .fields{display:grid;gap:.8rem;max-width:38rem}.audit label{display:grid;gap:.3rem;font-size:.85rem}.audit input,.audit textarea,.audit select{border:1px solid var(--rule);background:var(--fill);border-radius:.4rem;padding:.45rem .6rem;width:100%;min-width:0}.audit textarea{resize:vertical;min-height:4.6rem}.audit :focus-visible{outline:2px solid var(--accent);outline-offset:2px}.audit .long{white-space:pre-wrap}.audit .detail h2{overflow-wrap:anywhere}
       @container(max-width:690px){.audit .body{display:flex;flex-direction:column}.audit .queue{max-height:28%;flex-shrink:0;border-inline-end:0;border-bottom:1px solid var(--rule)}.audit .detail{flex:1}}
       .audit-icon{position:relative;display:inline-flex;align-items:center}.audit-icon small{position:absolute;inset-inline-start:62%;top:-.4em;background:var(--dsw-alias-button-info-fill,#465da0);color:var(--dsw-alias-label-on-color,white);border-radius:1em;padding:0 .23em;font:600 9px/1.2 system-ui}
-      .mc-review-queue .mc-review-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:.2rem .55rem}
-      .mc-review-queue .mc-review-meta :is(a,code){font-size:.73rem}
+      .audit,.mc-review-queue{--audit-warn:#9a6510;--audit-ok:#1f7a53;--audit-err:#b83c34}
+      body[data-ds-dark-theme] :is(.audit,.mc-review-queue){--audit-warn:#e2b16b;--audit-ok:#72c29d;--audit-err:#e07a72}
+      .mc-review-queue .mc-review-filters{display:flex;flex-wrap:wrap;gap:.3rem;padding:.6rem var(--mc-gutter);border-bottom:1px solid var(--mc-line)}
+      .mc-review-queue .mc-review-filters button{color:var(--mc-muted);background:transparent;font:inherit;font-size:.72rem;font-weight:500;padding:.2rem .48rem;border-radius:999px;border:1px solid var(--mc-line);cursor:pointer}
+      .mc-review-queue .mc-review-filters button:hover{background:var(--mc-hover);color:var(--mc-ink)}
+      .mc-review-queue .mc-review-filters button[aria-pressed="true"]{color:var(--mc-ink);background:var(--mc-hover);border-color:var(--mc-accent)}
+      .mc-review-queue .mc-review-filters button:focus-visible,.mc-review-queue .mc-review-target:focus-visible{outline:2px solid var(--mc-accent);outline-offset:2px}
+      .mc-review-queue .mc-review-card{padding:.68rem 0;cursor:pointer}
+      .mc-review-queue .mc-review-top{display:flex;align-items:center;justify-content:space-between;gap:.45rem;min-width:0}
+      .mc-review-queue .mc-review-target{font-size:.86rem;font-weight:500;line-height:1.3;color:var(--mc-ink);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .mc-review-queue a.mc-review-target:hover{color:var(--mc-accent);text-decoration:underline;text-underline-offset:2px}
       .mc-review-queue a{color:var(--mc-accent)}
-      .mc-review-queue .mc-review-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;overflow-wrap:anywhere}
-      .mc-review-queue .mc-review-reason{margin:.38rem 0 0;color:var(--mc-muted);font-size:.77rem;overflow-wrap:anywhere}
-      .mc-review-queue .mc-review-ci{display:flex;flex-wrap:wrap;gap:.3rem .55rem;align-items:baseline;margin:.37rem 0 0;font-size:.75rem;color:var(--mc-muted)}
-      .mc-review-queue .mc-status:is([data-status="ready"],[data-status="review_ready"])::before{background:var(--dsw-alias-state-business-primary,#7ccca9);border:0}
-      .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"],[data-status="ci_failed"])::before{border-radius:1px;transform:rotate(45deg)}
+      .mc-review-queue .mc-status{font-size:.69rem;font-weight:500;line-height:1.25;padding:.14rem .45rem;border-radius:999px;border:1px solid var(--mc-line);gap:.32rem}
+      .mc-review-queue .mc-status:is([data-status="reviewing"],[data-status="queued"]){color:var(--mc-accent);border-color:color-mix(in srgb,var(--mc-accent) 40%,transparent);background:color-mix(in srgb,var(--mc-accent) 12%,transparent)}
+      .mc-review-queue .mc-status[data-status="changes_requested"]{color:var(--dsw-alias-state-warning-primary,var(--audit-warn));border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,var(--audit-warn)) 40%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,var(--audit-warn)) 12%,transparent)}
+      .mc-review-queue .mc-status[data-status="changes_requested"]::before{background:currentColor;border:0}
+      .mc-review-queue .mc-status:is([data-status="ready"],[data-status="review_ready"],[data-status="published"]){color:var(--dsw-alias-state-business-primary,var(--audit-ok));border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary,var(--audit-ok)) 40%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,var(--audit-ok)) 12%,transparent)}
+      .mc-review-queue .mc-status:is([data-status="ready"],[data-status="review_ready"],[data-status="published"])::before{background:currentColor;border:0}
+      .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"],[data-status="ci_failed"]){color:var(--dsw-alias-state-error-primary,var(--audit-err));border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 44%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 12%,transparent)}
+      .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"],[data-status="ci_failed"])::before{border-radius:1px;transform:rotate(45deg);background:currentColor;border:0}
+      .mc-review-queue .mc-review-sub{display:block;margin:.22rem 0 0;color:var(--mc-muted);font-size:.73rem;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .mc-review-queue .mc-review-title{display:block;width:100%;margin:.24rem 0 0;font-size:.77rem;font-weight:400;line-height:1.38;letter-spacing:0;color:color-mix(in srgb,var(--mc-ink) 78%,var(--mc-muted));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .mc-review-queue .mc-review-card:hover .mc-review-title{color:var(--mc-accent)}
+      .mc-review-queue .mc-review-reason{margin:.28rem 0 0;color:var(--mc-muted);font-size:.74rem;line-height:1.35;overflow-wrap:anywhere}
+      .mc-review-queue .mc-review-ci{display:flex;flex-wrap:wrap;gap:.25rem .5rem;align-items:baseline;margin:.28rem 0 0;font-size:.72rem;color:var(--mc-muted)}
       [data-row-key^="session:desktop-pr-fixer-"] { display:none !important }
       html.dsh-pr-fixer-hide-ungrouped div:has(> [data-row-key="workspace:"]),
       div:has(> [data-row-key="workspace:"][aria-expanded="true"]):not(:has([data-row-key^="session:"]:not([data-row-key^="session:desktop-pr-fixer-"]):not([data-row-key^="session:desktop-master-control-"]))) { display:none !important }
@@ -55,9 +72,9 @@ window.__ModuleLoader__.load({
       .audit .audit-row-title{font-weight:500;font-size:.86rem;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .audit .audit-pill{flex:none;font-size:.7rem;font-weight:500;line-height:1.2;padding:.14rem .44rem;border-radius:999px;border:1px solid var(--rule);color:var(--soft)}
       .audit .audit-pill:is([data-state="queued"],[data-state="reviewing"]){color:var(--accent);border-color:color-mix(in srgb,var(--accent) 42%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
-      .audit .audit-pill:is([data-state="changes_requested"],[data-state="needs_run"]){color:var(--dsw-alias-state-warning-primary,#e2b16b);border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2b16b) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2b16b) 12%,transparent)}
-      .audit .audit-pill:is([data-state="failed"],[data-state="round_limit"]){color:var(--dsw-alias-state-error-primary,#e07a72);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e07a72) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e07a72) 12%,transparent)}
-      .audit .audit-pill:is([data-state="ready"],[data-state="published"]){color:var(--dsw-alias-state-business-primary,#72c29d);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary,#72c29d) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#72c29d) 12%,transparent)}
+      .audit .audit-pill:is([data-state="changes_requested"],[data-state="needs_run"]){color:var(--dsw-alias-state-warning-primary,var(--audit-warn));border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,var(--audit-warn)) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,var(--audit-warn)) 12%,transparent)}
+      .audit .audit-pill:is([data-state="failed"],[data-state="round_limit"]){color:var(--dsw-alias-state-error-primary,var(--audit-err));border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 12%,transparent)}
+      .audit .audit-pill:is([data-state="ready"],[data-state="published"]){color:var(--dsw-alias-state-business-primary,var(--audit-ok));border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary,var(--audit-ok)) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,var(--audit-ok)) 12%,transparent)}
       .audit .audit-row-meta{display:flex;align-items:center;gap:.35rem;font-size:.75rem;color:var(--soft);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .audit .audit-row-goal{font-size:.74rem;color:color-mix(in srgb,var(--soft) 82%,transparent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .audit .audit-rounds{display:flex;align-items:center;flex-wrap:wrap;gap:.35rem;padding-bottom:.75rem;margin-bottom:.75rem;border-bottom:1px solid var(--rule)}
@@ -165,6 +182,28 @@ window.__ModuleLoader__.load({
         problem(action.error || row.error || data.error || current.error),
         row.status==='failed' && h('div',null,button('Retry review',()=>act('retry',{id:row.id}),{disabled:action.busy})))
     }
+    const shortStatus={
+      queued:'Queued',reviewing:'In review',ready:'Approved',published:'Published',
+      changes_requested:'Changes',needs_run:'Run needed',failed:'Failed',round_limit:'Round limit',
+    }
+    const reviewLink=row=>row.pull || row.repair
+    const reviewPrNumber=row=>{
+      const link=reviewLink(row)
+      return typeof link==='string' ? link.match(/\/pull\/([1-9]\d*)$/)?.[1] : null
+    }
+    const reviewGroupKey=row=>reviewLink(row) || JSON.stringify([row.leadId,row.branch || row.id])
+    const reviewTargetLabel=row=>{
+      const num=reviewPrNumber(row)
+      return num ? 'PR #'+num : row.branch || 'Commit '+row.head.slice(0,8)
+    }
+    const rowBadgeState=row=>row.repairPublished?'published':row.fixerState==='round_limit'?'round_limit':row.status
+    function matchesReviewFilter(row,mode) {
+      const badge=rowBadgeState(row)
+      if(mode==='active') return badge==='queued' || badge==='reviewing'
+      if(mode==='attention') return ['changes_requested','needs_run','failed','round_limit'].includes(badge)
+      if(mode==='approved') return badge==='ready' || badge==='published'
+      return true
+    }
     function queueState(row, remote) {
       if (remote?.prState==='MERGED') return ['Merged','GitHub merged this PR.',4,'merged']
       if (remote?.prState==='CLOSED') return ['Closed','GitHub closed this PR.',4,'closed']
@@ -179,6 +218,8 @@ window.__ModuleLoader__.load({
         if (remote.ci==='passed') return ['Ready for review','The audit and required checks passed for this revision.',2,'review_ready']
         if (remote.ci==='pending') return ['In review','The auditor approved this revision. Required checks are pending.',3,'reviewing']
       }
+      if (row.repairPublished && !row.pull)
+        return ['Published','Approved repair pushed to the PR branch.',2,'published']
       if (row.repair && !row.pull && row.status==='ready')
         return ['Repair approved','Master Control can publish this commit to the original PR.',2,'ready']
       return [...queueStatuses[row.status],row.status]
@@ -197,63 +238,76 @@ window.__ModuleLoader__.load({
     function ReviewQueue({rpc,showReview}) {
       const [revision,refresh]=useReducer(n=>n+1,0)
       const [page,setPage]=useState(0)
+      const [filter,setFilter]=useState('all')
       const pageSize=12
       const data=useData(rpc,'list',{},true,5000,revision)
-      const seen=new Set()
-      const rows=(data.value?.rows ?? []).filter(row=>{
-        if(!Object.hasOwn(queueStatuses,row.status)) return false
-        const key=row.pull || JSON.stringify([row.leadId,row.repair || row.branch || row.id])
-        if(seen.has(key)) return false
-        seen.add(key)
-        return true
-      }).sort((first,second)=>queueStatuses[first.status][2]-queueStatuses[second.status][2])
-      const lastPage=Math.floor(Math.max(0,rows.length-1)/pageSize)
+      const rowPriority=row=>row.fixerState==='round_limit'?0:queueStatuses[row.status][2]
+      const grouped=new Map()
+      for(const row of data.value?.rows ?? []) {
+        if(!Object.hasOwn(queueStatuses,row.status)) continue
+        const key=reviewGroupKey(row)
+        let entry=grouped.get(key)
+        if(!entry) {entry={key,row,count:0}; grouped.set(key,entry)}
+        entry.count++
+      }
+      const allGroups=[...grouped.values()].sort((first,second)=>rowPriority(first.row)-rowPriority(second.row))
+      const counts={
+        all:allGroups.length,
+        attention:allGroups.filter(entry=>matchesReviewFilter(entry.row,'attention')).length,
+        active:allGroups.filter(entry=>matchesReviewFilter(entry.row,'active')).length,
+        approved:allGroups.filter(entry=>matchesReviewFilter(entry.row,'approved')).length,
+      }
+      const filtered=allGroups.filter(entry=>matchesReviewFilter(entry.row,filter))
+      const lastPage=Math.floor(Math.max(0,filtered.length-1)/pageSize)
       const currentPage=Math.min(page,lastPage)
-      const visible=rows.slice(currentPage*pageSize,(currentPage+1)*pageSize)
-      const ids=visible.filter(row=>row.pull).map(row=>row.id)
+      const visible=filtered.slice(currentPage*pageSize,(currentPage+1)*pageSize)
+      const ids=visible.filter(entry=>entry.row.pull).map(entry=>entry.row.id)
       const checks=useData(rpc,'snapshot',{ids},ids.length>0,15000,revision,githubChannel)
       const byId=new Map((checks.error ? [] : checks.value ?? []).map(status=>[status.id,status]))
-      const cards=visible.map(row=>({row,remote:byId.get(row.id),status:queueState(row,byId.get(row.id))}))
-        .sort((first,second)=>first.status[2]-second.status[2])
+      const cards=visible.map(entry=>({
+        row:entry.row,count:entry.count,remote:byId.get(entry.row.id),status:queueState(entry.row,byId.get(entry.row.id)),
+      })).sort((first,second)=>first.status[2]-second.status[2])
+      const filterTabs=[
+        ['all','All'],
+        ['attention','Action'],
+        ['active','Active'],
+        ['approved','Approved'],
+      ]
       return h('section',{className:'mc-roster mc-review-queue'},
-        h('header',{className:'mc-heading'},h('h2',null,'Review queue'),
+        h('header',{className:'mc-heading'},
+          h('div',null,h('h2',null,'Review queue'),
+            data.value && h('span',{className:'mc-count'},counts.all+(counts.all===1?' review':' reviews'))),
           button('Refresh',refresh,{className:'mc-button','aria-label':'Refresh review queue'})),
+        allGroups.length>0 && h('div',{className:'mc-review-filters',role:'group','aria-label':'Filter review queue'},
+          filterTabs.map(([key,label])=>button(label+(counts[key]?' · '+counts[key]:''),()=>{setFilter(key);setPage(0)},{
+            key,'aria-pressed':filter===key,
+          }))),
         data.error && h('p',{className:'mc-roster-note mc-failure',role:'alert'},data.error),
-        cards.length ? h('ul',{className:'mc-sessions'},cards.map(({row,remote,status})=>{
+        cards.length ? h('ul',{className:'mc-sessions'},cards.map(({row,count,remote,status})=>{
           const [label,reason,,kind]=status
-          const link=row.pull || row.repair
+          const link=reviewLink(row)
           const pull=typeof link==='string' && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/([1-9]\d*)$/.exec(link)
-          return h('li',{key:row.id,className:'mc-session'},
-            h('div',{className:'mc-review-meta'},
-              h('span',{className:'mc-status','data-status':kind},label),
-              pull && h('a',{href:link,target:'_blank',rel:'noreferrer'},'PR #'+pull[1]),
-              h('code',{title:row.head},row.head.slice(0,8))),
+          const subParts=[row.leadTitle,row.head.slice(0,8),...(count>1?[count+' rounds']:row.repair && !row.pull?['Repair']:[])]
+          const showReason=row.fixerState==='round_limit' || kind==='ci_failed' || kind==='failed' ||
+            remote?.audit==='changed' || (row.repair && !row.pull && row.status==='ready' && !row.repairPublished)
+          return h('li',{key:row.id,className:'mc-session mc-review-card',onClick:e=>{if(!e.target.closest('a,button')) showReview(row.id)}},
+            h('div',{className:'mc-review-top'},
+              pull ? h('a',{className:'mc-review-target',href:link,target:'_blank',rel:'noreferrer'},'PR #'+pull[1]) :
+                h('span',{className:'mc-review-target'},reviewTargetLabel(row)),
+              h('span',{className:'mc-status','data-status':kind},label)),
+            h('span',{className:'mc-review-sub',title:subParts.join(' · ')},subParts.join(' · ')),
             button(row.goal,()=>showReview(row.id),{className:'mc-session-title mc-review-title',title:row.goal}),
-            h('span',{className:'mc-workspace',title:row.leadTitle},row.leadTitle),
-            h('p',{className:'mc-review-reason'},reason),
+            showReason && h('p',{className:'mc-review-reason'},reason),
             row.pull && pull && (!remote?.prState || remote.prState==='OPEN') && h(CheckStatus,{remote,unavailable:!!checks.error}))
         })) : !data.error && h('p',{className:'mc-roster-note',role:'status'},
-          data.value ? 'No reviews yet. Ask a lead to send its PR to Auto Auditor.' : 'Loading reviews…'),
+          !data.value ? 'Loading reviews…' :
+          allGroups.length>0 ? 'No reviews match this filter.' :
+          'No reviews yet. Ask a lead to send its PR to Auto Auditor.'),
         lastPage>0 && h('div',{className:'mc-pages'},
-          h('span',null,(currentPage*pageSize+1)+'–'+Math.min((currentPage+1)*pageSize,rows.length)+' of '+rows.length),
+          h('span',null,(currentPage*pageSize+1)+'–'+Math.min((currentPage+1)*pageSize,filtered.length)+' of '+filtered.length),
           h('div',null,button('Previous',()=>setPage(currentPage-1),{className:'mc-button',disabled:currentPage===0}),
             button('Next',()=>setPage(currentPage+1),{className:'mc-button',disabled:currentPage===lastPage}))))
     }
-    const shortStatus={
-      queued:'Queued',reviewing:'In review',ready:'Approved',published:'Published',
-      changes_requested:'Changes',needs_run:'Run needed',failed:'Failed',round_limit:'Round limit',
-    }
-    const reviewLink=row=>row.pull || row.repair
-    const reviewPrNumber=row=>{
-      const link=reviewLink(row)
-      return typeof link==='string' ? link.match(/\/pull\/([1-9]\d*)$/)?.[1] : null
-    }
-    const reviewGroupKey=row=>reviewLink(row) || JSON.stringify([row.leadId,row.branch || row.id])
-    const reviewTargetLabel=row=>{
-      const num=reviewPrNumber(row)
-      return num ? 'PR #'+num : row.branch || 'Commit '+row.head.slice(0,8)
-    }
-    const rowBadgeState=row=>row.repairPublished?'published':row.fixerState==='round_limit'?'round_limit':row.status
     function Panel({rpc,takeReview}) {
       const [revision,refresh]=useReducer(n=>n+1,0),[selected,select]=useState(()=>takeReview?.() ?? null),[view,setView]=useState('queue')
       const [filter,setFilter]=useState('all'),[grouped,setGrouped]=useState(true)
@@ -271,22 +325,15 @@ window.__ModuleLoader__.load({
         }
         return [...map.values()]
       },[rows])
-      const matchesFilter=(row,mode)=>{
-        const badge=rowBadgeState(row)
-        if(mode==='active') return badge==='queued' || badge==='reviewing'
-        if(mode==='attention') return ['changes_requested','needs_run','failed','round_limit'].includes(badge)
-        if(mode==='approved') return badge==='ready' || badge==='published'
-        return true
-      }
       const sourceEntries=grouped ? groups.map(group=>({row:group.latest,count:group.rows.length,group})) :
         rows.map(row=>({row,count:1,group:groups.find(g=>g.key===reviewGroupKey(row))}))
       const counts={
         all:sourceEntries.length,
-        active:sourceEntries.filter(e=>matchesFilter(e.row,'active')).length,
-        attention:sourceEntries.filter(e=>matchesFilter(e.row,'attention')).length,
-        approved:sourceEntries.filter(e=>matchesFilter(e.row,'approved')).length,
+        active:sourceEntries.filter(e=>matchesReviewFilter(e.row,'active')).length,
+        attention:sourceEntries.filter(e=>matchesReviewFilter(e.row,'attention')).length,
+        approved:sourceEntries.filter(e=>matchesReviewFilter(e.row,'approved')).length,
       }
-      const visible=sourceEntries.filter(entry=>matchesFilter(entry.row,filter))
+      const visible=sourceEntries.filter(entry=>matchesReviewFilter(entry.row,filter))
       const item=rows.find(r=>r.id===selected) || visible[0]?.row || rows[0]
       const activeGroup=item ? groups.find(g=>g.key===reviewGroupKey(item)) : null
       function openItem(id){select(id);setView('queue')}
