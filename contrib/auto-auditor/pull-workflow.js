@@ -1,5 +1,6 @@
 import {defineTool} from '@deepseek-ai/dsh-tools'
 import {pushPullCommit} from './git.js'
+import {buildFixerOverview} from './master-awareness.js'
 
 const sha=/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/
 
@@ -28,8 +29,19 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
     }
   }
   ctx.tools.register(defineTool({
+    name:'auditor_fixer_status',
+    description:'Master Control only. Inspect the PR Fixer repair inbox, active fixer chat IDs/statuses, Fixer model, Automatic wake setting, and Auto Auditor pending count. PR Fixer is a per-review repair inbox (not a single standing session); each started repair creates desktop-pr-fixer-<review-id> in a detached Git worktree and can be read/messaged with mc_read_session and mc_send.',
+    parameters:{},
+    output,
+    async execute(_args,exec) {
+      if (!(await author(exec)).master) throw new Error('Read the PR Fixer inbox from Master Control.')
+      const {reviewerModel,pendingAudits,fixerModel,automaticWake,inbox}=await buildFixerOverview(ctx,queue)
+      return JSON.stringify({reviewerModel,pendingAudits,fixerModel,automaticWake,inbox})
+    },
+  }))
+  ctx.tools.register(defineTool({
     name:'auditor_send_to_fixer',
-    description:'Master Control only. Start PR Fixer for an Auto Auditor PR that needs changes. PR Fixer gets a dedicated repair worktree and receives the PR URL, exact starting commit, and findings.',
+    description:'Master Control only. Start a per-review PR Fixer chat (desktop-pr-fixer-<review-id>) and isolated detached Git worktree for an Auto Auditor PR that needs changes. PR Fixer is a per-review repair inbox, not a single standing session. Use auditor_fixer_status to inspect the repair inbox and active fixer chats.',
     parameters:{review_id:parameter('The Auto Auditor review ID with changes requested.',true)},
     output,
     async execute(args,exec) {

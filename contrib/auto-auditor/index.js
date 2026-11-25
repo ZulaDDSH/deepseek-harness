@@ -3,6 +3,7 @@ import {defineTool} from '@deepseek-ai/dsh-tools'
 import {openQueue} from './queue.js'
 import {branchState} from './git.js'
 import {registerPullTools} from './pull-workflow.js'
+import {registerMasterAwareness} from './master-awareness.js'
 
 export const name='desktop-auto-auditor'
 export const inject=['profileContext','connection','webServer','tools','agents','sessions','llm','sessionController','sessionQuery','workspaceRegistry','permissionPresets','attachments']
@@ -12,7 +13,10 @@ const isMaster=agent=>agent.id.startsWith(controlPrefix) && agent.session.header
 
 function header(row) {
   return {id:row.id,leadId:row.leadId,leadTitle:row.leadTitle,goal:row.goal,status:row.status,head:row.head,
-    branch:row.branch,pull:row.pull?.url,repair:row.repair?.url,created:row.created,revision:row.revision}
+    branch:row.branch,pull:row.pull?.url,repair:row.repair?.url,created:row.created,revision:row.revision,
+    ...(row.fixerJob?.state==='sent' && {fixerSessionId:row.fixerJob.sessionId}),
+    ...(row.fixerJob?.state && {fixerState:row.fixerJob.state}),
+    ...(row.repair && {repairOriginal:row.repair.original,repairPublished:row.repair.published===true})}
 }
 
 export async function apply(ctx) {
@@ -94,6 +98,7 @@ export async function apply(ctx) {
     return {id:exec.agent.id,master:false}
   }
   registerPullTools(ctx,{queue,lead,author,parameter,output})
+  registerMasterAwareness(ctx,{queue,isMaster})
   ctx.tools.register(defineTool({
     name:'auditor_submit',
     description:'Send a ready GitHub PR or local commit to the always-on Auto Auditor. It reviews the pinned changes and replies to the lead chat. Master Control can submit on behalf of a lead. Use previous for a follow-up verdict.',
@@ -117,7 +122,7 @@ export async function apply(ctx) {
   }))
   ctx.tools.register(defineTool({
     name:'auditor_status',
-    description:'Read review status, verdict, and conversation. Leads see their own reviews. Master Control can see all reviews. Omit review_id to list the 25 latest.',
+    description:'Read Auto Auditor review status, verdicts, fixer assignments, and conversation. Leads see their own reviews. Master Control sees all reviews (use auditor_fixer_status for the PR Fixer repair inbox and settings). Omit review_id to list the 25 latest.',
     parameters:{review_id:parameter('Review ID returned by auditor_submit.')},
     output,
     async execute({review_id},exec) {
@@ -127,7 +132,11 @@ export async function apply(ctx) {
       if(!review_id) return JSON.stringify(rows.slice(0,25).map(header))
       const row=rows.find(item=>item.id===review_id)
       if(!row) throw new Error('Review not found.')
-      return JSON.stringify({...header(row),result:row.result,error:row.error,delivery:row.delivery,
+      const fixerJob=row.fixerJob ? {
+        ...row.fixerJob,
+        ...(row.fixerJob.state==='sent' && {agentStatus:ctx.agents.get(row.fixerJob.sessionId)?.status || 'closed'}),
+      } : null
+      return JSON.stringify({...header(row),result:row.result,error:row.error,delivery:row.delivery,fixerJob,
         current:await queue.tip(row.id,exec.signal),messages:row.messages?.slice(-12)})
     },
   }))
