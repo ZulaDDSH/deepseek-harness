@@ -57,6 +57,33 @@ describe('desktop welcome Web operations', () => {
     }
   })
 
+  it('keeps the explicit cookie when the session cookie jar holds legacy Host cookies', async () => {
+    const server = createServer(async (request, response) => {
+      let body = ''
+      for await (const chunk of request) body += chunk
+      if (request.headers.cookie !== cookie) {
+        response.writeHead(401).end('unauthorized')
+        return
+      }
+      response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        type: 'server-response', rpcId: (JSON.parse(body) as { rpcId: string }).rpcId, result: { ok: true, value: true },
+      }))
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    try {
+      const address = server.address()
+      if (address === null || typeof address === 'string') throw new Error('test Host did not bind a TCP port')
+      const jar = 'dsh-auth-legacy=stale'
+      const chromium: Parameters<typeof connectDesktopWelcome>[1] = (input, init) => fetch(input, {
+        ...init, headers: { ...(init?.headers as Record<string, string>), cookie: init?.credentials === 'omit' ? (init.headers as Record<string, string>).cookie! : jar },
+      })
+      const backend = await connectDesktopWelcome(`http://127.0.0.1:${address.port}/`, chromium, () => Promise.resolve(cookie))
+      expect(await backend.analyticsEnabled()).toBe(true)
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+    }
+  })
+
   it('reads language without querying account or model providers', async () => {
     const host = transport('zh')
     const backend = await connectDesktopWelcome(url, host.send, () => Promise.resolve(cookie))
@@ -81,6 +108,17 @@ describe('desktop welcome Web operations', () => {
   it('refuses an unauthenticated Web launch', async () => {
     const send = vi.fn<Parameters<typeof connectDesktopWelcome>[1]>(async () => new Response(null, { status: 401 }))
     const backend = await connectDesktopWelcome(url, send, () => Promise.resolve(cookie))
-    await expect(backend.analyticsEnabled()).rejects.toThrow('Web request failed')
+    await expect(backend.analyticsEnabled()).rejects.toThrow('Web request failed: productAnalytics/enabled HTTP 401')
+  })
+
+  it('names the status and a bounded redacted body snippet when the Host refuses a request', async () => {
+    const token = 'A'.repeat(43)
+    const send = vi.fn<Parameters<typeof connectDesktopWelcome>[1]>(async () =>
+      new Response(`unauthorized ${token}\n${'x '.repeat(5000)}`, { status: 401 }))
+    const backend = await connectDesktopWelcome(url, send, () => Promise.resolve(cookie))
+    const error = await backend.readLocalePreference().then(() => undefined, (failure: unknown) => failure as Error)
+    expect(error?.message).toMatch(/^desktop welcome: Web request failed: settings\/describe HTTP 401 unauthorized \[redacted\] x x/u)
+    expect(error?.message).not.toContain(token)
+    expect(error?.message.length).toBeLessThan(300)
   })
 })

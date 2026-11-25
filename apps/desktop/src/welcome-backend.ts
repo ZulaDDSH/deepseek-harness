@@ -15,6 +15,27 @@ export interface DesktopWelcomeBackend {
   readLocalePreference(): Promise<string | null>
 }
 
+const MAX_FAILURE_BODY_BYTES = 512
+const MAX_FAILURE_SNIPPET_CHARS = 200
+
+async function failureSnippet(response: Response): Promise<string> {
+  try {
+    const reader = response.body?.getReader()
+    if (reader === undefined) return ''
+    const chunks: Uint8Array[] = []
+    let size = 0
+    while (size < MAX_FAILURE_BODY_BYTES) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+      size += value.length
+    }
+    void reader.cancel().catch(() => undefined)
+    const text = new TextDecoder().decode(Buffer.concat(chunks).subarray(0, MAX_FAILURE_BODY_BYTES))
+    return text.replace(/[A-Za-z0-9_-]{32,}/gu, '[redacted]').replace(/\s+/gu, ' ').trim().slice(0, MAX_FAILURE_SNIPPET_CHARS)
+  } catch { return '' }
+}
+
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -40,11 +61,15 @@ export async function connectDesktopWelcome(
     const method = `${request.namespace}/${request.method}`
     const cookie = await cookies()
     const response = await send(new URL(`/api/${method}`, origin).href, {
-      method: 'POST', redirect: 'error', ...(signal === undefined ? {} : { signal }),
+      // credentials omit: with the default, Chromium replaces the explicit Cookie header by jar cookies
+      method: 'POST', redirect: 'error', credentials: 'omit', ...(signal === undefined ? {} : { signal }),
       headers: { 'content-type': 'application/json', cookie },
       body: JSON.stringify({ type: 'client-request', rpcId, method, payload: { args: request.args } }),
     })
-    if (!response.ok) throw new Error('desktop welcome: Web request failed')
+    if (!response.ok) {
+      const snippet = await failureSnippet(response)
+      throw new Error(`desktop welcome: Web request failed: ${method} HTTP ${String(response.status)}${snippet === '' ? '' : ` ${snippet}`}`)
+    }
     const envelope: unknown = await response.json()
     if (!record(envelope) || envelope.type !== 'server-response' || envelope.rpcId !== rpcId
       || !record(envelope.result) || envelope.result.ok !== true) {
