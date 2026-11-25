@@ -13,7 +13,7 @@ it.each(['test', 'production'] as const)('selects the %s policy and authenticati
   expect(policy).toEqual({ origin, allowedPageOrigins: [origin],
     ...(deployment === 'test' ? { allowedAuthOrigins: ['https://login.example.com'] } : {}),
     authentication: deployment === 'test' ? 'feishu-test' : 'anonymous' })
-  expect(resolveDesktopPolicyConfig(policy)).toMatchObject(policy)
+  expect(resolveDesktopPolicyConfig(policy ?? {})).toMatchObject(policy ?? {})
 })
 
 it('requires only the selected origin, defaults to test, and accepts explicit page restrictions', () => {
