@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto'
+import {setTimeout as delay} from 'node:timers/promises'
 import {createUserMessage} from '@deepseek-ai/dsh-llm'
 import {defineTool} from '@deepseek-ai/dsh-tools'
 import {branchState,checkFastForward,openPullForCommit,pushPullCommit,readPullViaGitCredentials} from './git.js'
@@ -40,10 +41,28 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
   async function pushAndConfirm(cwd,target,commit,expected,signal,afterPush) {
     const pushing=await pushPullCommit(cwd,target,commit,expected,signal)
     try {
-      const latest=await resolvePullTarget(target.url,{},signal)
+      let latest=await resolvePullTarget(target.url,{},signal)
+      // GitHub's PR API can lag behind git push by a few seconds while updating pullRequest.headRefOid.
+      if (!pushing.alreadyPushed && latest.prState==='OPEN' && latest.head===expected && commit!==expected) {
+        for (const waitMs of [750,1500,2500,3500,5000]) {
+          await delay(waitMs,undefined,{signal})
+          latest=await resolvePullTarget(target.url,{},signal)
+          if (latest.prState!=='OPEN' || latest.head===commit) break
+        }
+      }
       if (latest.prState!=='OPEN' || latest.head!==commit)
         throw new Error('GitHub has not confirmed this commit as the current open PR head.')
-      const audit=await afterPush(latest)
+      let audit
+      for (let attempt=0; attempt<4; attempt++) {
+        try { audit=await afterPush(latest); break }
+        catch (error) {
+          if (attempt<3 && !pushing.alreadyPushed && /does not match the live PR head/i.test(error?.message || '')) {
+            await delay(1000*(attempt+1),undefined,{signal})
+            continue
+          }
+          throw error
+        }
+      }
       return {status:'submitted',pullRequest:target.url,head:commit,alreadyPushed:pushing.alreadyPushed,audit}
     } catch (error) {
       return {status:'pushed_pending_audit',pullRequest:target.url,head:commit,
