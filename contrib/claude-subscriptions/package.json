@@ -1,6 +1,6 @@
 {
   "name": "dsh-claude-account-manager",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "license": "MIT",
   "description": "Local Claude Code subscription profiles for DeepSeek Harness",
@@ -9,6 +9,7 @@
   "exports": {
     ".": "./index.js",
     "./bridge": "./bridge/index.js",
+    "./retry-compat": "./retry-compat.js",
     "./client": "./client.js",
     "./package.json": "./package.json"
   },
@@ -52,6 +53,7 @@
   "files": [
     "bridge",
     "index.js",
+    "retry-compat.js",
     "ownership.js",
     "client.js",
     "cordis.patch.yml",

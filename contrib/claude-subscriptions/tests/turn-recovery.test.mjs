@@ -1,8 +1,39 @@
 import assert from 'node:assert/strict'
 import {existsSync} from 'node:fs'
 import {test} from 'node:test'
+import {Context} from '@deepseek-ai/cordis'
+import * as compatibility from '../retry-compat.js'
 
 const bridge = new URL('../bridge/', import.meta.url)
+
+test('legacy retries replace the policy only for recognized Claude request failures', async t => {
+  const ctx = new Context()
+  const original = {mode: 'normal', maxRetries: 0}
+  const modern = {mode: 'normal', maxRetries: 3}
+  const phrase = 'The native response stopped for tools but published none.'
+  ctx.on('agent/request-error', request => request.retryPolicy)
+  const plugin = await ctx.plugin(compatibility)
+  t.after(() => plugin.dispose())
+  const cases = [
+    ['claude-code-session', 'MALFORMED_RESPONSE', phrase, original, true],
+    ['claude-sub-work', 'SERVER', 'Overloaded', original, true],
+    ['claude-sub-work', 'MALFORMED_RESPONSE', 'Incomplete arguments', original, false],
+    ['claude-sub-work', 'NATIVE_OUTCOME_UNKNOWN', 'Stream ended', original, false],
+    ['deepseek', 'MALFORMED_RESPONSE', phrase, original, false],
+    ['claude-sub-work', 'MALFORMED_RESPONSE', phrase, modern, false],
+  ]
+  for (const [provider, code, message, retryPolicy, eligible] of cases) {
+    const request = {provider, failure: {code, message}, retryPolicy}
+    const resolved = await ctx.waterfall('agent/request-error', request, () => undefined)
+    if (eligible) {
+      assert.equal(resolved.maxRetries, 3)
+      assert.ok(resolved.retryableCodes.includes(code))
+    } else {
+      assert.equal(resolved, retryPolicy)
+    }
+    assert.equal(request.retryPolicy, retryPolicy)
+  }
+})
 
 test('Claude retries overloads and empty tool stops without retrying unknown outcomes', {
   skip: !existsSync(new URL('adapter.js', bridge)),
