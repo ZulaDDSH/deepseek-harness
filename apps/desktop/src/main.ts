@@ -124,7 +124,6 @@ let operationReportAbort: AbortController | undefined
 let operationReportsStopping = false
 let operationReportStop: Promise<void> | undefined
 
-/** Bound application shutdown waiting without claiming that an unresponsive Worker has exited. */
 const LEGACY_COOKIE_CLEANUP_TIMEOUT_MS = 3000
 
 async function cleanLegacyHostCookies(url: string): Promise<void> {
@@ -137,6 +136,7 @@ async function cleanLegacyHostCookies(url: string): Promise<void> {
   finally { clearTimeout(timer) }
 }
 
+/** Bound application shutdown waiting without claiming that an unresponsive Worker has exited. */
 function stopOperationReports(): Promise<void> {
   operationReportStop ??= waitForOperationReports()
   return operationReportStop
