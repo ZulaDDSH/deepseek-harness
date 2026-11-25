@@ -181,7 +181,7 @@ export async function openQueue(ctx,deliver) {
     wake()
   }
   async function retryDelivery(id,target) {
-    if (!['lead','master','fixer','publish','origin_lead','origin_published'].includes(target))
+    if (!['lead','master','fixer','publish','publish_failed','origin_lead','origin_published'].includes(target))
       throw new Error('Unknown recipient.')
     await change(id,row=>{
       if (!['failed','uncertain'].includes(row.delivery?.[target])) throw new Error('This delivery is not awaiting a retry.')
@@ -234,6 +234,18 @@ export async function openQueue(ctx,deliver) {
         await publisher(row.id,life.signal)
       } else await deliver(row,target,life.signal,message)
     } catch(error) {
+      if (!message && target==='publish' && !life.signal.aborted) {
+        await change(row.id,item=>{
+          item.delivery[target]='failed'
+          item.deliveryErrors??={}
+          item.deliveryErrors[target]=error.message
+          if (item.repair && !item.repair.published && (item.publishFixNotices || 0)<2) {
+            item.publishFixNotices=(item.publishFixNotices || 0)+1
+            item.delivery.publish_failed='pending'
+          }
+        })
+        return
+      }
       await update(life.signal.aborted?'pending':'failed',error.message)
       return
     }

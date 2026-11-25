@@ -121,6 +121,29 @@ export async function apply(ctx) {
       summary='Auto Auditor · '+label
       body='Auto Auditor requests a run slot for '+row.leadTitle+' ('+row.leadId+').\nReview '+row.id+' · '+(row.pull?.url || row.head)+
         '\nRequested evidence: '+row.result.runRequest+'\nCoordinate the slot with the originating lead.'
+    } else if(target==='publish_failed') {
+      const state=await queue.read()
+      const original=state.rows.find(item=>item.id===row.repair?.original)
+      const recipient=original?.fixerJob?.sessionId || row.leadId
+      id=(await lead(recipient,signal)).id
+      summary='Auto Auditor · Auto-publish blocked'
+      exchangeId='publish-failed:'+(row.publishFixNotices || 1)
+      const detail=row.deliveryErrors?.publish || 'Git push failed.'
+      body=[
+        'Auto Auditor · Auto-publish failed for approved repair '+row.id,
+        'PR: '+(row.repair?.url || row.pull?.url || ''),
+        'Source review ID: '+(row.repair?.original || ''),
+        'Repair worktree: '+row.repo,
+        'Approved commit: '+row.head,
+        '',
+        'Push / pre-push hook error:',
+        detail,
+        '',
+        'Action required in this repair worktree:',
+        '- Do NOT run git push directly. Harness owns pushing.',
+        '- If the hook only requires recording a review or metadata on the unchanged approved commit '+row.head+' (for example running a required pre-push review skill and recording it with the repo’s gate script, then confirming the gate check passes): complete that step on '+row.head+' and call auditor_retry_publish with review_id='+row.id+'.',
+        '- If satisfying the hook requires code changes (a new commit SHA): commit the fix locally, verify the repository’s pre-push gate passes on the new commit, and submit it with auditor_stage_fix using review_id='+(row.repair?.original || '')+'.',
+      ].join('\n')
     } else if(target==='origin_published') {
       const state=await queue.read()
       const original=state.rows.find(item=>item.id===row.repair?.original)

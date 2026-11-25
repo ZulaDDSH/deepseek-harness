@@ -312,6 +312,31 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
   }))
 
   ctx.tools.register(defineTool({
+    name:'auditor_retry_publish',
+    description:'PR Fixer (or Master Control) tool. After satisfying a repository pre-push hook or review gate on an already-approved repair commit (without changing the commit SHA), ask Harness to retry Auto-publish for that approved repair review.',
+    parameters:{review_id:parameter('Approved repair review ID whose Auto-publish failed.',true)},
+    output,
+    async execute(args,exec) {
+      const caller=await author(exec)
+      const state=await queue.read()
+      const repair=state.rows.find(row=>row.id===args.review_id)
+      if (!repair?.repair || repair.status!=='ready' || repair.repair.published ||
+          state.rows.find(row=>row.repair?.original===repair.repair.original)?.id!==repair.id)
+        throw new Error('Choose the latest approved, unpublished repair for that PR.')
+      const original=state.rows.find(row=>row.id===repair.repair.original)
+      const assigned=original?.fixerJob?.sessionId || repair.leadId
+      if (!caller.master && caller.id!==repair.leadId && caller.id!==assigned)
+        throw new Error('Only the assigned PR Fixer or Master Control can retry Auto-publish for this repair.')
+      if (!state.fixerAutoPublish)
+        throw new Error('Auto-publish is disabled. Ask Master Control to publish this repair with auditor_publish_fix.')
+      if (!['failed','uncertain'].includes(repair.delivery?.publish))
+        throw new Error('Auto-publish is not awaiting a retry for this repair.')
+      await queue.retryDelivery(repair.id,'publish')
+      return JSON.stringify({status:'queued',reviewId:repair.id,pullRequest:repair.repair.url,head:repair.head})
+    },
+  }))
+
+  ctx.tools.register(defineTool({
     name:'auditor_publish_fix',
     description:'Master Control manual fallback. Publish the exact approved repair commit to its original PR branch under an exact-head lease when Auto-publish is off or needs manual retry.',
     parameters:{review_id:parameter('Approved repair review ID from auditor_stage_fix.',true)},

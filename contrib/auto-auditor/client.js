@@ -185,7 +185,7 @@ window.__ModuleLoader__.load({
         previous && button('Earlier review · '+previous.head.slice(0,10),()=>select(previous.id)),
         h('details',null,h('summary',null,'Reviewed diff'),h('pre',{tabIndex:0},patch)),
         row.delivery && section('Delivery',h('div',{className:'stack'},Object.entries(row.delivery).map(([target,status])=>
-          h('div',{className:'actions',key:target},h('span',null,({lead:'Originating lead',master:'Master Control',fixer:'PR Fixer',publish:'Auto-publish',origin_lead:'Originating PR lead',origin_published:'Lead sync notice'})[target]+' · '+status),
+          h('div',{className:'actions',key:target},h('span',null,({lead:'Originating lead',master:'Master Control',fixer:'PR Fixer',publish:'Auto-publish',publish_failed:'Publish failure notice',origin_lead:'Originating PR lead',origin_published:'Lead sync notice'})[target]+' · '+status),
             row.deliveryErrors?.[target] && h('small',null,row.deliveryErrors[target]),
             ['failed','uncertain'].includes(status) && button('Retry delivery',()=>act('deliver',{id:row.id,target}),{disabled:action.busy}))))),
         problem(action.error || row.error || data.error || current.error),
