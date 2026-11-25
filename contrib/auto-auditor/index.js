@@ -73,6 +73,8 @@ function installFixerPermissionLock(ctx) {
 function header(row) {
   return {id:row.id,leadId:row.leadId,leadTitle:row.leadTitle,goal:row.goal,status:row.status,head:row.head,
     branch:row.branch,pull:row.pull?.url,repair:row.repair?.url,created:row.created,revision:row.revision,
+    ...(row.status==='needs_run' && row.result?.runRequest && {inputNote:row.result.runRequest.slice(0,300)}),
+    ...(row.status==='failed' && row.error && {inputNote:row.error.slice(0,300)}),
     ...(row.fixerJob?.state==='sent' && {fixerSessionId:row.fixerJob.sessionId}),
     ...(row.fixerJob?.state && {fixerState:row.fixerJob.state}),
     ...(row.repair && {repairOriginal:row.repair.original,repairPublished:row.repair.published===true})}

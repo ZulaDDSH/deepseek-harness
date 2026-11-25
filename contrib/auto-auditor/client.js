@@ -74,7 +74,14 @@ window.__ModuleLoader__.load({
       .audit .audit-pill{flex:none;font-size:.7rem;font-weight:500;line-height:1.2;padding:.14rem .44rem;border-radius:999px;border:1px solid var(--rule);color:var(--soft)}
       .audit .audit-pill:is([data-state="queued"],[data-state="reviewing"]){color:var(--accent);border-color:color-mix(in srgb,var(--accent) 42%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
       .audit .audit-pill:is([data-state="changes_requested"],[data-state="needs_run"]){color:var(--dsw-alias-state-warning-primary,var(--audit-warn));border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,var(--audit-warn)) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,var(--audit-warn)) 12%,transparent)}
-      .audit .audit-pill:is([data-state="failed"],[data-state="round_limit"]){color:var(--dsw-alias-state-error-primary,var(--audit-err));border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 12%,transparent)}
+      .audit .audit-pill:is([data-state="failed"],[data-state="round_limit"],[data-state="needs-input"]){color:var(--dsw-alias-state-error-primary,var(--audit-err));border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,var(--audit-err)) 12%,transparent)}
+      .audit .audit-input{display:grid;gap:.3rem;min-width:0;padding:.65rem .8rem;text-align:start;
+        color:var(--ink);border:1px solid var(--audit-err);border-radius:.48rem;
+        background:color-mix(in srgb,var(--audit-err) 7%,transparent);overflow-wrap:anywhere}
+      .audit .audit-input strong{color:var(--audit-err)}
+      .audit .audit-input-action{color:var(--soft)}
+      .audit .audit-input a{color:var(--accent);justify-self:start}
+      .audit .audit-row .audit-input{margin-top:.28rem;padding:.38rem .48rem;gap:.18rem;font-size:.73rem}
       .audit .audit-pill:is([data-state="ready"],[data-state="published"]){color:var(--dsw-alias-state-business-primary,var(--audit-ok));border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary,var(--audit-ok)) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,var(--audit-ok)) 12%,transparent)}
       .audit .audit-row-meta{display:flex;align-items:center;gap:.35rem;font-size:.75rem;color:var(--soft);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .audit .audit-row-goal{font-size:.74rem;color:color-mix(in srgb,var(--soft) 82%,transparent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -149,7 +156,7 @@ window.__ModuleLoader__.load({
         show && (problem(data.error) || (data.value ? h('img',{src:data.value,alt:capture.side+' · '+capture.ref.name,
           style:{display:'block',maxWidth:'100%',maxHeight:'50vh',marginTop:8}}) : h('small',null,' Loading…'))))
     }
-    function Detail({rpc,item,revision,refresh,select}) {
+    function Detail({rpc,item,remote,revision,refresh,select}) {
       const data=useData(rpc,'detail',{id:item.id},true,0,[item.status,item.revision,revision])
       const current=useData(rpc,'tip',{id:item.id},item.status==='ready',item.pull?60000:10000,revision)
       const action=useAction()
@@ -163,8 +170,10 @@ window.__ModuleLoader__.load({
       const section=(title,body)=>h('section',{className:'section'},h('h3',null,title),body)
       const list=items=>h('ul',null,items.map((s,i)=>h('li',{key:i},s)))
       const meta=(label,value)=>h('div',null,h('dt',null,label),h('dd',null,value))
+      const input=needsInput(item,remote,row)
       return h('article',{className:'stack'},h('div',null,h('small',{className:'status','data-state':row.status},
-        changed && row.status==='ready'?'Earlier commit approved':labels[row.status]),h('h2',null,row.goal)),
+        input?'Needs input':changed && row.status==='ready'?'Earlier commit approved':labels[row.status]),h('h2',null,row.goal)),
+        input && h(InputNotice,{input}),
         h('dl',null,meta('Lead',row.leadTitle),
           row.pull ? meta('Pull request',h('a',{href:row.pull.url,target:'_blank',rel:'noreferrer'},'PR #'+row.pull.number)) : meta('Branch',row.branch || 'Detached HEAD'),
           meta('Commit',h('code',{title:row.head},row.head.slice(0,12))),meta('Review ID',h('code',{title:row.id},row.id))),
@@ -205,7 +214,46 @@ window.__ModuleLoader__.load({
       return num ? 'PR #'+num : row.branch || 'Commit '+row.head.slice(0,8)
     }
     const rowBadgeState=row=>row.repairPublished?'published':row.fixerState==='round_limit'?'round_limit':row.status
-    function matchesReviewFilter(row,mode) {
+    function brief(value) {
+      const text=typeof value==='string' ? value.trim().replace(/\s+/g,' ') : ''
+      return text.length<=220 ? text : text.slice(0,217).replace(/\s+\S*$/,'')+'…'
+    }
+    function needsInput(row,remote,detail) {
+      if(remote?.prState==='CLOSED' || remote?.prState==='MERGED') return null
+      if(row.fixerState==='round_limit' || detail?.fixerJob?.state==='round_limit') return {
+        kind:'failed',
+        summary:'PR Fixer reached the configured repair round limit.',
+        action:'Review the findings and decide whether to raise Max repair rounds in Reviewer model.',
+      }
+      if(remote?.ci==='failed') return {
+        kind:'ci_failed',
+        summary:remote.check?.name ? 'Required GitHub check failed · '+remote.check.name : 'A required GitHub check failed.',
+        action:remote.audit==='changed' ? 'Inspect the failure and submit the current PR revision for audit.' :
+          'Inspect the failure, address it, and rerun the required check.',
+        url:remote.url,
+      }
+      if(remote?.audit==='changed') return null
+      if(row.status==='needs_run') return {
+        kind:'needs_run',
+        summary:brief(detail?.result?.runRequest || row.inputNote) || 'Auto Auditor is waiting for evidence from a requested run.',
+        action:'Run the requested check and send its results to Auto Auditor in a follow-up review.',
+      }
+      if(row.status==='failed') return {
+        kind:'failed',
+        summary:brief(detail?.error || row.inputNote) || 'Auto Auditor could not complete this review.',
+        action:'Check the audit error and use Retry review once the cause is resolved.',
+      }
+      return null
+    }
+    function InputNotice({input,compact=false}) {
+      return h(compact?'span':'section',{className:'audit-input',...(!compact && {'aria-label':'Needs input'})},
+        !compact && h('strong',null,'Needs input'),
+        h('span',null,input.summary),
+        h('span',{className:'audit-input-action'},'Recommended next step · ',input.action),
+        !compact && input.url && h('a',{href:input.url,target:'_blank',rel:'noreferrer'},'Open failed check'))
+    }
+    function matchesReviewFilter(row,mode,remote) {
+      if(needsInput(row,remote)) return mode==='all' || mode==='attention'
       const badge=rowBadgeState(row)
       if(mode==='active') return badge==='queued' || badge==='reviewing'
       if(mode==='attention') return ['changes_requested','needs_run','failed','round_limit'].includes(badge)
@@ -215,12 +263,8 @@ window.__ModuleLoader__.load({
     function queueState(row, remote) {
       if (remote?.prState==='MERGED') return ['Merged','GitHub merged this PR.',4,'merged']
       if (remote?.prState==='CLOSED') return ['Closed','GitHub closed this PR.',4,'closed']
-      if (row.fixerState==='round_limit') return ['Needs input','Repair round limit reached. Owner review needed.',0,'failed']
-      if (remote?.ci==='failed') {
-        const audit=remote.audit==='changed' ? 'The current revision needs a fresh audit.' :
-          row.status==='ready' && remote.audit==='current' ? 'The auditor approved this revision.' : queueStatuses[row.status][1]
-        return ['Needs input',audit,0,'ci_failed']
-      }
+      const input=needsInput(row,remote)
+      if(input) return ['Needs input',input.summary,0,input.kind]
       if (remote?.audit==='changed') return ['In review','The PR revision changed and needs a fresh audit.',3,'reviewing']
       if (row.status==='ready' && remote?.audit==='current') {
         if (remote.ci==='passed') return ['Ready for review','The audit and required checks passed for this revision.',2,'review_ready']
@@ -242,6 +286,31 @@ window.__ModuleLoader__.load({
         remote?.url && h('a',{href:remote.url,target:'_blank',rel:'noreferrer'},remote.check?.name || 'View checks'),
         remote?.audit==='changed' && h('span',null,'Current '+remote.head.slice(0,8)),
         remote?.draft && h('span',null,'Draft'))
+    }
+    function useAuditorChecks(rpc,ids,enabled,revision) {
+      const key=JSON.stringify(ids)
+      const [snapshot,setSnapshot]=useState(null)
+      useEffect(()=>{
+        if(!enabled || key==='[]') return
+        let active=true,timer
+        async function load() {
+          const pending=JSON.parse(key),rows=[]
+          for(let offset=0;active && offset<pending.length;offset+=12) {
+            try {rows.push(...await call(rpc,'snapshot',{ids:pending.slice(offset,offset+12)},githubChannel))}
+            catch(error) {
+              // Local review blockers remain visible when GitHub status is unavailable.
+              continue
+            }
+          }
+          if(active) {
+            setSnapshot({key,rows})
+            timer=setTimeout(load,15000)
+          }
+        }
+        void load()
+        return ()=>{active=false;clearTimeout(timer)}
+      },[rpc,key,enabled,revision])
+      return new Map((enabled && snapshot?.key===key ? snapshot.rows : []).map(remote=>[remote.id,remote]))
     }
     function ReviewQueue({rpc,showReview}) {
       const [revision,refresh]=useReducer(n=>n+1,0)
@@ -296,7 +365,7 @@ window.__ModuleLoader__.load({
           const link=reviewLink(row)
           const pull=typeof link==='string' && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/([1-9]\d*)$/.exec(link)
           const subParts=[row.leadTitle,row.head.slice(0,8),...(count>1?[count+' rounds']:row.repair && !row.pull?['Repair']:[])]
-          const showReason=row.fixerState==='round_limit' || kind==='ci_failed' || kind==='failed' ||
+          const showReason=['needs_run','ci_failed','failed'].includes(kind) ||
             remote?.audit==='changed' || (row.repair && !row.pull && row.status==='ready' && !row.repairPublished)
           return h('li',{key:row.id,className:'mc-session mc-review-card',onClick:e=>{if(!e.target.closest('a,button')) showReview(row.id)}},
             h('div',{className:'mc-review-top'},
@@ -335,14 +404,19 @@ window.__ModuleLoader__.load({
       },[rows])
       const sourceEntries=grouped ? groups.map(group=>({row:group.latest,count:group.rows.length,group})) :
         rows.map(row=>({row,count:1,group:groups.find(g=>g.key===reviewGroupKey(row))}))
+      const selectedRow=rows.find(row=>row.id===selected)
+      const checkIds=[...new Set([selectedRow,...groups.map(group=>group.latest)]
+        .filter(row=>row?.pull).map(row=>row.id))]
+      const checks=useAuditorChecks(rpc,checkIds,view==='queue',revision)
+      const matches=(entry,mode)=>matchesReviewFilter(entry.row,mode,checks.get(entry.row.id))
       const counts={
         all:sourceEntries.length,
-        active:sourceEntries.filter(e=>matchesReviewFilter(e.row,'active')).length,
-        attention:sourceEntries.filter(e=>matchesReviewFilter(e.row,'attention')).length,
-        approved:sourceEntries.filter(e=>matchesReviewFilter(e.row,'approved')).length,
+        active:sourceEntries.filter(e=>matches(e,'active')).length,
+        attention:sourceEntries.filter(e=>matches(e,'attention')).length,
+        approved:sourceEntries.filter(e=>matches(e,'approved')).length,
       }
-      const visible=sourceEntries.filter(entry=>matchesReviewFilter(entry.row,filter))
-      const item=rows.find(r=>r.id===selected) || visible[0]?.row || rows[0]
+      const visible=sourceEntries.filter(entry=>matches(entry,filter))
+      const item=selectedRow || visible[0]?.row || rows[0]
       const activeGroup=item ? groups.find(g=>g.key===reviewGroupKey(item)) : null
       function openItem(id){select(id);setView('queue')}
       const filterTabs=[
@@ -363,15 +437,17 @@ window.__ModuleLoader__.load({
               key,'aria-pressed':filter===key,
             }))),
           visible.length ? visible.map(({row,count,group})=>{
-            const badge=rowBadgeState(row)
+            const input=needsInput(row,checks.get(row.id))
+            const badge=input?'needs-input':rowBadgeState(row)
             const isCurrent=view==='queue' && (grouped ? activeGroup?.key===group.key : item?.id===row.id)
             const metaParts=[row.leadTitle,row.head.slice(0,8),...(grouped && count>1 ? [count+' rounds'] : row.repair && !row.pull ? ['Repair'] : [])]
             return button(h(React.Fragment,null,
               h('div',{className:'audit-row-top'},
                 h('span',{className:'audit-row-title'},reviewTargetLabel(row)),
-                h('span',{className:'audit-pill','data-state':badge},shortStatus[badge] || labels[row.status] || row.status)),
+                h('span',{className:'audit-pill','data-state':badge},input?'Needs input':shortStatus[badge] || labels[row.status] || row.status)),
               h('span',{className:'audit-row-meta'},metaParts.join(' · ')),
-              h('span',{className:'audit-row-goal',title:row.goal},row.goal)),
+              h('span',{className:'audit-row-goal',title:row.goal},row.goal),
+              input && h(InputNotice,{input,compact:true})),
               ()=>openItem(row.id),{key:grouped?group.key:row.id,className:'item audit-row','aria-current':isCurrent})
           }) : rows.length>0 && h('p',{className:'empty',style:{padding:'0 .45rem',fontSize:'.8rem'}},'No reviews match this filter.')),
         h('section',{className:'detail audit-ui','aria-label':'Review details'},problem(data.error),
@@ -382,8 +458,8 @@ window.__ModuleLoader__.load({
               const older=activeGroup.rows.slice(5)
               const roundLabel=(round,idx)=>{
                 const num=activeGroup.rows.length-idx
-                const badge=rowBadgeState(round)
-                return (idx===0?'Latest':'#'+num)+' · '+round.head.slice(0,7)+' · '+(shortStatus[badge] || round.status)
+                const label=needsInput(round,checks.get(round.id))?'Needs input':shortStatus[rowBadgeState(round)] || round.status
+                return (idx===0?'Latest':'#'+num)+' · '+round.head.slice(0,7)+' · '+label
               }
               return h('div',{className:'audit-rounds',role:'group','aria-label':'Audit rounds'},
                 h('small',null,'Rounds · '+activeGroup.rows.length),
@@ -395,7 +471,7 @@ window.__ModuleLoader__.load({
                 },h('option',{value:''},older.length+' earlier…'),
                   older.map((round,i)=>h('option',{key:round.id,value:round.id},roundLabel(round,i+5)))))
             })(),
-            h(Detail,{key:item.id,rpc,item,revision,refresh,select:openItem})):
+            h(Detail,{key:item.id,rpc,item,remote:checks.get(item.id),revision,refresh,select:openItem})):
           h('div',{className:'stack'},h('h2',null,state?'No reviews yet':'Loading reviews…'),
             state && h('p',{className:'empty'},'In a lead chat, say “Send this PR to Auto Auditor” and include the PR link. Findings and replies appear here and in that chat.')))))
     }
