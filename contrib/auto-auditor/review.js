@@ -22,7 +22,7 @@ async function reply(ctx,row,content,system,signal) {
 }
 
 export async function review(ctx,row,patch,previous,signal) {
-  const input = {goal:row.goal,reportedEvidence:row.evidence || null,branch:row.branch || null,pullRequest:row.pull?.url,
+  const input = {goal:row.goal,reportedEvidence:row.evidence || null,branch:row.branch || null,pullRequest:row.pull?.url ?? row.repair?.url,
     base:row.base,commit:row.head,previousReview:previous && {
       commit:previous.head,verdict:previous.result ?? null,
     },diff:patch}
@@ -47,7 +47,7 @@ export async function review(ctx,row,patch,previous,signal) {
 export async function answer(ctx,row,patch,message,signal) {
   const history=(row.messages ?? []).filter(item=>item.answer && item.created<=message.created).slice(-6)
     .map(item=>({from:item.role,message:item.body,answer:item.answer}))
-  const input={goal:row.goal,commit:row.head,pullRequest:row.pull?.url,diff:patch,
+  const input={goal:row.goal,commit:row.head,pullRequest:row.pull?.url ?? row.repair?.url,diff:patch,
     reportedEvidence:row.evidence,result:row.result,history,question:message.body,from:message.role}
   const content=[{type:'text',text:JSON.stringify(input)}]
   for(const {side,ref} of row.captures ?? []) content.push({type:'text',text:side+' capture'},{type:'image',attachment:ref})

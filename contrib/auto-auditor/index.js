@@ -2,6 +2,7 @@ import {createUserMessage} from '@deepseek-ai/dsh-llm'
 import {defineTool} from '@deepseek-ai/dsh-tools'
 import {openQueue} from './queue.js'
 import {branchState} from './git.js'
+import {registerPullTools} from './pull-workflow.js'
 
 export const name='desktop-auto-auditor'
 export const inject=['profileContext','connection','webServer','tools','agents','sessions','llm','sessionController','sessionQuery','workspaceRegistry','permissionPresets','attachments']
@@ -11,7 +12,7 @@ const isMaster=agent=>agent.id.startsWith(controlPrefix) && agent.session.header
 
 function header(row) {
   return {id:row.id,leadId:row.leadId,leadTitle:row.leadTitle,goal:row.goal,status:row.status,head:row.head,
-    branch:row.branch,pull:row.pull?.url,created:row.created,revision:row.revision}
+    branch:row.branch,pull:row.pull?.url,repair:row.repair?.url,created:row.created,revision:row.revision}
 }
 
 export async function apply(ctx) {
@@ -40,7 +41,7 @@ export async function apply(ctx) {
   }
   async function deliver(row,target,signal,message) {
     let id
-    const label={ready:'Ready to push',changes_requested:'Changes requested',needs_run:'Run requested'}[row.status]
+    const label={ready:row.repair?'Repair approved':'Ready to push',changes_requested:'Changes requested',needs_run:'Run requested'}[row.status]
     let body
     if(message) {
       id=message.author
@@ -57,12 +58,14 @@ export async function apply(ctx) {
     } else {
       id=(await lead(row.leadId,signal)).id
       const current=await branchState(row,signal)
-      body='Auto Auditor · '+label+'\nReview '+row.id+'\nReviewed commit '+row.head+' on '+(row.pull?.url || row.branch || 'detached HEAD')+
+      body='Auto Auditor · '+label+'\nReview '+row.id+'\nReviewed commit '+row.head+' on '+(row.pull?.url || row.repair?.url || row.branch || 'detached HEAD')+
         '\n'+row.result.summary+'\n'+row.result.findings.map(item=>'• '+item).join('\n')+
         (row.result.checks.length ? '\nReviewed checks:\n'+row.result.checks.map(item=>'• '+item).join('\n') : '')+
         (row.result.runRequest ? '\nRun requested through Master Control: '+row.result.runRequest : '')+
         (current.kind!=='current' ? '\nThe current PR or branch differs or could not be verified. Check its latest state before relying on this verdict.' : '')+
-        (row.status==='ready' ? '\nThis verdict covers only the listed SHA. Pushing is a separate owner action.' :
+        (row.status==='ready' ? (row.repair ? '\nMaster Control can use auditor_publish_fix with review_id='+row.id+'.' :
+          '\nThis verdict covers only the listed SHA. Pushing is a separate owner action.') : row.repair ?
+          '\nUse auditor_stage_fix with review_id='+row.repair.original+' to review a new repair commit.' :
           '\nUse auditor_submit with previous='+row.id+' to submit the fix or new evidence.')+
         '\nUse auditor_message with review_id='+row.id+' to discuss this review.'
     }
@@ -90,6 +93,7 @@ export async function apply(ctx) {
     await lead(exec.agent.id,exec.signal)
     return {id:exec.agent.id,master:false}
   }
+  registerPullTools(ctx,{queue,lead,author,parameter,output})
   ctx.tools.register(defineTool({
     name:'auditor_submit',
     description:'Send a ready GitHub PR or local commit to the always-on Auto Auditor. It reviews the pinned changes and replies to the lead chat. Master Control can submit on behalf of a lead. Use previous for a follow-up verdict.',

@@ -41,6 +41,53 @@ const headRef = number => 'refs/pull/'+number+'/head'
 function remoteRepository(url) {
   return url.match(githubRemote)?.[1].replace(/\.git$/i,'').toLowerCase()
 }
+
+async function workspaceRepo(cwd, signal) {
+  const folder = await realpath(cwd)
+  return realpath((await git(folder,['rev-parse','--show-toplevel'],signal)).trim())
+}
+
+/** Verify that both commits are local and that publishing them advances the PR. */
+export async function checkFastForward(repo, expectedHead, candidate, signal) {
+  if (!sha.test(expectedHead ?? '') || !sha.test(candidate ?? ''))
+    throw new Error('Use the complete commit SHA for the current PR head and the proposed change.')
+  if (await revision(repo,candidate,signal)!==candidate)
+    throw new Error('The proposed revision is not a commit in this workspace.')
+  if (expectedHead===candidate) return
+  try { await git(repo,['merge-base','--is-ancestor',expectedHead,candidate],signal) }
+  catch (error) {
+    if (error.cause?.code!==1) throw error
+    throw new Error('The proposed commit does not advance the current PR head. Reconcile the branch and submit again.')
+  }
+}
+
+/** Publish a pinned commit to the verified source branch using an exact ref lease. */
+export async function pushPullCommit(cwd,target,candidate,expectedHead,signal) {
+  if (target.prState!=='OPEN' || !target.headRepo || !target.headBranch)
+    throw new Error('This PR does not have a writable open source branch.')
+  const repo=await workspaceRepo(cwd,signal)
+  if (target.head===candidate) {
+    await checkFastForward(repo,candidate,candidate,signal)
+    return {alreadyPushed:true}
+  }
+  if (target.head!==expectedHead)
+    throw new Error('The PR head changed. Reconcile the latest revision before publishing.')
+  await checkFastForward(repo,expectedHead,candidate,signal)
+  const destination='refs/heads/'+target.headBranch
+  await git(repo,['check-ref-format',destination],signal)
+  const names=(await git(repo,['remote'],signal)).trim().split(/\r?\n/).filter(name=>/^[\w][\w./-]*$/.test(name))
+  for (const remote of names) {
+    // Match the configured push destination, including a fork’s separate push URL.
+    const urls=await git(repo,['config','--get-all','remote.'+remote+'.pushurl'],signal)
+      .catch(error=>{if(error.cause?.code!==1) throw error;return ''})
+    const configured=(urls.trim() || await git(repo,['config','--get-all','remote.'+remote+'.url'],signal)).trim().split(/\r?\n/)
+    if (configured.length!==1 || remoteRepository(configured[0])!==target.headRepo) continue
+    await git(repo,['push','--no-follow-tags','--recurse-submodules=no','--force-with-lease='+destination+':'+expectedHead,
+      '--',remote,candidate+':'+destination],signal)
+    return {alreadyPushed:false}
+  }
+  throw new Error('This worktree needs a configured push remote for the PR’s source repository.')
+}
 async function pullRemote(repo, pull, signal) {
   const link=typeof pull==='string' && pull.match(githubPR)
   const number=link?.[2] || (typeof pull==='string' && pull.match(/^#?([1-9]\d{0,11})$/)?.[1])

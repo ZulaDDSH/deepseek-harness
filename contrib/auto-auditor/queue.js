@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto'
 import {mkdir,open,readFile,realpath} from 'node:fs/promises'
 import {basename,extname,isAbsolute,join,relative,resolve,sep} from 'node:path'
 import {withFileLock,writeFileAtomic} from '@deepseek-ai/dsh-atomic-write'
-import {branchState,pinSubmission} from './git.js'
+import {branchState,checkFastForward,pinSubmission} from './git.js'
 import {answer,review} from './review.js'
 
 function text(value,label,limit,required=false) {
@@ -17,7 +17,9 @@ function lookup(state,id) {
   return row
 }
 const sameScope = (left,right) => left.leadId===right.leadId && left.repo===right.repo &&
-  (left.pull || right.pull ? left.pull?.url===right.pull?.url : left.branch===right.branch)
+  (left.repair || right.repair ? left.repair?.original===right.repair?.original &&
+    left.repair?.head===right.repair?.head && left.repair?.target===right.repair?.target :
+    left.pull || right.pull ? left.pull?.url===right.pull?.url : left.branch===right.branch)
 
 async function capturePair(ctx,args,repo,restricted,selection,signal) {
   const paths=[args.beforeCapture,args.afterCapture]
@@ -83,24 +85,26 @@ export async function openQueue(ctx,deliver) {
     await ctx.llm.resolveCallConfig(selection,life.signal)
     return mutate(state=>state.model=selection)
   }
-  async function submit(lead,args,restricted,signal) {
+  async function submit(lead,args,restricted,signal,repair) {
     const state = await read()
     const model=state.model ?? lead.model
     if (!model?.provider || !model.model) throw new Error('Choose a reviewer model in Auto Auditor. This lead has no selected model.')
     const selection={provider:model.provider,model:model.model,...(model.reasoningEffort && {reasoningEffort:model.reasoningEffort})}
     await ctx.llm.resolveCallConfig(selection,signal)
-    const prior = args.previous ? lookup(state,args.previous) : undefined
-    if (prior && prior.leadId!==lead.id) throw new Error('This review belongs to another lead.')
-    const pullRequest=text(args.pull_request,'pull request',500) || prior?.pull?.url
+    const prior = repair ? lookup(state,repair.original) : args.previous ? lookup(state,args.previous) : undefined
+    if (!repair && prior && prior.leadId!==lead.id) throw new Error('This review belongs to another lead.')
+    const pullRequest=repair ? undefined : text(args.pull_request,'pull request',500) || prior?.pull?.url
     const evidence = text(args.evidence,'test or capture evidence',16000)
-    const pin = await pinSubmission({cwd:lead.cwd,repository:text(args.repository ?? prior?.repo,'repository path',2000),
-      branch:args.branch ?? prior?.branch,commit:args.commit,base:args.base,pullRequest,previous:prior,restricted},signal)
+    const pin = await pinSubmission({cwd:lead.cwd,repository:text(args.repository ?? (repair ? undefined : prior?.repo),'repository path',2000),
+      branch:args.branch ?? (repair ? undefined : prior?.branch),commit:args.commit,base:repair?.target ?? args.base,
+      pullRequest,previous:repair ? undefined : prior,restricted},signal)
+    if (repair) await checkFastForward(pin.repo,repair.head,pin.head,signal)
     const {patch,...range} = pin
     const goal = text(args.goal ?? prior?.goal ?? (pin.pull && 'Review PR #'+pin.pull.number),'review goal',4000,true)
     const captures=await capturePair(ctx,args,pin.repo,restricted,selection,signal)
     const row = {id:randomUUID(),created:Date.now(),leadId:lead.id,leadTitle:lead.title,workspace:lead.workspace,
-      ...range,goal,evidence,captures,status:'queued',model:selection}
-    if (prior && !sameScope(row,prior)) throw new Error('A follow-up must use the same lead, repository, and PR or branch.')
+      ...range,goal,evidence,captures,status:'queued',model:selection,...(repair && {repair})}
+    if (!repair && prior && !sameScope(row,prior)) throw new Error('A follow-up must use the same lead, repository, and PR or branch.')
     const result = await mutate(async latest=>{
       const previous = prior ?? latest.rows.find(item=>sameScope(row,item) && item.base===row.base)
       const existing = latest.rows.find(item=>sameScope(row,item) && item.head===row.head && item.base===row.base &&
@@ -119,6 +123,20 @@ export async function openQueue(ctx,deliver) {
     const state=await read(), row=lookup(state,id)
     const [patch,branch]=await Promise.all([readFile(patchPath(row.id),'utf8'),branchState(row,signal)])
     return {row,patch,branch,previous:row.previous ? lookup(state,row.previous) : undefined}
+  }
+  async function recordPublishedRepair(id,signal) {
+    const state=await read(), row=lookup(state,id), repair=row.repair
+    if (!repair || row.status!=='ready') throw new Error('The proposed repair has no approval to publish.')
+    const original=lookup(state,repair.original)
+    const pin=await pinSubmission({cwd:original.repo,pullRequest:repair.url,
+      commit:row.head,base:repair.target,restricted:true},signal)
+    if (pin.base!==row.base || pin.patch!==await readFile(patchPath(id),'utf8'))
+      throw new Error('The pushed PR differs from the approved repair. Submit the current PR for another audit.')
+    await change(id,item=>{
+      item.pull=pin.pull
+      item.repair.published=true
+    })
+    return {id:row.id,status:'ready',head:row.head}
   }
   async function retry(id) {
     await mutate(state=>{
@@ -280,5 +298,5 @@ export async function openQueue(ctx,deliver) {
     const {data}=await ctx.attachments.readImage(ref,signal)
     return 'data:'+ref.mediaType+';base64,'+Buffer.from(data).toString('base64')
   }
-  return {read,selectModel,submit,detail,tip,capture,retry,retryDelivery,sendMessage}
+  return {read,selectModel,submit,detail,tip,capture,retry,retryDelivery,sendMessage,recordPublishedRepair}
 }

@@ -4,6 +4,7 @@ window.__ModuleLoader__.load({
     const React=require('react'),h=React.createElement
     const {useState,useEffect,useReducer}=React
     const id='desktop-auto-auditor',channel='/desktop-auto-auditor'
+    const githubChannel='/desktop-github-review-status'
     const labels={queued:'Queued',reviewing:'In review',ready:'Ready to push',changes_requested:'Changes requested',needs_run:'Run requested',failed:'Review failed'}
     const queueStatuses={
       needs_run:['Needs input','Run requested by Auto Auditor.',0],
@@ -26,24 +27,25 @@ window.__ModuleLoader__.load({
       .mc-review-queue .mc-review-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:.2rem .55rem}
       .mc-review-queue .mc-review-meta :is(a,code){font-size:.73rem}
       .mc-review-queue a{color:var(--mc-accent)}
-      .mc-review-queue .mc-review-title{white-space:normal;overflow-wrap:anywhere}
+      .mc-review-queue .mc-review-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;overflow-wrap:anywhere}
       .mc-review-queue .mc-review-reason{margin:.38rem 0 0;color:var(--mc-muted);font-size:.77rem;overflow-wrap:anywhere}
-      .mc-review-queue .mc-status[data-status="ready"]::before{background:var(--dsw-alias-state-business-primary,#7ccca9);border:0}
-      .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"])::before{border-radius:1px;transform:rotate(45deg)}
+      .mc-review-queue .mc-review-ci{display:flex;flex-wrap:wrap;gap:.3rem .55rem;align-items:baseline;margin:.37rem 0 0;font-size:.75rem;color:var(--mc-muted)}
+      .mc-review-queue .mc-status:is([data-status="ready"],[data-status="review_ready"])::before{background:var(--dsw-alias-state-business-primary,#7ccca9);border:0}
+      .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"],[data-status="ci_failed"])::before{border-radius:1px;transform:rotate(45deg)}
     `
-    async function call(rpc,method,args={}) {
-      const result=await rpc.call(channel,method,args)
+    async function call(rpc,method,args={},path=channel) {
+      const result=await rpc.call(path,method,args)
       if(!result.ok) throw new Error(result.error.message)
       return result.value
     }
-    function useData(rpc,method,args,enabled=true,interval=0,revision=0) {
-      const signature=JSON.stringify([method,args,revision])
+    function useData(rpc,method,args,enabled=true,interval=0,revision=0,path=channel) {
+      const signature=JSON.stringify([method,args,revision,path])
       const [state,set]=useState({})
       useEffect(()=>{
         if(!enabled) return
         let active=true,timer
         async function load() {
-          try {const value=await call(rpc,method,args);if(active)set({signature,value})}
+          try {const value=await call(rpc,method,args,path);if(active)set({signature,value})}
           catch(error){if(active)set(prior=>({...(prior.signature===signature && prior),signature,error:error.message}))}
           finally {if(active && interval) timer=setTimeout(load,interval)}
         }
@@ -131,34 +133,78 @@ window.__ModuleLoader__.load({
         problem(action.error || row.error || data.error || current.error),
         row.status==='failed' && h('div',null,button('Retry review',()=>act('retry',{id:row.id}),{disabled:action.busy})))
     }
+    function queueState(row, remote) {
+      if (remote?.prState==='MERGED') return ['Merged','GitHub merged this PR.',4,'merged']
+      if (remote?.prState==='CLOSED') return ['Closed','GitHub closed this PR.',4,'closed']
+      if (remote?.ci==='failed') {
+        const audit=remote.audit==='changed' ? 'The current revision needs a fresh audit.' :
+          row.status==='ready' && remote.audit==='current' ? 'The auditor approved this revision.' : queueStatuses[row.status][1]
+        return ['Needs input',audit,0,'ci_failed']
+      }
+      if (remote?.audit==='changed') return ['In review','The PR revision changed and needs a fresh audit.',3,'reviewing']
+      if (row.status==='ready' && remote?.audit==='current') {
+        if (remote.ci==='passed') return ['Ready for review','The audit and required checks passed for this revision.',2,'review_ready']
+        if (remote.ci==='pending') return ['In review','The auditor approved this revision. Required checks are pending.',3,'reviewing']
+      }
+      if (row.repair && !row.pull && row.status==='ready')
+        return ['Repair approved','Master Control can publish this commit to the original PR.',2,'ready']
+      return [...queueStatuses[row.status],row.status]
+    }
+    function CheckStatus({remote,unavailable}) {
+      const label=remote?.connection==='unconfigured' ? 'Connect this repository in Settings → GitHub review status.' :
+        ({passed:'Required checks satisfied',pending:'Required check pending',failed:'Required check failed',
+          unverified:remote?.error || 'Required checks unverified'})[remote?.ci] ??
+          (unavailable ? 'GitHub status unavailable' : 'Checking GitHub…')
+      return h('p',{className:'mc-review-ci'},
+        h('span',null,label),
+        remote?.url && h('a',{href:remote.url,target:'_blank',rel:'noreferrer'},remote.check?.name || 'View checks'),
+        remote?.audit==='changed' && h('span',null,'Current '+remote.head.slice(0,8)),
+        remote?.draft && h('span',null,'Draft'))
+    }
     function ReviewQueue({rpc,showReview}) {
       const [revision,refresh]=useReducer(n=>n+1,0)
+      const [page,setPage]=useState(0)
+      const pageSize=12
       const data=useData(rpc,'list',{},true,5000,revision)
       const seen=new Set()
       const rows=(data.value?.rows ?? []).filter(row=>{
         if(!Object.hasOwn(queueStatuses,row.status)) return false
-        const key=JSON.stringify([row.leadId,row.pull || row.branch || row.id])
+        const key=row.pull || JSON.stringify([row.leadId,row.repair || row.branch || row.id])
         if(seen.has(key)) return false
         seen.add(key)
         return true
       }).sort((first,second)=>queueStatuses[first.status][2]-queueStatuses[second.status][2])
+      const lastPage=Math.floor(Math.max(0,rows.length-1)/pageSize)
+      const currentPage=Math.min(page,lastPage)
+      const visible=rows.slice(currentPage*pageSize,(currentPage+1)*pageSize)
+      const ids=visible.filter(row=>row.pull).map(row=>row.id)
+      const checks=useData(rpc,'snapshot',{ids},ids.length>0,15000,revision,githubChannel)
+      const byId=new Map((checks.error ? [] : checks.value ?? []).map(status=>[status.id,status]))
+      const cards=visible.map(row=>({row,remote:byId.get(row.id),status:queueState(row,byId.get(row.id))}))
+        .sort((first,second)=>first.status[2]-second.status[2])
       return h('section',{className:'mc-roster mc-review-queue'},
         h('header',{className:'mc-heading'},h('h2',null,'Review queue'),
           button('Refresh',refresh,{className:'mc-button','aria-label':'Refresh review queue'})),
         data.error && h('p',{className:'mc-roster-note mc-failure',role:'alert'},data.error),
-        rows.length ? h('ul',{className:'mc-sessions'},rows.map(row=>{
-          const [label,reason]=queueStatuses[row.status]
-          const pull=typeof row.pull==='string' && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/([1-9]\d*)$/.exec(row.pull)
+        cards.length ? h('ul',{className:'mc-sessions'},cards.map(({row,remote,status})=>{
+          const [label,reason,,kind]=status
+          const link=row.pull || row.repair
+          const pull=typeof link==='string' && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/([1-9]\d*)$/.exec(link)
           return h('li',{key:row.id,className:'mc-session'},
             h('div',{className:'mc-review-meta'},
-              h('span',{className:'mc-status','data-status':row.status},label),
-              pull && h('a',{href:row.pull,target:'_blank',rel:'noreferrer'},'PR #'+pull[1]),
+              h('span',{className:'mc-status','data-status':kind},label),
+              pull && h('a',{href:link,target:'_blank',rel:'noreferrer'},'PR #'+pull[1]),
               h('code',{title:row.head},row.head.slice(0,8))),
-            button(row.goal,()=>showReview(row.id),{className:'mc-session-title mc-review-title',title:'View in Auto Auditor'}),
+            button(row.goal,()=>showReview(row.id),{className:'mc-session-title mc-review-title',title:row.goal}),
             h('span',{className:'mc-workspace',title:row.leadTitle},row.leadTitle),
-            h('p',{className:'mc-review-reason'},reason))
+            h('p',{className:'mc-review-reason'},reason),
+            row.pull && pull && (!remote?.prState || remote.prState==='OPEN') && h(CheckStatus,{remote,unavailable:!!checks.error}))
         })) : !data.error && h('p',{className:'mc-roster-note',role:'status'},
-          data.value ? 'No reviews yet. Ask a lead to send its PR to Auto Auditor.' : 'Loading reviews…'))
+          data.value ? 'No reviews yet. Ask a lead to send its PR to Auto Auditor.' : 'Loading reviews…'),
+        lastPage>0 && h('div',{className:'mc-pages'},
+          h('span',null,(currentPage*pageSize+1)+'–'+Math.min((currentPage+1)*pageSize,rows.length)+' of '+rows.length),
+          h('div',null,button('Previous',()=>setPage(currentPage-1),{className:'mc-button',disabled:currentPage===0}),
+            button('Next',()=>setPage(currentPage+1),{className:'mc-button',disabled:currentPage===lastPage}))))
     }
     function Panel({rpc,takeReview}) {
       const [revision,refresh]=useReducer(n=>n+1,0),[selected,select]=useState(()=>takeReview?.() ?? null),[view,setView]=useState('queue')

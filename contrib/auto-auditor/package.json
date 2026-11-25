@@ -1,11 +1,11 @@
 {
   "name": "dsh-auto-auditor-background",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "engines": {"node": ">=24.9.0", "dsh": "0.2.2-rc.5"},
   "exports": {".": "./index.js", "./client": "./client.js", "./package.json": "./package.json"},
-  "files": ["index.js", "queue.js", "git.js", "review.js", "client.js", "cordis.patch.yml", "README.md"],
+  "files": ["index.js", "queue.js", "git.js", "review.js", "pull-workflow.js", "client.js", "cordis.patch.yml", "README.md"],
   "dsh": {
     "bundle": {"patch": "./cordis.patch.yml", "listedByDefault": false},
     "client": {"platform": "web", "inject": ["@deepseek-ai/dsh-client-ui-sidebar", "@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-ui-layout"]}
