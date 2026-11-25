@@ -1,3 +1,4 @@
+import {symbols} from '@deepseek-ai/cordis'
 import {createUserMessage} from '@deepseek-ai/dsh-llm'
 import {defineTool} from '@deepseek-ai/dsh-tools'
 import {openQueue} from './queue.js'
@@ -10,9 +11,64 @@ export const name='desktop-auto-auditor'
 export const inject=['profileContext','connection','webServer','tools','agents','sessions','llm','sessionController','sessionQuery','workspaceRegistry','permissionPresets','attachments']
 const controlPrefix='desktop-master-control-'
 const fixerPrefix='desktop-pr-fixer-'
+const fullAccess='danger-full-access'
 const channel='/desktop-auto-auditor'
 const isMaster=agent=>agent.id.startsWith(controlPrefix) && agent.session.header.agentPreset==='desktop-master-control'
 const isFixer=agent=>agent.id.startsWith(fixerPrefix)
+
+function installFixerPermissionLock(ctx) {
+  const owner=ctx.permissionPresets[symbols.original] ?? ctx.permissionPresets
+  const previous=Object.getOwnPropertyDescriptor(owner,'set')
+  const original=Reflect.get(owner,'set')
+  if (typeof original==='function') {
+    const guarded=function(session,presetName) {
+      if (session?.header?.id?.startsWith(fixerPrefix) && presetName!==fullAccess)
+        throw new Error('PR Fixer permissions are locked to Full access.')
+      return original.call(this,session,presetName)
+    }
+    ctx.effect(()=>{
+      Object.defineProperty(owner,'set',{value:guarded,writable:true,configurable:true})
+      return ()=>{
+        if (owner.set!==guarded) return
+        if (previous) Object.defineProperty(owner,'set',previous)
+        else Reflect.deleteProperty(owner,'set')
+      }
+    },'Auto Auditor: PR Fixer permission lock')
+  }
+  const installedCommands=new Map()
+  async function lock(agent) {
+    if (!agent || !isFixer(agent)) return
+    if (ctx.permissionPresets.current(agent.session)!==fullAccess)
+      ctx.permissionPresets.set(agent.session,fullAccess)
+    let commands=installedCommands.get(agent)
+    if (!commands) {
+      commands=agent.ctx.inject(['commands'],scope=>{
+        scope.commands.register({
+          definitionId:'dsh-auto-auditor/locked-fixer-permission',
+          name:'permission',
+          description:'Show the fixed Full access preset for PR Fixer.',
+          handler:({rawInput})=>rawInput.trim()
+            ? {kind:'error',text:'PR Fixer permissions are locked to Full access.'}
+            : {kind:'success',text:'Full access is locked for PR Fixer.'},
+        })
+      })
+      installedCommands.set(agent,commands)
+    }
+    await commands
+  }
+  ctx.on('agent/created',({agent})=>{void lock(agent).catch(error=>ctx.logger.warn(error.message))})
+  ctx.on('agent/disposed',({agent})=>{
+    const commands=installedCommands.get(agent)
+    installedCommands.delete(agent)
+    return commands?.dispose()
+  })
+  ctx.effect(()=>()=>{
+    const releases=[...installedCommands.values()]
+    installedCommands.clear()
+    return Promise.all(releases.map(commands=>commands.dispose()))
+  },'Auto Auditor: PR Fixer command lock')
+  return Promise.all(ctx.agents.list().filter(isFixer).map(lock))
+}
 
 function header(row) {
   return {id:row.id,leadId:row.leadId,leadTitle:row.leadTitle,goal:row.goal,status:row.status,head:row.head,
@@ -148,6 +204,7 @@ export async function apply(ctx) {
   }
   registerPullTools(ctx,{queue,lead,author,parameter,output})
   registerWorkflowAwareness(ctx,{queue,isMaster,isFixer})
+  await installFixerPermissionLock(ctx)
   ctx.tools.register(defineTool({
     name:'auditor_submit',
     description:'Send a ready GitHub PR or local commit to the always-on Auto Auditor. For a brand-new PR, prefer auditor_open_and_review. For updating an existing PR, prefer auditor_push_and_review. Local-branch (non-PR) reviews stay with the originating lead; PR reviews with changes requested route to PR Fixer automatically.',

@@ -33,8 +33,13 @@ window.__ModuleLoader__.load({
       .mc-review-queue .mc-review-ci{display:flex;flex-wrap:wrap;gap:.3rem .55rem;align-items:baseline;margin:.37rem 0 0;font-size:.75rem;color:var(--mc-muted)}
       .mc-review-queue .mc-status:is([data-status="ready"],[data-status="review_ready"])::before{background:var(--dsw-alias-state-business-primary,#7ccca9);border:0}
       .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"],[data-status="ci_failed"])::before{border-radius:1px;transform:rotate(45deg)}
+      [data-row-key^="session:desktop-pr-fixer-"] { display:none !important }
+      html.dsh-pr-fixer-hide-ungrouped div:has(> [data-row-key="workspace:"]),
+      div:has(> [data-row-key="workspace:"][aria-expanded="true"]):not(:has([data-row-key^="session:"]:not([data-row-key^="session:desktop-pr-fixer-"]):not([data-row-key^="session:desktop-master-control-"]))) { display:none !important }
       .audit .fixer-content{display:flex;flex-direction:column;min-height:0;min-width:0}
       .audit .fixer-chat{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
+      .audit .fixer-chat [data-slot="conversation.input.permission"],
+      .audit .fixer-chat [data-slot="conversation.hero.agentPreset"]{display:none !important}
       .audit .fixer-controls{padding:.7rem 1rem;border-bottom:1px solid var(--rule)}
       .audit .fixer-controls a,.audit .fixer-work a{color:var(--accent)}
       .audit .fixer-work .fixer-revision{word-break:break-all}
@@ -338,6 +343,34 @@ window.__ModuleLoader__.load({
     }
     return {inject:['slots','connection','layout','sessions'],apply(ctx){
       ctx.effect(()=>{const style=document.createElement('style');style.textContent=css;document.head.append(style);return ()=>style.remove()},'Auto Auditor styles')
+      ctx.inject(['workspaces'],scope=>{
+        scope.effect(()=>{
+          const sessions=scope.get('sessions')
+          const workspaces=scope.get('workspaces')
+          function syncUngrouped() {
+            const list=sessions?.list?.getSnapshot?.()
+            if (!list?.ids) return
+            const ws=workspaces?.list?.getSnapshot?.()
+            const grouped=new Set((ws?.items ?? []).flatMap(item=>item.sessionIds ?? []))
+            const archived=new Set(ws?.archivedSessionIds ?? [])
+            const hasOrdinaryUngrouped=list.ids.some(sid=>{
+              if (sid.startsWith('desktop-pr-fixer-') || sid.startsWith('desktop-master-control-')) return false
+              if (grouped.has(sid) || archived.has(sid)) return false
+              const row=list.byId?.[sid]
+              return Boolean(row && row.origin!=='subagent' && !row.blank)
+            })
+            document.documentElement.classList.toggle('dsh-pr-fixer-hide-ungrouped',!hasOrdinaryUngrouped)
+          }
+          syncUngrouped()
+          const stopSessions=sessions?.list?.subscribe?.(syncUngrouped)
+          const stopWorkspaces=workspaces?.list?.subscribe?.(syncUngrouped)
+          return ()=>{
+            stopSessions?.()
+            stopWorkspaces?.()
+            document.documentElement.classList.remove('dsh-pr-fixer-hide-ungrouped')
+          }
+        },'PR Fixer sidebar filter')
+      })
       const inject=()=>({rpc:ctx.get('connection').rpc})
       let requestedReview
       function takeReview() {
