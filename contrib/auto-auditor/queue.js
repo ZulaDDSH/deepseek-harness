@@ -4,6 +4,7 @@ import {basename,extname,isAbsolute,join,relative,resolve,sep} from 'node:path'
 import {withFileLock,writeFileAtomic} from '@deepseek-ai/dsh-atomic-write'
 import {branchState,checkFastForward,pinSubmission} from './git.js'
 import {answer,review} from './review.js'
+import {createRepairInbox} from './repair-inbox.js'
 
 function text(value,label,limit,required=false) {
   if (value == null && !required) return ''
@@ -74,16 +75,23 @@ export async function openQueue(ctx,deliver) {
   }
   function change(id,edit) {return mutate(state=>{
     const row=lookup(state,id)
-    edit(row)
+    edit(row,state)
     row.revision=(row.revision || 0)+1
   })}
-  async function selectModel(args) {
-    if (args.inherit === true) return mutate(state=>state.model=null)
+  function setFixerJob(id,job) {
+    return change(id,row=>{row.fixerJob=job})
+  }
+  async function selectModel(args,field='model') {
+    if (args.inherit === true) return mutate(state=>state[field]=null)
     const provider=text(args.provider,'provider',300,true),model=text(args.model,'model',300,true)
     const effort=text(args.reasoningEffort,'effort',80)
     const selection={provider,model,...(effort && {reasoningEffort:effort})}
     await ctx.llm.resolveCallConfig(selection,life.signal)
-    return mutate(state=>state.model=selection)
+    return mutate(state=>state[field]=selection)
+  }
+  function setAutomaticWake(enabled) {
+    if (typeof enabled!=='boolean') throw new Error('Choose whether to wake PR Fixer automatically.')
+    return mutate(state=>state.fixerAutoWake=enabled)
   }
   async function submit(lead,args,restricted,signal,repair) {
     const state = await read()
@@ -151,7 +159,7 @@ export async function openQueue(ctx,deliver) {
     wake()
   }
   async function retryDelivery(id,target) {
-    if (!['lead','master'].includes(target)) throw new Error('Unknown recipient.')
+    if (!['lead','master','fixer'].includes(target)) throw new Error('Unknown recipient.')
     await change(id,row=>{
       if (!['failed','uncertain'].includes(row.delivery?.[target])) throw new Error('This delivery is not awaiting a retry.')
       row.delivery[target]='pending'
@@ -197,7 +205,8 @@ export async function openQueue(ctx,deliver) {
     })
     await update('sending')
     try {
-      await deliver(row,target,life.signal,message)
+      if (target==='fixer') await api.fixer.start(row.id,life.signal)
+      else await deliver(row,target,life.signal,message)
     } catch(error) {
       await update(life.signal.aborted?'pending':'failed',error.message)
       return
@@ -261,11 +270,13 @@ export async function openQueue(ctx,deliver) {
         try {
           const signal=AbortSignal.any([life.signal,AbortSignal.timeout(10*60_000)])
           const result=await review(ctx,row,await readFile(patchPath(row.id),'utf8'),state.rows.find(x=>x.id===row.previous),signal)
-          await change(row.id,item=>{
+          await change(row.id,(item,latest)=>{
             item.result=result
             item.status=result.status
             item.finished=Date.now()
-            item.delivery={lead:'pending',...(result.status==='needs_run' && {master:'pending'})}
+            item.delivery={lead:'pending',...(result.status==='needs_run' && {master:'pending'}),
+              ...(latest.fixerAutoWake && row.pull && !row.repair && result.status==='changes_requested' &&
+                latest.rows.find(entry=>entry.pull?.url===row.pull.url)?.id===row.id && {fixer:'pending'})}
           })
         } catch(error) {
           if(life.signal.aborted) return
@@ -290,7 +301,6 @@ export async function openQueue(ctx,deliver) {
     timer.unref()
     return ()=>{clearInterval(timer);life.abort();return worker}
   },'Auto Auditor review worker')
-  wake()
   const tip=async(id,signal)=>branchState(lookup(await read(),id),signal)
   async function capture(id,side,signal) {
     const ref=lookup(await read(),id).captures?.find(c=>c.side===side)?.ref
@@ -298,5 +308,8 @@ export async function openQueue(ctx,deliver) {
     const {data}=await ctx.attachments.readImage(ref,signal)
     return 'data:'+ref.mediaType+';base64,'+Buffer.from(data).toString('base64')
   }
-  return {read,selectModel,submit,detail,tip,capture,retry,retryDelivery,sendMessage,recordPublishedRepair}
+  const api={read,selectModel,setAutomaticWake,submit,detail,tip,capture,retry,retryDelivery,sendMessage,recordPublishedRepair,setFixerJob}
+  api.fixer=createRepairInbox(ctx,api)
+  wake()
+  return api
 }

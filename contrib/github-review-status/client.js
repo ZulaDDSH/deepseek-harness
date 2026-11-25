@@ -3,7 +3,6 @@ window.__ModuleLoader__.load({
   factory:require=>{
     const React=require('react'),h=React.createElement
     const channel='/desktop-github-review-status'
-    const fixerId='desktop-pr-fixer'
     const css=`
       .dsh-github-review-settings {color:var(--dsw-alias-label-primary,inherit);max-width:44rem}
       .dsh-github-review-settings h2 {font-size:1.15rem;margin:0 0 .55rem}
@@ -22,18 +21,6 @@ window.__ModuleLoader__.load({
       .dsh-github-review-settings button:disabled {opacity:.55}
       .dsh-github-review-settings :is(button,input,a):focus-visible {outline:2px solid var(--dsw-focus-ring-color,#8aaffc);outline-offset:2px}
       .dsh-github-review-settings [role="alert"] {color:var(--dsw-alias-state-error-primary,#cf786c)}
-      [data-row-key^="session:desktop-pr-fixer-"]{display:none !important}
-      .dsh-pr-fixer{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0}
-      .dsh-pr-fixer header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:.6rem;
-        padding:.85rem 1.2rem;border-bottom:1px solid var(--dsw-alias-border-l2,#8886)}
-      .dsh-pr-fixer h1{font-size:1.15rem;margin:0}
-      .dsh-pr-fixer .fixer-chat{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
-      .dsh-pr-fixer .fixer-chat[hidden]{display:none}
-      .dsh-pr-fixer .fixer-setup{margin:1rem auto;padding:0 1rem;width:min(100%,36rem);box-sizing:border-box;overflow:auto}
-      .dsh-pr-fixer .fixer-setup form{display:flex;align-items:end;flex-wrap:wrap;margin:.8rem 0}
-      .dsh-pr-fixer .fixer-setup label{flex:1;min-width:12rem}
-      .dsh-pr-fixer select{font:inherit;color:inherit;min-width:0;width:100%;
-        background:var(--dsw-alias-bg-layer-1,#303136);border:1px solid var(--dsw-alias-border-l3,#8887);border-radius:7px;padding:.38rem .6rem}
     `
     async function call(rpc,method,args={}) {
       const reply=await rpc.call(channel,method,args)
@@ -91,74 +78,7 @@ window.__ModuleLoader__.load({
           h('p',{role:'status'},rows?'Repositories appear here after a lead submits a GitHub PR to Auto Auditor.':error?'':'Loading repositories…'),
         button('Refresh repositories',()=>{setError('');refresh()},{disabled:busy}))
     }
-    function FixerIcon() {
-      return h('svg',{width:18,height:18,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.6,
-        strokeLinecap:'round',strokeLinejoin:'round','aria-hidden':true},
-        h('path',{d:'M5 7l4 5-4 5m8 0h6M14 7h5'}))
-    }
-    function FixerPage({rpc,sessions,SessionProvider,renderFactorySlot}) {
-      const [state,setState]=React.useState(null)
-      const [bound,setBound]=React.useState(null)
-      const [editing,setEditing]=React.useState(false)
-      const [workspace,setWorkspace]=React.useState('')
-      const [existing,setExisting]=React.useState('')
-      const [error,setError]=React.useState('')
-      const [busy,setBusy]=React.useState(false)
-      const [revision,retry]=React.useReducer(n=>n+1,0)
-      const sessionId=state?.sessionId
-      React.useEffect(()=>{
-        let active=true
-        call(rpc,'fixer-current').then(value=>{if(active)setState(value)},err=>{if(active)setError(err.message)})
-        return ()=>{active=false}
-      },[rpc,revision])
-      React.useEffect(()=>{
-        if(!sessionId) return
-        let active=true,reference
-        async function retain() {
-          await sessions.refresh()
-          if(!active) return
-          reference=sessions.retain(sessionId,{source:'desktopPrFixer'})
-          await reference.ready
-          if(active)setBound({sessionId,reference})
-        }
-        retain().catch(err=>{if(active)setError(err.message)})
-        return ()=>{active=false;reference?.release()}
-      },[sessions,sessionId,revision])
-      async function save(event,method,args) {
-        event.preventDefault()
-        setBusy(true)
-        setError('')
-        try {
-          setState(await call(rpc,method,args))
-          setEditing(false)
-        } catch (error) {setError(error.message)}
-        finally {setBusy(false)}
-      }
-      const setup=editing || !sessionId
-      return h('div',{className:'dsh-pr-fixer'},
-        h('header',{className:'dsh-github-review-settings',style:{maxWidth:'none'}},
-          h('h1',null,'PR Fixer'),
-          sessionId && button(editing?'Cancel':'Change session',()=>{setError('');setEditing(!editing)},{disabled:busy})),
-        error && h('div',{className:'fixer-setup dsh-github-review-settings'},
-          h('p',{role:'alert'},error),!busy && button('Retry',()=>{setBound(null);setError('');retry()})),
-        setup && h('div',{className:'fixer-setup dsh-github-review-settings'},
-          state ? h(React.Fragment,null,
-            state.sessions.length>0 && h('form',{onSubmit:event=>save(event,'fixer-link',{sessionId:existing})},
-              h('label',null,'Existing session',h('select',{value:existing,onChange:event=>setExisting(event.target.value)},
-                h('option',{value:''},'Choose a session'),state.sessions.map(item=>h('option',{key:item.id,value:item.id},item.title)))),
-              h('button',{disabled:busy || !existing},'Use session')),
-            !sessionId && state.workspaces.length>0 && h('form',{onSubmit:event=>save(event,'fixer-create',{workspaceId:workspace})},
-              h('label',null,'Workspace for new session',h('select',{value:workspace,onChange:event=>setWorkspace(event.target.value)},
-                h('option',{value:''},'Choose a workspace'),state.workspaces.map(item=>h('option',{key:item.id,value:item.id},item.title)))),
-              h('button',{disabled:busy || !workspace},'Create PR Fixer')),
-            !state.sessions.length && !state.workspaces.length && h('p',null,'Add a workspace to set up PR Fixer.')) :
-            !error && h('p',{role:'status'},'Loading PR Fixer…')),
-        h('div',{className:'fixer-chat',hidden:setup},
-          bound && bound.sessionId===sessionId ? h(SessionProvider,{session:bound.reference},
-            renderFactorySlot('conversation.content',{variant:'embedded',phase:'active',hero:false})) :
-            sessionId && !setup && !error && h('div',{className:'fixer-setup',role:'status'},'Opening PR Fixer…')))
-    }
-    return {inject:['slots','connection','sessions'],apply(ctx){
+    return {inject:['slots','connection'],apply(ctx){
       ctx.effect(()=>{
         const style=document.createElement('style')
         style.textContent=css
@@ -169,13 +89,6 @@ window.__ModuleLoader__.load({
         name:'settings.section',id:'github-review-status',order:13,label:()=> 'GitHub review status',
         inject:()=>({rpc:ctx.get('connection').rpc}),
       },Settings))
-      ctx.slots.inject('main',()=>ctx.slots.register({
-        name:'main',key:fixerId,children:{'desktop-pr-fixer.private-binding':{kind:'single',scope:'session-maybe'}},
-        inject:()=>({rpc:ctx.get('connection').rpc,sessions:ctx.get('sessions')}),
-      },FixerPage))
-      ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({
-        name:'sidebar.panellist',id:fixerId,order:-18,label:()=> 'PR Fixer',
-      },FixerIcon))
     }}
   },
 })

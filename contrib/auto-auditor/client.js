@@ -4,6 +4,7 @@ window.__ModuleLoader__.load({
     const React=require('react'),h=React.createElement
     const {useState,useEffect,useReducer}=React
     const id='desktop-auto-auditor',channel='/desktop-auto-auditor'
+    const fixerId='desktop-pr-fixer'
     const githubChannel='/desktop-github-review-status'
     const labels={queued:'Queued',reviewing:'In review',ready:'Ready to push',changes_requested:'Changes requested',needs_run:'Run requested',failed:'Review failed'}
     const queueStatuses={
@@ -32,6 +33,12 @@ window.__ModuleLoader__.load({
       .mc-review-queue .mc-review-ci{display:flex;flex-wrap:wrap;gap:.3rem .55rem;align-items:baseline;margin:.37rem 0 0;font-size:.75rem;color:var(--mc-muted)}
       .mc-review-queue .mc-status:is([data-status="ready"],[data-status="review_ready"])::before{background:var(--dsw-alias-state-business-primary,#7ccca9);border:0}
       .mc-review-queue .mc-status:is([data-status="needs_run"],[data-status="failed"],[data-status="ci_failed"])::before{border-radius:1px;transform:rotate(45deg)}
+      .audit .fixer-content{display:flex;flex-direction:column;min-height:0;min-width:0}
+      .audit .fixer-chat{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
+      .audit .fixer-controls{padding:.7rem 1rem;border-bottom:1px solid var(--rule)}
+      .audit .fixer-controls a,.audit .fixer-work a{color:var(--accent)}
+      .audit .fixer-work .fixer-revision{word-break:break-all}
+      .audit button[aria-pressed="true"]{background:var(--fill);border-color:var(--accent)}
     `
     async function call(rpc,method,args={},path=channel) {
       const result=await rpc.call(path,method,args)
@@ -67,23 +74,23 @@ window.__ModuleLoader__.load({
         try {await job()} catch(e) {setError(e.message)} finally {lock.current=false;setBusy(false)}
       }}
     }
-    function Settings({rpc,model,onDone}) {
+    function Settings({rpc,model,onDone,fixer=false}) {
       const [provider,setProvider]=useState(model?.provider || ''),[name,setName]=useState(model?.model || '')
       const [effort,setEffort]=useState(model?.reasoningEffort || '')
       const providers=useData(rpc,'providers',{}),models=useData(rpc,'models',{provider},!!provider)
       const reasoning=useData(rpc,'efforts',{provider,model:name},!!provider && !!name)
       const action=useAction()
       return h('form',{onSubmit:e=>{e.preventDefault();action.run(async()=>{
-        await call(rpc,'settings',provider ? {provider,model:name,reasoningEffort:effort} : {inherit:true});onDone()
-      })}},h('h2',null,'Reviewer model'),
+        await call(rpc,fixer?'fixer-model':'settings',provider ? {provider,model:name,reasoningEffort:effort} : {inherit:true});onDone()
+      })}},h('h2',null,fixer?'Fixer model':'Reviewer model'),
       field('Provider',h('select',{value:provider,onChange:e=>{setProvider(e.target.value);setName('');setEffort('')}},
-        h('option',{value:''},'Use each lead’s model and effort'),options(providers.value || []))),
+        h('option',{value:''},fixer?'Use the audit model and effort':'Use each lead’s model and effort'),options(providers.value || []))),
       provider && field('Model',h('select',{required:true,value:name,onChange:e=>{setName(e.target.value);setEffort('')}},
         h('option',{value:''},'Choose model'),options(models.value || []))),
       name && provider && field('Reasoning effort',h('select',{value:effort,disabled:!reasoning.value,onChange:e=>setEffort(e.target.value)},
         h('option',{value:''},reasoning.value?.defaultEffort ? 'Model default · '+reasoning.value.defaultEffort : 'Model default'),options(reasoning.value?.efforts || []))),
       problem(action.error || providers.error || models.error || reasoning.error),
-      h('div',{className:'actions'},h('button',{className:'primary',disabled:action.busy || !!provider && (!name || reasoning.value===undefined)},'Save reviewer'),button('Cancel',onDone)))
+      h('div',{className:'actions'},h('button',{className:'primary',disabled:action.busy || !!provider && (!name || reasoning.value===undefined)},fixer?'Save fixer model':'Save reviewer'),button('Cancel',onDone)))
     }
     function Capture({rpc,id,capture}) {
       const [show,setShow]=useState(false)
@@ -127,7 +134,7 @@ window.__ModuleLoader__.load({
         previous && button('Earlier review · '+previous.head.slice(0,10),()=>select(previous.id)),
         h('details',null,h('summary',null,'Reviewed diff'),h('pre',{tabIndex:0},patch)),
         row.delivery && section('Delivery',h('div',{className:'stack'},Object.entries(row.delivery).map(([target,status])=>
-          h('div',{className:'actions',key:target},h('span',null,(target==='lead'?'Originating lead':'Master Control')+' · '+status),
+          h('div',{className:'actions',key:target},h('span',null,({lead:'Originating lead',master:'Master Control',fixer:'PR Fixer'})[target]+' · '+status),
             row.deliveryErrors?.[target] && h('small',null,row.deliveryErrors[target]),
             ['failed','uncertain'].includes(status) && button('Retry delivery',()=>act('deliver',{id:row.id,target}),{disabled:action.busy}))))),
         problem(action.error || row.error || data.error || current.error),
@@ -233,7 +240,95 @@ window.__ModuleLoader__.load({
         h('path',{d:'M6 3.75h10l2.5 2.5v13.5H6zM9 9h6m-6 4 2 2 4-4',strokeLinecap:'round',strokeLinejoin:'round'})),
         count>0 && h('small',{'aria-label':count+' pending reviews'},count))
     }
-    return {inject:['slots','connection','layout'],apply(ctx){
+    const repairLabels={
+      available:'Ready to start',preparing:'Preparing worktree',handoff_failed:'Handoff needs attention',sent:'Handoff sent',
+      queued:'Repair queued for audit',reviewing:'Repair in audit',ready:'Repair approved',
+      changes_requested:'More changes requested',needs_run:'Run requested',failed:'Repair audit failed',
+      published:'Published to PR',superseded:'Newer audit available',
+    }
+    function FixerChat({sessionId,sessions,SessionProvider,renderFactorySlot}) {
+      const [bound,setBound]=useState(null),[error,setError]=useState('')
+      useEffect(()=>{
+        let active=true,reference
+        async function retain() {
+          await sessions.refresh()
+          if(!active) return
+          reference=sessions.retain(sessionId,{source:'desktopPrFixer'})
+          await reference.ready
+          if(active)setBound(reference)
+        }
+        retain().catch(err=>{if(active)setError(err.message)})
+        return ()=>{active=false;reference?.release()}
+      },[sessions,sessionId])
+      return h('div',{className:'fixer-chat'},bound ? h(SessionProvider,{session:bound},
+        renderFactorySlot('conversation.content',{variant:'embedded',phase:'active',hero:false})) :
+        problem(error) || h('p',{role:'status',className:'detail'},'Opening the repair chat…'))
+    }
+    function FixerPage({rpc,sessions,SessionProvider,renderFactorySlot}) {
+      const [revision,refresh]=useReducer(n=>n+1,0)
+      const [selected,select]=useState(null),[open,setOpen]=useState(null),[settings,setSettings]=useState(false)
+      const data=useData(rpc,'fixer-list',{},true,5000,revision)
+      const action=useAction()
+      const last=React.useRef(null)
+      if(data.value) last.current=data.value
+      const state=data.value || last.current
+      const rows=state?.rows ?? []
+      const item=rows.find(row=>row.id===selected) || rows[0]
+      function show(row) {select(row.id);setOpen(null);setSettings(false)}
+      function toggle() {action.run(async()=>{
+        await call(rpc,'fixer-autowake',{enabled:!state.automaticWake})
+        refresh()
+      })}
+      function start() {action.run(async()=>{
+        const id=item.id
+        const job=await call(rpc,'fixer-start',{id})
+        select(id)
+        setOpen({id,sessionId:job.sessionId})
+        refresh()
+      })}
+      const chat=open && open.id===item?.id && open.sessionId
+      const fixerModelLabel=state?.model?.model ?
+        'Fixer model · '+state.model.model+(state.model.reasoningEffort?' · '+state.model.reasoningEffort:'') : 'Fixer model'
+      return h('div',{className:'audit dsh-pr-fixer'},
+        h('header',null,h('h1',null,'PR Fixer'),h('div',{className:'actions'},
+          button('Automatic wake',toggle,{disabled:!state || action.busy,'aria-pressed':state?.automaticWake===true,
+            title:'Wake PR Fixer when Auto Auditor requests changes'}),
+          button(fixerModelLabel,()=>setSettings(!settings),
+            {disabled:!state,'aria-expanded':settings}))),
+        h('div',{className:'body'},
+          h('nav',{className:'queue','aria-label':'Repair inbox'},
+            h('h2',null,'Repair inbox'+(rows.length?' · '+rows.length:'')),
+            rows.map(row=>button(h(React.Fragment,null,h('strong',null,'PR #'+row.number+' · '+row.lead),
+              h('small',null,repairLabels[row.status] || row.status)),
+              ()=>show(row),{key:row.id,className:'item','aria-current':item?.id===row.id}))),
+          h('div',{className:'fixer-content'},
+            (data.error || action.error) && h('div',{className:'fixer-controls'},problem(action.error || data.error)),
+            settings ? h('div',{className:'detail'},h(Settings,{rpc,model:state.model,fixer:true,
+              onDone:()=>{setSettings(false);refresh()}})) :
+            chat ? h(React.Fragment,null,
+              h('div',{className:'actions fixer-controls'},
+                h('a',{href:item.url,target:'_blank',rel:'noreferrer'},'PR #'+item.number),
+                button('View findings',()=>setOpen(null))),
+              h(FixerChat,{key:chat,sessionId:chat,sessions,SessionProvider,renderFactorySlot})) :
+            h('section',{className:'detail fixer-work','aria-label':'Repair work order'},
+              item ? h('div',{className:'stack'},
+                h('div',{className:'actions'},h('a',{href:item.url,target:'_blank',rel:'noreferrer'},'PR #'+item.number),
+                  h('small',{role:'status'},repairLabels[item.status] || item.status)),
+                h('h2',null,item.goal),
+                h('div',null,h('h3',null,'Starting commit'),h('code',{className:'fixer-revision'},item.head)),
+                h('div',null,h('h3',null,'Auto Auditor findings'),h('ul',null,item.findings.map((finding,index)=>h('li',{key:index},finding)))),
+                item.evidence && h('details',null,h('summary',null,'Evidence from '+item.lead),h('p',{className:'long'},item.evidence)),
+                problem(item.error),
+                item.sessionId ? h('div',null,button('Open repair chat',()=>setOpen({id:item.id,sessionId:item.sessionId}))) :
+                  item.startable && h('div',null,button(action.busy?'Starting…':item.error?'Retry handoff':'Start repair',
+                    start,{className:'primary',disabled:action.busy}))) :
+                h('p',{className:'empty',role:'status'},state?'PRs with changes requested by Auto Auditor appear here.':'Loading repair inbox…')))))
+    }
+    function FixerIcon() {
+      return h('svg',{width:18,height:18,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.6,
+        strokeLinecap:'round',strokeLinejoin:'round','aria-hidden':true},h('path',{d:'M5 7l4 5-4 5m8 0h6M14 7h5'}))
+    }
+    return {inject:['slots','connection','layout','sessions'],apply(ctx){
       ctx.effect(()=>{const style=document.createElement('style');style.textContent=css;document.head.append(style);return ()=>style.remove()},'Auto Auditor styles')
       const inject=()=>({rpc:ctx.get('connection').rpc})
       let requestedReview
@@ -252,6 +347,13 @@ window.__ModuleLoader__.load({
         name:'desktop-master-control.review-queue',inject:()=>({...inject(),showReview}),
       },ReviewQueue))
       ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({name:'sidebar.panellist',id,priority:-10,order:-19,label:()=> 'Auto Auditor',inject},Icon))
+      ctx.slots.inject('main',()=>ctx.slots.register({
+        name:'main',key:fixerId,priority:-10,children:{'desktop-pr-fixer.private-binding':{kind:'single',scope:'session-maybe'}},
+        inject:()=>({...inject(),sessions:ctx.get('sessions')}),
+      },FixerPage))
+      ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({
+        name:'sidebar.panellist',id:fixerId,priority:-10,order:-18,label:()=> 'PR Fixer',
+      },FixerIcon))
     }}
   },
 })

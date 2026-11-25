@@ -1,6 +1,6 @@
 import {execFile} from 'node:child_process'
 import {promisify} from 'node:util'
-import {realpath} from 'node:fs/promises'
+import {lstat,mkdir,realpath} from 'node:fs/promises'
 import {isAbsolute, relative, resolve, sep} from 'node:path'
 
 const exec = promisify(execFile)
@@ -87,6 +87,46 @@ export async function pushPullCommit(cwd,target,candidate,expectedHead,signal) {
     return {alreadyPushed:false}
   }
   throw new Error('This worktree needs a configured push remote for the PR’s source repository.')
+}
+
+/** Compare two existing filesystem paths using canonical targets and platform casing. */
+export async function samePath(left, right) {
+  if (typeof left !== 'string' || typeof right !== 'string' || !left || !right) return false
+  const canonical = async value => {
+    const target = await realpath(value)
+    return process.platform === 'win32' ? target.toLowerCase() : target
+  }
+  try { return await canonical(left) === await canonical(right) }
+  catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return false
+    throw error
+  }
+}
+
+/** Prepare a detached worktree at the reviewed PR head, preserving an existing retry. */
+export async function prepareRepairWorktree(row, root, cwd, signal) {
+  const {head}=await pullRefs(row.repo,row.pull,signal)
+  if (head!==row.head)
+    throw new Error('The PR head has moved. Send the current revision to Auto Auditor before starting a repair.')
+  let existing
+  try {existing=await lstat(cwd)}
+  catch (error) {if(error.code!=='ENOENT') throw error}
+  if (existing) {
+    if (!existing.isDirectory()) throw new Error('The repair directory is not a regular directory.')
+    if (!await samePath(await workspaceRepo(cwd,signal),cwd))
+      throw new Error('The existing repair directory is not its own worktree.')
+    const common=async path=>resolve(path,(await git(path,['rev-parse','--git-common-dir'],signal)).trim())
+    if (!await samePath(await common(cwd),await common(row.repo)))
+      throw new Error('The existing repair directory belongs to a different repository.')
+    const tip=await revision(cwd,'HEAD',signal)
+    await checkFastForward(cwd,row.head,tip,signal)
+  } else {
+    if (!await optionalRevision(row.repo,row.head,signal))
+      await fetchPull(row.repo,row.pull,[headRef(row.pull.number)],signal)
+    await mkdir(root,{recursive:true})
+    await git(row.repo,['worktree','add','--detach','--',cwd,row.head],signal)
+  }
+  return realpath(cwd)
 }
 async function pullRemote(repo, pull, signal) {
   const link=typeof pull==='string' && pull.match(githubPR)

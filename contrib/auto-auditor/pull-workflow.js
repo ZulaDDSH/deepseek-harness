@@ -28,6 +28,16 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
     }
   }
   ctx.tools.register(defineTool({
+    name:'auditor_send_to_fixer',
+    description:'Master Control only. Start PR Fixer for an Auto Auditor PR that needs changes. PR Fixer gets a dedicated repair worktree and receives the PR URL, exact starting commit, and findings.',
+    parameters:{review_id:parameter('The Auto Auditor review ID with changes requested.',true)},
+    output,
+    async execute(args,exec) {
+      if (!(await author(exec)).master) throw new Error('Assign a repair from Master Control.')
+      return JSON.stringify(await queue.fixer.start(args.review_id,exec.signal))
+    },
+  }))
+  ctx.tools.register(defineTool({
     name:'auditor_push_and_review',
     description:'When the owner requests publication, push a specific committed revision to an existing GitHub PR and queue that exact commit for audit. Retry a pushed_pending_audit result with the same arguments.',
     parameters:{pull_request:parameter('Full URL of an existing open GitHub PR.',true),
@@ -59,9 +69,13 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
     output,
     async execute(args,exec) {
       const caller=await author(exec)
-      const original=(await queue.read()).rows.find(row=>row.id===args.review_id && row.pull)
-      if (!original || original.status!=='changes_requested' || (!caller.master && original.leadId!==caller.id))
-        throw new Error('Choose a pull request review with changes requested from its lead or Master Control.')
+      const rows=(await queue.read()).rows
+      const original=rows.find(row=>row.id===args.review_id && row.pull)
+      const latest=original && rows.find(row=>row.pull?.url===original.pull.url)
+      const assigned=original?.fixerJob?.state==='sent' ? original.fixerJob.sessionId : undefined
+      if (!original || original.status!=='changes_requested' || latest?.id!==original.id ||
+          (!caller.master && caller.id!==original.leadId && caller.id!==assigned))
+        throw new Error('Choose the latest pull request review with changes requested from its assigned fixer, lead, or Master Control.')
       if (!caller.master && args.fixer_id && args.fixer_id!==caller.id)
         throw new Error('Master Control must choose another session’s repair.')
       if (!sha.test(args.commit ?? '') || args.commit===original.head)
@@ -69,7 +83,7 @@ export function registerPullTools(ctx,{queue,lead,author,parameter,output}) {
       const target=await github().target(original.pull.url,exec.signal)
       if (target.prState!=='OPEN' || target.head!==original.head || target.base!==original.pull.target)
         throw new Error('The PR changed since this review. Submit the current PR for a new audit first.')
-      const fixer=await lead(caller.master ? args.fixer_id || original.leadId : caller.id,exec.signal,true)
+      const fixer=await lead(caller.master ? args.fixer_id || assigned || original.leadId : caller.id,exec.signal,true)
       return JSON.stringify(await queue.submit(fixer,{commit:args.commit,goal:original.goal,evidence:args.evidence},
         true,exec.signal,{original:original.id,url:target.url,head:target.head,target:target.base}))
     },

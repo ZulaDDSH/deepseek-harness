@@ -2,10 +2,9 @@ import {createHash} from 'node:crypto'
 import {readFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import {auditRevision,parsePull,readPull} from './github.js'
-import {fixerSession} from './fixer.js'
 
 export const name = 'desktop-github-review-status'
-export const inject = ['profileContext','connection','webServer','credentials','sessionController','sessions','workspaceRegistry']
+export const inject = ['profileContext','connection','webServer','credentials']
 const channel = '/desktop-github-review-status'
 const credential = key => 'DSH_GITHUB_REVIEW_'+createHash('sha256').update(key).digest('hex').toUpperCase()
 const limits = {rows:12,requests:4,cache:128,refreshMs:45000,failureMs:90000}
@@ -25,7 +24,6 @@ export function apply(ctx) {
       return {...await readPull(pull,token,signal),url:pull.url}
     },
   })
-  const fixer=fixerSession(ctx)
 
   async function reviews() {
     try {
@@ -118,8 +116,6 @@ export function apply(ctx) {
     if (peer?.principal?.kind!=='owner')
       return {ok:false,error:{code:'forbidden',message:'Owner access required.',details:{}}}
     try {
-      if (method==='fixer-current' || method==='fixer-link' || method==='fixer-create')
-        return {ok:true,value:await fixer(method,args,signal)}
       const rows = await reviews()
       let value
       if (method==='snapshot') value=await statuses(rows,args.ids,signal)

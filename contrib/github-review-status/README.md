@@ -6,6 +6,4 @@ The token stays in the Harness credential store. The host reads GitHub for revie
 
 The plugin supplies read-only PR source-branch details to Auto Auditor’s existing-PR workflow. Publishing uses the worktree’s Git credentials and verifies the exact destination branch, expected head, and candidate. The GitHub token is used only for reads.
 
-Open **PR Fixer** between Auto Auditor and Plugins in the sidebar. The panel reuses the one existing chat named PR Fixer when there is an exact match. You can also link a different chat or create one in a workspace. The panel opens the same conversation and keeps its model picker and history.
-
 Run `npm pack` in this directory and add the tarball with `dsh plugin --profile desktop add <tarball>`. This plugin targets the Harness `0.2.2-rc.5` desktop runtime.

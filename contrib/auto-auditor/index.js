@@ -157,6 +157,10 @@ export async function apply(ctx) {
       else if(method==='models') value=(await ctx.llm.listModels(args.provider)).map(({id,name})=>({id,name}))
       else if(method==='efforts') value=(await ctx.llm.resolveModelInfo(args.provider,args.model,signal)).reasoning ?? null
       else if(method==='settings') value=await queue.selectModel(args)
+      else if(method==='fixer-list') value=await queue.fixer.list()
+      else if(method==='fixer-start') value=await queue.fixer.start(args.id,signal)
+      else if(method==='fixer-model') value=await queue.selectModel(args,'fixerModel')
+      else if(method==='fixer-autowake') value=await queue.setAutomaticWake(args.enabled)
       else if(method==='submit') value=await queue.submit(await lead(args.leadId,signal,true),args,false,signal)
       else if(method==='retry') {await queue.retry(args.id);value=true}
       else if(method==='deliver') {await queue.retryDelivery(args.id,args.target);value=true}
