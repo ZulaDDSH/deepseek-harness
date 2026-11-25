@@ -61,15 +61,6 @@ window.__ModuleLoader__.load({
       .audit .fixer-controls{padding:.7rem 1rem;border-bottom:1px solid var(--rule)}
       .audit .fixer-controls a,.audit .fixer-work a{color:var(--accent)}
       .audit .fixer-work .fixer-revision{word-break:break-all}
-      .audit .fixer-rounds-wrap{position:relative;display:inline-flex}
-      .audit .audit-ui button.fixer-rounds-btn{display:inline-flex;align-items:center;gap:.4rem;font-weight:500}
-      .audit .audit-ui button.fixer-rounds-btn span{color:var(--soft);font-weight:400}
-      .audit .audit-ui .audit-rounds-menu{position:absolute;inset-inline-end:0;top:calc(100% + .35rem);z-index:40;min-width:11.5rem;padding:.4rem;border-radius:.62rem;border:1px solid var(--rule);background:var(--dsw-menu-surface-fill,var(--fill));box-shadow:0 10px 28px rgb(0 0 0 / 28%);display:grid;gap:.35rem}
-      .audit .audit-ui .audit-rounds-menu small{padding:.1rem .25rem;font-size:.72rem;color:var(--soft)}
-      .audit .audit-ui .audit-rounds-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.25rem}
-      .audit .audit-ui .audit-rounds-grid button{padding:.3rem .25rem;font-size:.8rem;font-weight:500;text-align:center;border-color:transparent;border-radius:.42rem}
-      .audit .audit-ui .audit-rounds-grid button:enabled:hover{background:var(--dsw-alias-interactive-bg-hover,var(--fill));border-color:var(--rule)}
-      .audit .audit-ui .audit-rounds-grid button[aria-selected="true"]{background:color-mix(in srgb,var(--accent) 18%,transparent);border-color:var(--accent);color:var(--ink)}
       .audit .audit-ui button[aria-pressed="true"]{background:var(--fill);border-color:var(--accent)}
       .audit .queue-head{display:flex;align-items:center;justify-content:space-between;gap:.4rem;margin:0 .35rem .55rem}
       .audit .queue-head h2{margin:0;font-weight:500}
@@ -438,31 +429,6 @@ window.__ModuleLoader__.load({
         renderFactorySlot('conversation.content',{variant:'embedded',phase:'active',hero:false})) :
         h('div',{className:'detail audit-ui'},problem(error) || h('p',{role:'status'},'Opening the repair chat…')))
     }
-    function RoundMenu({value,choices,disabled,onChange}) {
-      const [open,setOpen]=useState(false)
-      const wrapRef=React.useRef(null)
-      useEffect(()=>{
-        if (!open) return
-        const onPointer=event=>{if(!wrapRef.current?.contains(event.target)) setOpen(false)}
-        const onKey=event=>{if(event.key==='Escape') setOpen(false)}
-        document.addEventListener('pointerdown',onPointer,true)
-        document.addEventListener('keydown',onKey)
-        return ()=>{document.removeEventListener('pointerdown',onPointer,true);document.removeEventListener('keydown',onKey)}
-      },[open])
-      return h('div',{className:'fixer-rounds-wrap',ref:wrapRef},
-        button(h(React.Fragment,null,h('span',null,'Max rounds'),value,
-          h('svg',{width:12,height:12,viewBox:'0 0 12 12',fill:'none',stroke:'currentColor',strokeWidth:1.5,'aria-hidden':true},
-            h('path',{d:'M3 4.5 6 7.5 9 4.5',strokeLinecap:'round',strokeLinejoin:'round'}))),
-          ()=>setOpen(!open),{
-            className:'fixer-rounds-btn',disabled,'aria-haspopup':'listbox','aria-expanded':open,
-            'aria-label':'Max repair rounds · '+value,title:'Maximum repair rounds before stopping for owner review',
-          }),
-        open && h('div',{className:'audit-rounds-menu',role:'listbox','aria-label':'Max repair rounds'},
-          h('small',null,'Max repair rounds'),
-          h('div',{className:'audit-rounds-grid'},choices.map(n=>button(String(n),()=>{setOpen(false);if(n!==value) onChange(n)},{
-            key:n,role:'option','aria-selected':n===value,
-          })))))
-    }
     function FixerPage({rpc,sessions,SessionProvider,renderFactorySlot}) {
       const [revision,refresh]=useReducer(n=>n+1,0)
       const [selected,select]=useState(null),[open,setOpen]=useState(null),[settings,setSettings]=useState(false)
@@ -499,10 +465,6 @@ window.__ModuleLoader__.load({
         await call(rpc,'fixer-autopublish',{enabled:!state.autoPublish})
         refresh()
       })}
-      function changeMaxRounds(limit) {action.run(async()=>{
-        await call(rpc,'fixer-max-rounds',{maxRounds:limit})
-        refresh()
-      })}
       function start() {action.run(async()=>{
         const id=item.id
         const job=await call(rpc,'fixer-start',{id})
@@ -513,15 +475,12 @@ window.__ModuleLoader__.load({
       const chat=open && open.id===item?.id && open.sessionId
       const fixerModelLabel=state?.model?.model ?
         'Fixer model · '+state.model.model+(state.model.reasoningEffort?' · '+state.model.reasoningEffort:'') : 'Fixer model'
-      const currentRounds=state?.maxRepairRounds ?? 3
-      const roundChoices=[...new Set([1,2,3,4,5,6,8,10,15,20,30,50,currentRounds])].sort((a,b)=>a-b)
       return h('div',{className:'audit dsh-pr-fixer'},
         h('header',{className:'audit-ui'},h('h1',null,'PR Fixer'),h('div',{className:'actions'},
           button('Automatic wake',toggle,{disabled:!state || action.busy,'aria-pressed':state?.automaticWake===true,
             title:'Wake PR Fixer when Auto Auditor requests changes'}),
           button('Auto-publish',togglePublish,{disabled:!state || action.busy,'aria-pressed':state?.autoPublish===true,
             title:'Automatically push approved repairs to the original PR branch'}),
-          h(RoundMenu,{value:currentRounds,choices:roundChoices,disabled:!state || action.busy,onChange:changeMaxRounds}),
           button(fixerModelLabel,()=>setSettings(!settings),
             {disabled:!state,'aria-expanded':settings}))),
         h('div',{className:'body'},
