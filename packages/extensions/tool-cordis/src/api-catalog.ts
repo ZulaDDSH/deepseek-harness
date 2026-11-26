@@ -3544,6 +3544,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the viewed block, or `undefined` when no usable row exists for this lifecycle at the current Session format.',
       },
       {
+        signature: 'cachedRows( meta: SessionHeader, ): { readonly rows: ProjectionCheckpoint; readonly inheritedEventCount: SessionLogOffset } | undefined',
+        description: 'Return the stored checkpoint rows and inherited cut of the record bound to a header\'s lifecycle, without running any wire view; the rows are the cache\'s own state and must not be mutated.',
+        parameters: [{ name: 'meta', description: 'Stored Session header used as the lifecycle identity witness.' }],
+        returns: 'The rows and inherited cut, or undefined when no usable record exists or a seeded header\'s record stores no cut.',
+      },
+      {
         signature: 'cachedPredecessorTitle(meta: SessionHeader): ProjectionSnapshot | undefined',
         description: 'Read only a predecessor checkpoint\'s title as a zero-I/O listing hint.\n\nThe authoritative Session header supplies the lifecycle identity. A cache checkpoint can lag that log but cannot lead it because writes flush the log first, so a matching predecessor title is a genuine (possibly stale) fact from this Session. The registry still requires the current title projection\'s row version and schema. No other predecessor projection is exposed: format normalization can change their current meaning, and the cachedSnapshot / hydration paths continue to reject them.',
         parameters: [{ name: 'meta', description: 'authoritative listed Session header.' }],
@@ -3664,6 +3670,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Inspect domain-owned state without attaching or resuming a cold Session. The getter runs synchronously after preparation and must not mutate or retain the Session.',
         parameters: [{ name: 'sessionId', description: 'logical Session identity.' }, { name: 'read', description: 'domain getter returning detached data.' }, { name: 'signal', description: 'preparation cancellation.' }],
         returns: 'the getter\'s value at the current live or prepared cut.',
+      },
+      {
+        signature: 'inspectCheckpoint<T>( sessionId: SessionId, read: (checkpoint: SessionCheckpointRows) => T | undefined, signal?: AbortSignal, ): Promise<T | undefined>',
+        description: 'Read a detached Session\'s cached projection rows without loading or folding its log; a live Session, an unmounted cache, or an unmatched record yields undefined and the caller then uses inspectSession.',
+        parameters: [{ name: 'sessionId', description: 'Logical Session identity.' }, { name: 'read', description: 'Synchronous getter over the stored rows and inherited cut; it must not mutate or retain them and may return undefined to decline.' }, { name: 'signal', description: 'Cancellation of the header read.' }],
+        returns: 'The getter\'s value, or undefined when no cached rows apply.',
       },
       {
         signature: 'abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>',
@@ -4758,9 +4770,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'pruned content, or `null` when the text is within budget.',
       },
       {
-        signature: 'pruneSession(session: Session): PruneResult',
+        signature: 'pruneSession(session: Session, options: PruneSessionOptions = {}): PruneResult',
         description: 'Prune every over-budget tool result from one stable current-surface snapshot. Each replacement preserves the complete event data except for `content`, cites the shadowed node so replay can recover the replacement input, and is immediately preceded by a `compaction/prune` shadow-price event pricing the shadowed node through the injected token meter, so pure consumers can subtract it without per-node state.',
-        parameters: [{ name: 'session', description: 'session whose current surface is rewritten.' }],
+        parameters: [{ name: 'session', description: 'session whose current surface is rewritten.' }, { name: 'options', description: 'optional eligibility policy limiting which results are pruned.' }],
         returns: 'landed replacements and aggregate Unicode-code-point savings.',
         throws: ['when the session rejects a replacement; replacements committed earlier in the pass remain durable.'],
       },
@@ -9128,6 +9140,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PruneResult {\n    readonly pruned: readonly PrunedEntry[];\n    readonly charsRemoved: number;\n}',
   },
   {
+    name: 'PruneSessionOptions',
+    declaration: 'export interface PruneSessionOptions {\n    readonly previouslyConsumed?: boolean;\n}',
+  },
+  {
     name: 'PtcBindingErrorClass',
     declaration: 'export interface PtcBindingErrorClass {\n    name: string;\n    memberNameProperty: string;\n}',
   },
@@ -9714,6 +9730,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionChangeRequestsListener',
     declaration: 'export type SessionChangeRequestsListener = (changeRequests: readonly SessionChangeRequest[]) => void;',
+  },
+  {
+    name: 'SessionCheckpointRows',
+    declaration: 'export interface SessionCheckpointRows {\n    readonly header: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffsetType;\n    readonly rows: ProjectionCheckpoint;\n}',
   },
   {
     name: 'SessionControlBaseline',
@@ -11173,7 +11193,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutor',
-    declaration: 'export interface ToolExecutor {\n    readonly sections?: readonly ToolPromptSection[];\n    describe(tools: readonly ToolDefinition[]): ToolModelInput;\n    execute(input: ToolBatchInput): Promise<ToolBatchResult>;\n}',
+    declaration: 'export interface ToolExecutor {\n    readonly sections?: readonly ToolPromptSection[];\n    describe(tools: readonly ToolDefinition[], known?: ReadonlySet<string>): ToolModelInput;\n    execute(input: ToolBatchInput): Promise<ToolBatchResult>;\n}',
   },
   {
     name: 'ToolFailure',

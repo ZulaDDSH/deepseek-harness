@@ -7,3 +7,9 @@
 - insert:
     - id: cli-mock-llm
       name: '../../../../../../../packages/test-support/loader-smoke/tests/fixtures/cli-mock-llm.ts'
+
+- id: tool-executor-ptc
+  disabled: true
+
+- id: tool-executor-native
+  disabled: false

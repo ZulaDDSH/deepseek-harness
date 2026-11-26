@@ -17,11 +17,15 @@ function slotOf(hash: number, level: number): string {
   return ((hash >>> (28 - 4 * level)) & 15).toString(16)
 }
 
-export function trieGet(root: TrieNode, key: string): string | undefined {
+export function trieGet(root: unknown, key: string): string | undefined {
   const hash = hashOf(key)
-  let node: TrieNode | Leaf = root
-  for (let level = 0; level < LEVELS && !Array.isArray(node); level++) node = (node as TrieNode)[slotOf(hash, level)] ?? []
-  return (node as Leaf).find(entry => entry[0] === key)?.[1]
+  let node: unknown = root
+  for (let level = 0; level < LEVELS && !Array.isArray(node); level++) {
+    node = typeof node === 'object' && node !== null ? (node as Record<string, unknown>)[slotOf(hash, level)] : undefined
+  }
+  const entry: unknown = Array.isArray(node) ? node.find(candidate => Array.isArray(candidate) && candidate[0] === key) : undefined
+  const value: unknown = Array.isArray(entry) ? entry[1] : undefined
+  return typeof value === 'string' ? value : undefined
 }
 
 function insert(node: TrieNode, hash: number, level: number, entry: Entry): TrieNode {

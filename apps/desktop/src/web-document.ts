@@ -39,6 +39,18 @@ export async function serveWebDocument(request: Request, root: string): Promise<
   })
 }
 
+export interface HostCookieStore {
+  get(filter: { url: string }): Promise<readonly { readonly name: string }[]>
+  remove(url: string, name: string): Promise<void>
+}
+
+export async function removeLegacyHostCookies(cookies: HostCookieStore, url: string): Promise<void> {
+  const origin = new URL(url).origin
+  for (const { name } of await cookies.get({ url: origin })) {
+    if (name.startsWith('dsh-auth-')) await cookies.remove(origin, name)
+  }
+}
+
 /**
  * Response headers not relayed to the renderer: `set-cookie` would hand the
  * Host's authentication cookie to the page, which the shell owns instead; the

@@ -36,3 +36,10 @@
       name: '../../../packages/core/agent-loop/tests/fixtures/serial-created.mjs'
       config:
         checkRootCancellation: true
+
+# Constraint: the recorded corpus replays native tool calls.
+- id: tool-executor-ptc
+  disabled: true
+
+- id: tool-executor-native
+  disabled: false

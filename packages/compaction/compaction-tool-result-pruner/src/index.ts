@@ -17,6 +17,7 @@ import { codePointLength, codePointOffset, DEFAULTS, PRUNE_MARKER, resolveConfig
 import type {
   PrunedEntry,
   PruneResult,
+  PruneSessionOptions,
   ResolvedConfig,
   ToolResultPruneConfig,
 } from './types.ts'
@@ -25,6 +26,7 @@ export { codePointLength, DEFAULTS, PRUNE_MARKER, resolveConfig } from './config
 export type {
   PrunedEntry,
   PruneResult,
+  PruneSessionOptions,
   ResolvedConfig,
   ToolResultPruneConfig,
 } from './types.ts'
@@ -132,22 +134,26 @@ export class ToolResultPruner extends Service {
    * shadowed node through the injected token meter, so pure consumers can
    * subtract it without per-node state.
    * @param session - session whose current surface is rewritten.
+   * @param options - optional eligibility policy limiting which results are pruned.
    * @returns landed replacements and aggregate Unicode-code-point savings.
    * @throws when the session rejects a replacement; replacements committed
    * earlier in the pass remain durable.
    */
-  pruneSession(session: Session): PruneResult {
+  pruneSession(session: Session, options: PruneSessionOptions = {}): PruneResult {
     const candidates: SnapshotCandidate[] = []
+    let consumed = 0
     for (const seq of [...session.surface.nodes]) {
       // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
       const event = session.eventAt(seq)
       /* v8 ignore next -- surface seqs are validated contiguous log references. */
-      if (event?.type === 'tool/result') candidates.push({ seq, event })
+      if (event === undefined) continue
+      if (event.type === 'assistant/message') consumed = candidates.length
+      else if (event.type === 'tool/result') candidates.push({ seq, event })
     }
 
     const pruned: PrunedEntry[] = []
     let charsRemoved = 0
-    for (const { seq, event } of candidates) {
+    for (const { seq, event } of options.previouslyConsumed === true ? candidates.slice(0, consumed) : candidates) {
       const original = session.deriveEventMessage(event) as ToolResultMessage
       const charsBefore = this.measureContent(original.content)
       if (charsBefore <= this.config.thresholdChars) continue

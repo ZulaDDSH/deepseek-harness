@@ -113,8 +113,9 @@ export class ToolsService extends Service {
     super(ctx, 'tools')
     ctx.systemPrompt.tools(({ scope, toolSet }) => {
       const executor = this.selectExecutor(scope)
-      const description = executor.describe(this.definitions(scope, toolSet))
-      return { ...description, knownNames: description.knownNames ?? [...this.view(scope).knownNames] }
+      const known = this.view(scope).knownNames
+      const description = executor.describe(this.definitions(scope, toolSet), known)
+      return { ...description, knownNames: description.knownNames ?? [...known] }
     })
   }
 

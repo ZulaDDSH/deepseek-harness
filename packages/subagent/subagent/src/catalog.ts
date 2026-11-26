@@ -214,7 +214,7 @@ export function establishExternalCatalogChild(parent: Session, childId: SessionI
   })
 }
 
-export function catalogChild(state: SubagentCatalogState, childId: SessionId): { readonly name: string | undefined } | undefined {
+export function catalogChild(state: { readonly children: unknown }, childId: SessionId): { readonly name: string | undefined } | undefined {
   const name = trieGet(state.children, childId)
   return name === undefined ? undefined : { name: name === '' ? undefined : name }
 }

@@ -43,6 +43,8 @@ it.skipIf(!process.env.DEEPSEEK_API_KEY || process.platform === 'win32')(`agent 
     const patch = join(root, 'office.patch.yml')
     await writeFile(patch, JSON.stringify([
       ...(process.env.DSH_OFFICE_TEST_API === 'openai-completions' ? [{ id: 'llm-deepseek', disabled: true }, { id: 'llm-pi-ai', config: { providers: { 'office-test': { api: 'openai-completions', apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: process.env.DEEPSEEK_BASE_URL, compat: { thinkingFormat: 'deepseek' }, models: [{ id: process.env.MODEL_NAME ?? 'deepseek-v4-flash', contextWindow: 128000, maxTokens: 8000 }] } } } }] : []),
+      { id: 'tool-executor-ptc', disabled: true },
+      { id: 'tool-executor-native', disabled: false },
       { id: 'session-persistence-jsonl', config: { root: join(root, 'sessions'), compression: 'none' } },
     ]))
     // A private POSIX tool directory also excludes /usr/bin/node on Linux.

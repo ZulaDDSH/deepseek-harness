@@ -858,3 +858,65 @@ describe('domain inspection', () => {
     } finally { await ctx.fiber.dispose() }
   })
 })
+
+describe('checkpoint inspection', () => {
+  const rows = { unit: { ver: 1, seq: SessionSeq(0), val: 'stored' } }
+  type Stored = { rows: typeof rows; inheritedEventCount: SessionLogOffset } | undefined
+  const record = (): Stored => ({ rows, inheritedEventCount: SessionLogOffset(0) })
+
+  it('hands the stored rows to the getter after a header-only stat, with no log read', async () => {
+    const ctx = await readerContext()
+    try {
+      const meta = header('checkpoint-cold')
+      const store = new Map([[meta.id, { header: meta, events: [messageEvent(0, 'first')], revision: 'r1' }]])
+      const counters = { stat: 0, open: 0, read: 0 }
+      ctx.provide('sessionPersistence', stubPersistence(store, counters))
+      const cachedRows = vi.fn(record)
+      ctx.provide('sessionProjectionCache', { cachedRows } as never)
+      const prepare = vi.spyOn(ctx.sessions, 'prepare')
+
+      expect(await new SessionObservationReader(ctx).inspectCheckpoint(meta.id, cut => cut.rows.unit?.val)).toBe('stored')
+      expect(cachedRows).toHaveBeenCalledWith(meta)
+      expect(counters).toEqual({ stat: 1, open: 0, read: 0 })
+      expect(prepare).not.toHaveBeenCalled()
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it.each([
+    ['no checkpoint record matches', (): Stored => undefined, (): string | undefined => 'row'],
+    ['the getter declines', record, (): string | undefined => undefined],
+  ])('returns undefined when %s', async (_name, cachedRows, read) => {
+    const ctx = await readerContext()
+    try {
+      const meta = header('checkpoint-decline')
+      const store = new Map([[meta.id, { header: meta, events: [], revision: 'r1' }]])
+      ctx.provide('sessionPersistence', stubPersistence(store, { stat: 0, open: 0, read: 0 }))
+      ctx.provide('sessionProjectionCache', { cachedRows } as never)
+      expect(await new SessionObservationReader(ctx).inspectCheckpoint(meta.id, read)).toBeUndefined()
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('returns undefined without touching persistence for a live Session or an unmounted cache', async () => {
+    const ctx = await readerContext()
+    try {
+      const counters = { stat: 0, open: 0, read: 0 }
+      ctx.provide('sessionPersistence', stubPersistence(new Map(), counters))
+      const live = ctx.sessions.create(brandString<SessionId>('checkpoint-live'))
+      const reader = new SessionObservationReader(ctx)
+      expect(await reader.inspectCheckpoint(live.id, () => 'row')).toBeUndefined()
+      ctx.provide('sessionProjectionCache', { cachedRows: record } as never)
+      expect(await reader.inspectCheckpoint(live.id, () => 'row')).toBeUndefined()
+      expect(counters.stat).toBe(0)
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('reports an absent Session through the query taxonomy', async () => {
+    const ctx = await readerContext()
+    try {
+      ctx.provide('sessionPersistence', stubPersistence(new Map(), { stat: 0, open: 0, read: 0 }))
+      ctx.provide('sessionProjectionCache', { cachedRows: () => undefined } as never)
+      await expect(new SessionObservationReader(ctx).inspectCheckpoint(brandString<SessionId>('checkpoint-absent'), () => 'row'))
+        .rejects.toMatchObject({ code: 'SESSION_QUERY_SESSION_NOT_FOUND' })
+    } finally { await ctx.fiber.dispose() }
+  })
+})

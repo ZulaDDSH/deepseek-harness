@@ -940,6 +940,11 @@ export interface BasicCompactionConfig extends CompactionPolicyConfig {
   modelPolicies?: ModelCompactPolicyConfig[]
   /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
+  /**
+   * Requires a mounted `toolResultPruner`; trims, before the pressure check, only results
+   * a later assistant response proves a model request consumed. Defaults to `false`.
+   */
+  proactiveToolResultPruning?: boolean
 }
 
 /** Policy fields shared by the default policy and exact model overrides. */

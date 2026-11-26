@@ -397,6 +397,14 @@ observeSession( sessionId: SessionId, options: SessionObservationOptions = {}, )
  */
 inspectSession<T>(sessionId: SessionId, read: (session: Session) => T, signal?: AbortSignal): Promise<T>
 
+/** Read a detached Session's cached projection rows without loading or folding its log; a live Session, an unmounted cache, or an unmatched record yields undefined and the caller then uses inspectSession.
+ * @param sessionId - Logical Session identity.
+ * @param read - Synchronous getter over the stored rows and inherited cut; it must not mutate or retain them and may return undefined to decline.
+ * @param signal - Cancellation of the header read.
+ * @returns The getter's value, or undefined when no cached rows apply.
+ */
+inspectCheckpoint<T>( sessionId: SessionId, read: (checkpoint: SessionCheckpointRows) => T | undefined, signal?: AbortSignal, ): Promise<T | undefined>
+
 /**
  * Search the live-preferred logical corpus and group by session.
  * @param request - query text, metadata filters, page size, and cursor.

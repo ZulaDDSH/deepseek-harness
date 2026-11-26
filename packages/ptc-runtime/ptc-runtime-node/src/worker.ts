@@ -418,7 +418,7 @@ export class ProgramWorker {
       await Promise.all([drainOutput(handle.stdout, this.config.graceMs), drainOutput(handle.stderr, this.config.graceMs)])
       // The RPC result can already be queued when process exit arrives.
       setImmediate(() => {
-        if (!this.closed) this.fail(this.confined !== undefined && classifyRunnerFailure(outcome.exitCode, this.stderr, this.confined.runnerFailureRules) !== undefined ? 'sandbox-unavailable' : 'worker-exit', this.exitMessage(outcome))
+        if (!this.closed) this.fail(this.confined !== undefined && !this.ready && classifyRunnerFailure(outcome.exitCode, this.stderr, this.confined.runnerFailureRules) !== undefined ? 'sandbox-unavailable' : 'worker-exit', this.exitMessage(outcome))
       })
     }, (error: unknown) => {
       this.fail(this.confined !== undefined && isRunnerSpawnFailure(error, this.confined.argv[0], cwd)

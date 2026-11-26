@@ -30,3 +30,9 @@
   config:
     mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'
     workspaceRoot: !!js process.cwd()
+
+- id: tool-executor-ptc
+  disabled: true
+
+- id: tool-executor-native
+  disabled: false

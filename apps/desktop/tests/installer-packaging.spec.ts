@@ -102,6 +102,26 @@ describe('installer preparation preserves application dependencies', () => {
     expect(config.artifactName).toBe('deepseek-harness-${version}-${os}-${arch}-unsigned.${ext}')
   })
 
+  it('points an unsigned Windows build at the configured update feed without a mandatory policy', async () => {
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const feed = 'https://github.com/ZulaDDSH/deepseek-harness/releases/download/desktop-feed/'
+    const env = {
+      DSH_DESKTOP_APP_ID: 'com.example.installer',
+      DSH_DESKTOP_UPDATE_FEED_URL: feed,
+      DSH_DESKTOP_TARGET_PLATFORM: 'win32',
+      DSH_DESKTOP_TARGET_ARCH: 'x64',
+      DSH_DESKTOP_UNSIGNED: '1',
+    }
+    const config = createElectronBuilderConfig(env, 'win32', 'x64')
+    expect(config.publish).toEqual([{ provider: 'generic', url: feed, channel: 'nightly' }])
+    expect(config.extraMetadata).not.toHaveProperty('dshMandatoryUpdatePolicy')
+    expect(config.extraMetadata.dshDesktopUpdateChannel).toBe('nightly')
+    expect(createElectronBuilderConfig({ ...env, DSH_DESKTOP_UPDATE_CHANNEL: 'stable' }, 'win32', 'x64').publish)
+      .toEqual([{ provider: 'generic', url: feed, channel: 'stable' }])
+    expect(() => createElectronBuilderConfig({ ...env, DSH_DESKTOP_UNSIGNED: '0' }, 'win32', 'x64')).toThrow('unsigned')
+    expect(() => createElectronBuilderConfig({ ...env, DSH_DESKTOP_UPDATE_FEED_URL: 'http://example.com/' }, 'win32', 'x64')).toThrow('HTTPS')
+  })
+
   it('packages every preload entry point the shell loads', async () => {
     const { readdirSync, readFileSync } = await import('node:fs')
     const sourceDirectory = new URL('../src/', import.meta.url)

@@ -78,6 +78,7 @@ describe('real Loader composition', () => {
       '        maxTokens: 32',
       '    retainRatio: 0.125',
       '    auto: false',
+      '    proactiveToolResultPruning: true',
     ])
 
     const unloaded = [...loaded.loader.entries()]
@@ -92,6 +93,7 @@ describe('real Loader composition', () => {
       modelPolicies: [{ provider: 'mock', model: 'small', headroomTokens: 0, maxTokens: 32 }],
       retainRatio: 0.125,
       auto: false,
+      proactiveToolResultPruning: true,
     })
   })
 

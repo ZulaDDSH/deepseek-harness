@@ -121,6 +121,8 @@ async function bootWeb(
     // back on the next run, so a stored document from any other build decides
     // this test's boot.
     { id: 'storage-json', config: { root: storageRoot } },
+    { id: 'tool-executor-ptc', disabled: true },
+    { id: 'tool-executor-native', disabled: false },
     // Fixed Session IDs must stay inside this boot's temporary profile root.
     { id: 'session-persistence-jsonl', config: { root: join(profileHome, 'sessions') } },
     { id: 'attachment-local', config: { dshHome: profileHome } },

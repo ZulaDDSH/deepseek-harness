@@ -39,3 +39,9 @@ export interface PruneResult {
   /** Total Unicode code points removed across replacements. */
   readonly charsRemoved: number
 }
+
+/** Optional eligibility policy for one pruning pass. */
+export interface PruneSessionOptions {
+  /** Prune only results followed by a later assistant message on the current surface. */
+  readonly previouslyConsumed?: boolean
+}

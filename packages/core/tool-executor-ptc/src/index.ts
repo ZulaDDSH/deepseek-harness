@@ -26,22 +26,29 @@ export class PtcExecutor implements ToolExecutor {
     this.calls = new PtcCalls(ctx)
     const tools = ctx.tools
     this.sections = [
-      { name: 'tools:ptc-only', order: ctx.systemPrompt.getSectionOrder('PTC_ONLY'), text: PTC_ONLY_INSTRUCTION, interpolate: false },
+      { name: 'tools:ptc-only', order: ctx.systemPrompt.getSectionOrder('PTC_ONLY'), text: () => this.calls.confinementUnavailable ? '' : PTC_ONLY_INSTRUCTION, interpolate: false },
       { name: 'tools:sdk', order: ctx.systemPrompt.getSectionOrder('TOOLS_SDK'), text: tools => this.renderSdk(tools), interpolate: false },
     ]
     this.pipeline = new ToolExecutionPipeline(ctx, {
       get: (name, scope, toolSet) => name === RUN_CODE_NAME ? this.requirePtcTransport() : tools.executable(name, scope, toolSet),
-      reject: (name, nested) => !nested && name !== RUN_CODE_NAME
+      reject: (name, nested) => !nested && name !== RUN_CODE_NAME && !this.calls.confinementUnavailable
         ? new ToolNotFoundError(name, `only \`${RUN_CODE_NAME}\` is callable directly — call \`${name}\` from inside a \`${RUN_CODE_NAME}\` program instead`)
         : undefined,
     })
   }
 
-  describe(_tools: readonly ToolDefinition[]): ToolModelInput {
+  describe(
+    tools: readonly ToolDefinition[],
+    known: ReadonlySet<string> = new Set(tools.map(definition => definition.name)),
+  ): ToolModelInput {
+    if (this.calls.confinementUnavailable) {
+      return { schemas: tools.map(definition => projectToolSchema(definition, false)), knownNames: [...known, RUN_CODE_NAME] }
+    }
     return { schemas: [projectToolSchema(this.requirePtcTransport(), false)], knownNames: [RUN_CODE_NAME] }
   }
 
   private renderSdk(tools: readonly ToolDefinition[]): string {
+    if (this.calls.confinementUnavailable) return ''
     const runtime = requirePtcRuntime(this.ctx)
     return renderToolsSdk(tools.map(definition => ({
       ...projectToolSchema(definition, false),

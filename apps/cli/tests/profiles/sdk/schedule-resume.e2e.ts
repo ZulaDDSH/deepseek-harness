@@ -15,7 +15,8 @@ it('delivers an overdue reminder with the SDK route and lets the client resume t
   const fixture = fileURLToPath(new URL('./fixtures/schedule-clock.mjs', import.meta.url))
   await writeFile(patch, [
     '- insert:', '    - id: sdk-test-clock', `      name: ${JSON.stringify(fixture)}`,
-    '- id: sdk-jsonrpc-server', '  inject: [sdkAppStartup, loader, sdkTestClock]', '',
+    '- id: sdk-jsonrpc-server', '  inject: [sdkAppStartup, loader, sdkTestClock]',
+    '- id: tool-executor-ptc', '  disabled: true', '- id: tool-executor-native', '  disabled: false', '',
   ].join('\n'))
   const requests: Record<string, unknown>[] = []
   const restored: Record<string, unknown>[] = []

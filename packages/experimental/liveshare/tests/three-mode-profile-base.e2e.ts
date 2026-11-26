@@ -97,6 +97,10 @@ describe('three-mode acceptance: real-profile base', () => {
       await writeFile(join(profileDir, 'cordis.patch.yml'), [
         '- id: llm-deepseek',
         '  disabled: true',
+        '- id: tool-executor-ptc',
+        '  disabled: true',
+        '- id: tool-executor-native',
+        '  disabled: false',
         '- id: session-persistence-jsonl',
         '  config:',
         `    root: '${sessions}'`,

@@ -45,7 +45,7 @@ import { desktopUpdateChannel } from './update-channel.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 import { prepareDesktopUpdateWindow } from './update-window.ts'
 import { DesktopCommandManager } from './command-management.ts'
-import { serveWebDocument, forwardWebRequest } from './web-document.ts'
+import { serveWebDocument, forwardWebRequest, removeLegacyHostCookies } from './web-document.ts'
 import { DesktopFatalRecovery } from './fatal-recovery.ts'
 import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashReportSource } from './crash-report.ts'
 import { OperationJournal } from './operation-journal.ts'
@@ -123,6 +123,18 @@ let operationReportJob: Promise<OperationReportJobResult> | undefined
 let operationReportAbort: AbortController | undefined
 let operationReportsStopping = false
 let operationReportStop: Promise<void> | undefined
+
+const LEGACY_COOKIE_CLEANUP_TIMEOUT_MS = 3000
+
+async function cleanLegacyHostCookies(url: string): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const finished = await Promise.race([removeLegacyHostCookies(session.defaultSession.cookies, url).then(() => true),
+      new Promise<false>((resolve) => { timer = setTimeout(() => { resolve(false) }, LEGACY_COOKIE_CLEANUP_TIMEOUT_MS) })])
+    if (!finished) console.error('desktop: legacy Host cookie cleanup timed out')
+  } catch (error) { console.error('desktop: legacy Host cookie cleanup failed', error) }
+  finally { clearTimeout(timer) }
+}
 
 /** Bound application shutdown waiting without claiming that an unresponsive Worker has exited. */
 function stopOperationReports(): Promise<void> {
@@ -559,6 +571,7 @@ async function main(): Promise<void> {
         hostUrl = ready.url
         if (ready.injections === undefined) throw new Error('Desktop Host did not provide boot injections')
         injections = ready.injections
+        await cleanLegacyHostCookies(ready.url)
         welcomeBackend = await connectDesktopWelcome(ready.url,
           (input, init) => net.fetch(input, init),
           () => Promise.resolve(ready.authenticationCookie))

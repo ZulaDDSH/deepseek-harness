@@ -548,6 +548,25 @@ describe('SessionProjectionCache listing read', () => {
       .toEqual({ marks: ['logged'] })
   })
 
+  it('serves raw rows and the stored cut by lifecycle and refuses a seeded header with no stored cut', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-projcache-'))
+    roots.push(root)
+    const rows = { 'cache-test/marks': { ver: 1, seq: SessionSeq(1), val: { marks: ['raw'] } } }
+    const seededIdentity = { formatVersion: SESSION_FORMAT_VERSION, createdAt: 0, isSeeded: true }
+    await seedRecord(root, 'rows-plain', rows)
+    await seedRecord(root, 'rows-cut', rows, { ...seededIdentity, inheritedEventCount: SessionLogOffset(2) })
+    await seedRecord(root, 'rows-no-cut', rows, seededIdentity)
+    const { cache } = await harness({ root })
+    const header = (id: string, isSeeded = false): SessionHeader => ({ ...headerOf(brandString<SessionId>(id)), isSeeded })
+
+    expect(cache.cachedRows(header('rows-plain'))).toEqual({ rows, inheritedEventCount: 0 })
+    expect(cache.cachedRows(header('rows-cut', true))).toEqual({ rows, inheritedEventCount: 2 })
+    expect(cache.cachedRows(header('rows-cut'))).toBeUndefined()
+    expect(cache.cachedRows(header('rows-no-cut', true))).toBeUndefined()
+    expect(cache.cachedRows(header('rows-absent'))).toBeUndefined()
+    expect(cache.cachedRows({ ...header('rows-plain'), createdAt: 1 })).toBeUndefined()
+  })
+
   it('serves a seeded lifecycle\'s predecessor title by header alone', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-projcache-'))
     roots.push(root)

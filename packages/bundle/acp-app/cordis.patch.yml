@@ -8,6 +8,13 @@
 - id: session-title-llm
   disabled: true
 
+# Constraint: ACP projects only top-level tool/call events, so nested PTC calls would reach clients unannounced.
+- id: tool-executor-native
+  disabled: false
+
+- id: tool-executor-ptc
+  disabled: true
+
 - insert:
     - id: acp-app-startup
       name: '@deepseek-ai/dsh-acp-app'

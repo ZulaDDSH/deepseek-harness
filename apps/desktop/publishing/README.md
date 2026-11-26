@@ -13,6 +13,7 @@ Publish completed Desktop installers and update feeds to the selected download s
 - [Publication prerequisites](#prerequisites)
 - [Deployment and test release identity](#upload-updates)
 - [Publish installers and update feeds](#publish-feeds)
+- [GitHub feed for unsigned Windows builds](#github-feed)
 - [Fixed installer downloads](#fixed-downloads)
 - [Upload credentials](#credentials)
 - [Upload audit and recovery](#audit-and-recovery)
@@ -62,6 +63,21 @@ The target dotenv file for internal-test packaging explicitly sets `DSH_DESKTOP_
 Early internal-test packages use the `test` deployment. Select `production` explicitly only for a production release; changing upload credentials does not retarget an existing package. Packaging requires no COS credentials, disables electron-builder publishing, strips COS credentials from child processes, and records completion only after signing and notarization succeed. Upload validates this record, deployment, target, shared version, filenames, sizes, and SHA-512 before reading credentials. Packages and blockmaps upload before YAML; historical objects are retained. Each package publishes only its selected channel: `nightly.yml` / `nightly-mac.yml` or `stable.yml` / `stable-mac.yml`. Published YAML uses absolute binary URLs. The uploader leaves Cache-Control unset, including the empty header the COS SDK would otherwise add: deployment infrastructure owns cache policy, with uncached feeds and separately configurable binary caching. Serialize publication per target and verify public artifacts and feed contents before release qualification.
 
 Windows NSIS uploads require the generated, nonempty `.exe.blockmap` beside the installer. The blockmap is uploaded before channel YAML; NSIS installer metadata does not require the embedded `blockMapSize` used by the separate web-installer format. File-plan tests use the pinned builder's blockmap generator, not a hand-authored embedded-map field.
+
+<a id="github-feed"></a>
+
+## GitHub feed for unsigned Windows builds
+
+Unsigned Windows installers can update from GitHub releases of `ZulaDDSH/deepseek-harness` without COS, a policy service or any credential beyond an authenticated `gh`. Package with `DSH_DESKTOP_UPDATE_FEED_URL=https://github.com/ZulaDDSH/deepseek-harness/releases/download/desktop-feed/` in `.env.windows` (see [unsigned Windows test installer](../packaging/README.md#unsigned-windows-test-installer)), then publish from the repository root:
+
+```sh
+node apps/desktop/scripts/publish-github-feed.mjs --dry-run
+node apps/desktop/scripts/publish-github-feed.mjs [owner/repo] [--artifacts <directory>]
+```
+
+The command reads `nightly.yml` (or `stable.yml`) from `.desktop-build/targets/win-x64/unsigned-artifacts/`, creates the prerelease `v<version>` when it is missing, and uploads the installer, its `.blockmap` and `SHA256SUMS.txt` when present (`--clobber`). Only then does it write the metadata with every `url` and `path` rewritten to the absolute `https://github.com/<repo>/releases/download/v<version>/<file>` URL, create the rolling prerelease `desktop-feed` when missing, and upload that metadata to it last as both `nightly.yml` and `stable.yml`, the same content under each name, so Stable and Nightly are the same build on this feed and the channel chosen in Settings still finds a file. The feed therefore never names an asset that cannot be downloaded yet. `--dry-run` prints the planned `gh` commands and the rewritten metadata and does not call `gh`. The default repository is `ZulaDDSH/deepseek-harness`.
+
+Clients read `desktop-feed/nightly.yml`, resolve the absolute asset URL and follow GitHub's redirect to the download. `/releases/latest/download` is not usable because every release is a prerelease, and the built-in GitHub provider does not match these tags. Installer file names may contain only letters, digits, `.`, `_` and `-`, because GitHub renames other characters; the command rejects any other name. Publishing an older build overwrites the feed; installed clients newer than it do not update, and the feed then offers nothing newer until the next publication. Serialize publications. The metadata upload replaces the existing files with `--clobber`, which is not atomic: a client fetching during the replacement can get a 404 and retries at its next check. Unsigned installers carry no publisher signature, so the only integrity check is the `sha512` in the feed metadata; anyone with release write access to the repository can ship code to these clients. Real updates from this feed are not yet qualified on an installed application.
 
 <a id="fixed-downloads"></a>
 
