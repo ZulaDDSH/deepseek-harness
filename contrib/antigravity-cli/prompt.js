@@ -12,19 +12,15 @@ export function extractSystemPrompt(options) {
   return parts.join('\n\n')
 }
 
-export function buildSystemAppend(harnessSystem, hasTools) {
-  const rules = [
-    'DeepSeek Harness host rules (mandatory):',
-    '- You are serving as the language model inside a DeepSeek Harness conversation.',
-    hasTools
-      ? '- NEVER invoke Antigravity built-in tools (run_command, view_file, write_to_file, replace_file_content, multi_replace_file_content, grep_search, find_by_name, list_dir, browser_*, invoke_subagent, etc.). They point to an empty temp directory and are blocked. ALWAYS use the Harness MCP tools (prefixed `mcp_dsh_`) to read/edit files, run commands, and perform workspace actions.'
-      : '- NEVER invoke any Antigravity built-in tools. Answer directly using only the provided text and images.',
-    '- Follow the Harness system instructions below as authoritative for this conversation.',
-  ]
-  if (harnessSystem) {
-    rules.push('', '--- Harness System Instructions ---', harnessSystem)
-  }
-  return rules.join('\n')
+export function buildSystemAppend(hasTools) {
+  return hasTools
+    ? 'DeepSeek Harness host rules: NEVER invoke Antigravity built-in tools (run_command, view_file, write_to_file, replace_file_content, grep_search, find_by_name, list_dir, browser_*, invoke_subagent, etc.); they are blocked. ALWAYS use Harness MCP tools (`mcp_dsh_*`). Follow `<harness-system-instructions>` in the first user message.'
+    : 'DeepSeek Harness host rules: NEVER invoke Antigravity built-in tools. Answer directly using only the provided text and images, following `<harness-system-instructions>` if present.'
+}
+
+export function prependSystemPrompt(blocks, harnessSystem) {
+  if (!harnessSystem) return blocks
+  return [{type: 'text', text: `<harness-system-instructions>\n${harnessSystem}\n</harness-system-instructions>`}, ...blocks]
 }
 
 export function messageText(message) {

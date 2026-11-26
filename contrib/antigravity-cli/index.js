@@ -4,7 +4,7 @@ import {AcpSession} from './acp-session.js'
 import {loadCatalog, projectListModels, projectResolvedModel, resolveWireModel} from './catalog.js'
 import {agyCommand} from './command.js'
 import {toolsFingerprint} from './mcp-server.js'
-import {buildPromptBlocks, buildSystemAppend, extractSystemPrompt, messageFingerprint, nonSystemMessages, toMcpToolResult} from './prompt.js'
+import {buildPromptBlocks, buildSystemAppend, extractSystemPrompt, messageFingerprint, nonSystemMessages, prependSystemPrompt, toMcpToolResult} from './prompt.js'
 
 export const name = 'antigravity-cli'
 export const inject = ['llm', 'sessions']
@@ -98,8 +98,8 @@ export function apply(ctx, config = {}) {
       const wireModelId = resolveWireModel(model, options.reasoningEffort, catalog)
       const activeTools = options.purpose !== undefined ? [] : (options.tools ?? []).filter(tool => !tool.deferLoading)
       const harnessSystem = extractSystemPrompt(options)
-      const systemAppend = buildSystemAppend(harnessSystem, activeTools.length > 0)
-      const systemHash = sha256(systemAppend)
+      const systemAppend = buildSystemAppend(activeTools.length > 0)
+      const systemHash = sha256(systemAppend + '\n---\n' + harnessSystem)
       const tHash = toolsFingerprint(activeTools)
       const msgs = nonSystemMessages(options.messages ?? [])
       const fingerprints = msgs.map(messageFingerprint)
@@ -117,7 +117,8 @@ export function apply(ctx, config = {}) {
         })
         try {
           await ephemeral.start(options.signal)
-          const promptBlocks = await buildPromptBlocks(msgs, {attachments: att, signal: options.signal, isReplay: msgs.length > 1})
+          const rawBlocks = await buildPromptBlocks(msgs, {attachments: att, signal: options.signal, isReplay: msgs.length > 1})
+          const promptBlocks = prependSystemPrompt(rawBlocks, harnessSystem)
           yield* ephemeral.startTurn(promptBlocks, options.signal)
         } finally {
           await ephemeral.close()
@@ -196,7 +197,8 @@ export function apply(ctx, config = {}) {
       })
       await session.start(options.signal)
       sessions.set(key, session)
-      const promptBlocks = await buildPromptBlocks(msgs, {attachments: att, signal: options.signal, isReplay: msgs.length > 1})
+      const rawBlocks = await buildPromptBlocks(msgs, {attachments: att, signal: options.signal, isReplay: msgs.length > 1})
+      const promptBlocks = prependSystemPrompt(rawBlocks, harnessSystem)
       session.committedFingerprints = fingerprints
       try {
         yield* session.startTurn(promptBlocks, options.signal)

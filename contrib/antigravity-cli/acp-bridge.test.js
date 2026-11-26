@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {contextWindowFor, parseModelsOutput, projectListModels, projectResolvedModel, recordContextWindow, resolveWireModel} from './catalog.js'
 import {createMcpBridgeServer, mapTools, toolsFingerprint} from './mcp-server.js'
-import {buildPromptBlocks, buildSystemAppend, extractSystemPrompt, messageFingerprint, toMcpToolResult} from './prompt.js'
+import {buildPromptBlocks, buildSystemAppend, extractSystemPrompt, messageFingerprint, prependSystemPrompt, toMcpToolResult} from './prompt.js'
 
 const SAMPLE_MODELS = [
   'Fetching available models...',
@@ -96,7 +96,11 @@ test('prompt helpers preserve system prompt, images, and tool results', async ()
     messages: [{role: 'system', content: [{type: 'text', text: 'Loop system'}]}],
   })
   assert.equal(sys, 'Top system\n\nLoop system')
-  assert.ok(buildSystemAppend(sys, true).includes('mcp_dsh_'))
+  assert.ok(buildSystemAppend(true).includes('mcp_dsh_'))
+  assert.ok(buildSystemAppend(true).length < 500)
+  const withSys = prependSystemPrompt([{type: 'text', text: 'Hi'}], sys)
+  assert.equal(withSys.length, 2)
+  assert.ok(withSys[0].text.includes('Top system\n\nLoop system'))
 
   const fakeAttachments = {
     async readImage() { return {data: Buffer.from([1, 2, 3])} },

@@ -159,7 +159,7 @@ export class AcpSession {
       }
       this.sessionId = created.sessionId
       if (this.wireModelId && created.models?.currentModelId !== this.wireModelId) {
-        await this.setModel(this.wireModelId, signal)
+        await this.setModel(this.wireModelId, signal, true)
       }
       this.lastActivity = Date.now()
     } catch (error) {
@@ -168,9 +168,9 @@ export class AcpSession {
     }
   }
 
-  async setModel(wireModelId, signal) {
+  async setModel(wireModelId, signal, force = false) {
     if (!this.alive || !this.sessionId) throw new LlmError('Antigravity session is closed.', 'TRANSPORT')
-    if (this.wireModelId === wireModelId) return
+    if (!force && this.wireModelId === wireModelId) return
     await this.rpc('session/set_model', {sessionId: this.sessionId, modelId: wireModelId}, signal, 15_000)
     this.wireModelId = wireModelId
     this.lastActivity = Date.now()
