@@ -1,3 +1,5 @@
 - insert:
     - id: antigravity-cli
       name: dsh-antigravity-cli
+    - id: antigravity-accounts
+      name: dsh-antigravity-cli/accounts
