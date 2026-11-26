@@ -19,9 +19,11 @@ test('only converts an offered tool with object arguments',()=>{
     assert.equal(typeof bridgeResult(value,tools).error,'string')
 })
 
-test('only accepts an explicit nonempty final answer without a tool request',()=>{
+test('honors the response kind when the model fills unused fields',()=>{
   const answer={kind:'answer',text:'done',name:'',arguments:''}
   assert.deepEqual(bridgeResult(JSON.stringify(answer),tools),{text:'done'})
-  assert.equal(typeof bridgeResult(JSON.stringify({...answer,name:'read'}),tools).error,'string')
+  assert.deepEqual(bridgeResult(JSON.stringify({...answer,name:'read'}),tools),{text:'done'})
+  assert.deepEqual(bridgeResult(JSON.stringify({...answer,kind:'tool',name:'read',arguments:'{}'}),tools),{name:'read',arguments:'{}'})
+
   assert.equal(typeof bridgeResult('plain text',tools).error,'string')
 })
