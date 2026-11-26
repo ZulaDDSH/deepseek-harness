@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { homePrefix, isControl, listTargets, preset, describeTargets, resolveTarget } from './sessions.js'
 import { controlPolicy } from './control-policy.js'
 
 export const name = 'desktop-master-control'
-export const inject = ['connection', 'webServer', 'sessions', 'sessionQuery', 'sessionController', 'workspaceRegistry', 'agents', 'llm', 'agentPresets', 'permissionPresets']
+export const inject = ['profileContext', 'connection', 'webServer', 'sessions', 'sessionQuery', 'sessionController', 'workspaceRegistry', 'agents', 'llm', 'agentPresets', 'permissionPresets']
 
 export async function apply(ctx) {
   const policy = controlPolicy(ctx)
@@ -13,7 +15,13 @@ export async function apply(ctx) {
   const presetSettings = ctx.get('settings')?.describe({redactSecrets:true})
     .find(row=>row.ns==='agent-preset-registry')
   if (presetSettings) ctx.emit('settings/document-updated',presetSettings.ns,presetSettings.revision)
-  let opening
+  let pending = Promise.resolve()
+  const activeFile = join(ctx.profileContext.dir, 'master-control-active.json')
+  function serialize(run) {
+    const operation = pending.then(run)
+    pending = operation.then(()=>{},()=>{})
+    return operation
+  }
   const refreshed = new WeakMap()
   function refreshHome(agent) {
     if (agent?.status !== 'idle' || !isControl(agent.session.header)) return
@@ -31,35 +39,56 @@ export async function apply(ctx) {
   ctx.on('agent/status',({agent,status})=>{
     if (status === 'idle') void refreshHome(agent)?.catch(error=>ctx.logger.warn(error.message))
   })
-  async function findHome(signal) {
-    const records = await ctx.sessionQuery.listSessions(signal)
-    return records.find(({header}) =>
-      isControl(header) && !ctx.workspaceRegistry.archivedSessionIds.includes(header.id))?.header.id
+  async function controlSessions(signal) {
+    const archived = new Set(ctx.workspaceRegistry.archivedSessionIds)
+    return (await ctx.sessionQuery.listSessions(signal))
+      .filter(({header,formatStatus})=>isControl(header) && !archived.has(header.id) && formatStatus!=='migration-required')
+      .map(({header})=>({id:header.id,createdAt:header.createdAt}))
+      .sort((left,right)=>right.createdAt-left.createdAt)
   }
-  async function open(signal) {
-    const existing = await findHome(signal)
-    if (existing) {
-      await refreshHome(ctx.agents.get(existing))
-      return {sessionId:existing}
-    }
+  async function getSelection(signal) {
+    const sessions = await controlSessions(signal)
+    let selected
+    try {selected = JSON.parse(await readFile(activeFile,'utf8')).sessionId}
+    catch(error) {if (error.code!=='ENOENT' && !(error instanceof SyntaxError)) throw error}
+    const sessionId = sessions.find(row=>row.id===selected)?.id ?? sessions[0]?.id ?? null
+    return {sessionId,sessions}
+  }
+  async function select(sessionId) {
+    await writeFileAtomic(activeFile,JSON.stringify({sessionId}),{mode:0o600})
+    return {sessionId}
+  }
+  async function createControl() {
     const cwd = join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'master-control')
     const result = await policy.create({sessionId:homePrefix + randomUUID(), agentPreset:preset, cwd})
     await ctx.sessionController.rename({sessionId:result.sessionId, title:'Master Control'})
     const session = ctx.sessions.get(result.sessionId)
     if (!session || !await ctx.sessions.flush(session)) throw new Error('Could not save the control chat.')
-    return result
+    return select(result.sessionId)
   }
   ctx.connection.register(ctx, '/desktop-master-control', async (method, args, signal, peer) => {
     if (peer?.principal?.kind !== 'owner') return {ok:false, error:{code:'forbidden', message:'Only the Harness owner can open Master Control.', details:{}}}
     try {
       if (method === 'current') {
-        const sessionId = await findHome(signal)
-        if (sessionId) await refreshHome(ctx.agents.get(sessionId))
-        return {ok:true,value:{sessionId:sessionId ?? null}}
+        const value = await getSelection(signal)
+        if (value.sessionId) await refreshHome(ctx.agents.get(value.sessionId))
+        return {ok:true,value}
       }
-      if (method === 'open') {
-        opening ??= open(signal).finally(() => {opening = undefined})
-        return {ok:true, value:await opening}
+      if (method === 'open' || method === 'new-session' || method === 'select-session') {
+        const value = await serialize(async()=>{
+          signal?.throwIfAborted()
+          if (method === 'new-session') await createControl()
+          else {
+            const {sessionId,sessions} = await getSelection(signal)
+            if (method === 'select-session') {
+              if (!sessions.some(row=>row.id===args?.id)) throw new Error('Choose an available Master Control session.')
+              await select(args.id)
+            } else if (!sessionId) await createControl()
+            else await refreshHome(ctx.agents.get(sessionId))
+          }
+          return getSelection(signal)
+        })
+        return {ok:true,value}
       }
       if (method === 'providers') return {ok:true, value:ctx.llm.listProviders()}
       if (method === 'models') return {ok:true, value:await ctx.llm.listModels(args?.provider)}

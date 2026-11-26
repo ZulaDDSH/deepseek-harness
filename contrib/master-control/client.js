@@ -168,7 +168,7 @@ window.__ModuleLoader__.load({
       .dsh-control-bar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap;
         gap:.6rem; min-height:3.4rem; box-sizing:border-box; padding:.65rem clamp(.8rem,2cqi,1.4rem);
         border-bottom:1px solid var(--mc-line) }
-      .dsh-control-brand { display:flex; align-items:center; gap:.7rem }
+      .dsh-control-brand { display:flex; align-items:center; gap:.7rem; flex-wrap:wrap }
       .dsh-control-mark { display:inline-grid; place-items:center; width:1.3rem; color:var(--mc-accent) }
       .dsh-control-bar h1 { font-size:1.05rem; line-height:1.3; font-weight:625; letter-spacing:-.025em; margin:0 }
       .dsh-control-grid { flex:1 1 0; min-height:0; display:grid; grid-template-rows:minmax(0,1fr);
@@ -350,8 +350,10 @@ window.__ModuleLoader__.load({
       const [view,setView] = React.useState('chat')
       const [editing,setEditing] = React.useState(null)
       const [sessionId,setSessionId] = React.useState(null)
+      const [controlSessions,setControlSessions] = React.useState([])
       const [bound,setBound] = React.useState(null)
       const [bindRevision,retryBinding] = React.useReducer(n=>n+1,0)
+      const controlAction = React.useRef(0)
       const rosterScroll = React.useRef(null)
       const panelsId = React.useId()
       const showSessions = view === 'sessions'
@@ -360,8 +362,11 @@ window.__ModuleLoader__.load({
       const rosterKind = showRepairs ? 'fixer' : showSessions ? 'workspace' : null
       React.useEffect(()=>{
         let active = true
+        const action = controlAction.current
         rpc.call(channel,'current',{}).then(result=>{
-          if (active && result.ok && result.value.sessionId) setSessionId(previous=>previous ?? result.value.sessionId)
+          if (!active || !result.ok || controlAction.current!==action) return
+          setControlSessions(result.value.sessions ?? [])
+          if (result.value.sessionId) setSessionId(previous=>previous ?? result.value.sessionId)
         }).catch(()=>{}) // The explicit Open action can retry a failed lookup.
         return ()=>{active=false}
       },[rpc])
@@ -399,13 +404,16 @@ window.__ModuleLoader__.load({
         void load()
         return ()=>{active=false;clearTimeout(timer)}
       },[rpc,offset,revision,rosterKind])
-      async function open() {
+      async function open(method, args={}) {
+        controlAction.current += 1
         setBusy(true); setChatError('')
         try {
-          const result = await rpc.call(channel,'open',{})
+          const result = await rpc.call(channel,method,args)
           if (!result.ok) throw new Error(result.error.message)
           if (sessionId === result.value.sessionId) retryBinding()
+          setControlSessions(result.value.sessions ?? [])
           setSessionId(result.value.sessionId)
+          setView('chat')
         } catch(error) {setChatError(error.message)}
         finally {setBusy(false)}
       }
@@ -435,7 +443,13 @@ window.__ModuleLoader__.load({
         h('div',{className:'dsh-control-bar'},
           h('div',{className:'dsh-control-brand'},
             h('span',{className:'dsh-control-mark','aria-hidden':true},glyph('M3 16V9m6 10V5m6 12V8m6 6v-4',20)),
-            h('h1',null,'Master Control')),
+            h('h1',null,'Master Control'),
+            controlSessions.length>1 && h('select',{className:'mc-button',value:sessionId ?? '',disabled:busy,
+              'aria-label':'Master Control session',onChange:event=>void open('select-session',{id:event.target.value})},
+              controlSessions.map((session,index)=>h('option',{key:session.id,value:session.id},
+                'Session '+(controlSessions.length-index)+' · '+new Date(session.createdAt).toLocaleString()))),
+            h('button',{className:'mc-button',type:'button',disabled:busy,
+              onClick:()=>void open('new-session')},'New session')),
           h('nav',{className:'dsh-control-nav','aria-label':'Master Control views'},
             h('button',{type:'button','aria-pressed':view==='chat','aria-controls':panelsId+'-chat',onClick:()=>setView('chat')},'Chat'),
             h('button',{type:'button','aria-pressed':showSessions,'aria-controls':panelsId+'-sessions',
@@ -444,6 +458,7 @@ window.__ModuleLoader__.load({
               onClick:()=>togglePanel('repairs')},'Repair station'),
             h('button',{type:'button','aria-pressed':showReviews,'aria-controls':panelsId+'-reviews',
               onClick:()=>togglePanel('reviews')},'Review queue'))),
+        bound && bound.sessionId===sessionId && chatError && h('p',{className:'mc-failure',role:'alert'},chatError),
         h('div',{className:'dsh-control-grid','data-view':view},
           h('section',{id:panelsId+'-chat',className:'dsh-control-chat','aria-label':'Control chat'},
             bound && bound.sessionId===sessionId
@@ -452,7 +467,7 @@ window.__ModuleLoader__.load({
               : h('div',{className:'mc-start'},
                 h('div',{className:'mc-start-inner'},
                   h('p',null,'Send messages, read replies, and work with files across your workspaces.'),
-                  h('button',{className:'mc-button mc-primary',type:'button',disabled:busy || (sessionId && !chatError),onClick:open},
+                  h('button',{className:'mc-button mc-primary',type:'button',disabled:busy || (sessionId && !chatError),onClick:()=>open('open')},
                     busy || (sessionId && !chatError) ? 'Opening…' : 'Open control chat'),
                   chatError && h('p',{className:'mc-failure',role:'alert'},chatError)))),
           h('div',{id:panelsId+'-sessions',className:'dsh-control-scroll',ref:rosterScroll,hidden:!rosterKind,
