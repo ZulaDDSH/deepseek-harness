@@ -1,6 +1,6 @@
 {
   "name": "dsh-antigravity-cli",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -14,7 +14,8 @@
     "cordis.patch.yml",
     "README.md",
     "accounts.js",
-    "client.js"
+    "client.js",
+    "command.js"
   ],
   "dsh": {
     "bundle": {

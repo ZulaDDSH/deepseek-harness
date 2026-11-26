@@ -2,6 +2,7 @@ import {execFile, spawn} from 'node:child_process'
 import {once} from 'node:events'
 import {promisify} from 'node:util'
 import {LlmAdapter,LlmError} from '@deepseek-ai/dsh-llm'
+import {agyCommand} from './command.js'
 
 const exec=promisify(execFile)
 export const name='antigravity-cli'
@@ -9,7 +10,7 @@ export const inject=['llm','sessions','permissionPresets']
 const settings=JSON.stringify({toolPermission:'strict'})
 
 export function apply(ctx,config={}) {
-  const command=config.command || 'agy'
+  const command=agyCommand(config)
   class Adapter extends LlmAdapter {
     providerInfo(provider) {
       return {id:provider,name:'Antigravity CLI'}
