@@ -192,6 +192,9 @@ window.__ModuleLoader__.load({
         font-size:.8rem; font-weight:550; border-radius:.45rem; padding:.32rem .58rem;
         border:1px solid var(--mc-line); cursor:pointer }
       .mc-button:enabled:hover, .dsh-control-nav button:hover { background:var(--mc-hover) }
+      .mc-session-picker { color-scheme:light; max-width:100%; min-width:0; background:var(--mc-card) }
+      body[data-ds-dark-theme] .mc-session-picker { color-scheme:dark }
+      .mc-session-picker option { color:var(--mc-ink); background:var(--dsw-menu-surface-fill,var(--mc-card)) }
       .dsh-control-nav button { border-color:transparent; padding:.28rem .54rem; color:var(--mc-muted) }
       .dsh-control-nav button[aria-pressed="true"] { color:var(--mc-ink); background:var(--mc-hover) }
       .mc-button:focus-visible, .dsh-control-nav button:focus-visible, .mc-session-title:focus-visible,
@@ -444,7 +447,7 @@ window.__ModuleLoader__.load({
           h('div',{className:'dsh-control-brand'},
             h('span',{className:'dsh-control-mark','aria-hidden':true},glyph('M3 16V9m6 10V5m6 12V8m6 6v-4',20)),
             h('h1',null,'Master Control'),
-            controlSessions.length>1 && h('select',{className:'mc-button',value:sessionId ?? '',disabled:busy,
+            controlSessions.length>1 && h('select',{className:'mc-button mc-session-picker',value:sessionId ?? '',disabled:busy,
               'aria-label':'Master Control session',onChange:event=>void open('select-session',{id:event.target.value})},
               controlSessions.map((session,index)=>h('option',{key:session.id,value:session.id},
                 'Session '+(controlSessions.length-index)+' · '+new Date(session.createdAt).toLocaleString()))),
