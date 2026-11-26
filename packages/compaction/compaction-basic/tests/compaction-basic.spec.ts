@@ -2040,6 +2040,34 @@ describe('model-switch pressure', () => {
     expect(session.requestHeader()).toEqual(previous)
   })
 
+  it.each([false, true])('leaves a quota-exhausted model via the destination summarizer (destination fails: %s)', async (fails) => {
+    const { ctx, adapter } = harness({}, {
+      kind: 'error', failure: { code: 'ACCOUNT_QUOTA', message: 'Fable quota exhausted' },
+    })
+    class DestinationAdapter extends ScriptedAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider, id: model, name: model, context: { contextWindow: 2_000 } })
+      }
+    }
+    const destination = new DestinationAdapter([{ type: 'text', text: 'checkpoint' }], fails
+      ? { kind: 'error', failure: { code: 'AUTH', message: 'Opus needs sign-in' } }
+      : { kind: 'stop' })
+    ctx.llm.registerAdapter(['claude-sub-w0'], destination)
+    const session = conversation(4, 'fixture '.repeat(80))
+    const previous = session.requestHeader()
+    const selected = { provider: 'claude-sub-w0', model: 'opus' }
+
+    const switching = request(ctx, session, selected)
+    if (fails) await expect(switching).rejects.toThrow('Opus needs sign-in')
+    else {
+      await expect(switching).resolves.toEqual(selected)
+      expect(ctx.tokenMeter.measure(session, { config: selected }).totalTokens).toBeLessThan(500)
+    }
+    expect(adapter.lastOptions).toMatchObject({ provider: MODEL, purpose: 'compaction' })
+    expect(destination.lastOptions).toMatchObject({ ...selected, purpose: 'compaction' })
+    expect(session.requestHeader()).toEqual(previous)
+  })
+
   it('keeps the previous-route failure when the destination route also cannot summarize', async () => {
     const { ctx } = harness({}, {
       kind: 'error', failure: { code: 'AUTH', message: 'summary credentials expired' },

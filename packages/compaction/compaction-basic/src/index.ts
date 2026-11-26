@@ -10,7 +10,7 @@ import { CompactionEngine, ManualCompactionError } from '@deepseek-ai/dsh-compac
 import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compaction'
 import type { EpochHeader, Session, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
-import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
+import { ACCOUNT_QUOTA_EXCEEDED_CODE, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { CommandId } from '@deepseek-ai/dsh-commands/types'
@@ -414,6 +414,8 @@ export class BasicCompactionEngine extends CompactionEngine {
       } catch (fallbackError: unknown) {
         signal.throwIfAborted()
         this.ctx.logger.warn(`summary on the destination route failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`)
+        if (error instanceof LlmError
+          && (error.code === ACCOUNT_QUOTA_EXCEEDED_CODE || error.code === QUOTA_EXCEEDED_CODE)) throw fallbackError
         throw error
       } finally {
         this.summaryRouteOverride.delete(agent)
