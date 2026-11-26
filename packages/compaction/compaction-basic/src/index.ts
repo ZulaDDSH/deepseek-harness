@@ -10,7 +10,7 @@ import { CompactionEngine, ManualCompactionError } from '@deepseek-ai/dsh-compac
 import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compaction'
 import type { EpochHeader, Session, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
-import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
+import { ACCOUNT_QUOTA_EXCEEDED_CODE, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { CommandId } from '@deepseek-ai/dsh-commands/types'
@@ -47,6 +47,8 @@ export type {
   ResolvedRetention,
   ResolvedTargetPolicy,
 } from './types.ts'
+
+const MODEL_SWITCH_TIMEOUT_MS = 5 * 60_000
 
 /** Detach a route that names both provider and model; any other value is no route. */
 function completeRoute(route: { provider?: string; model?: string } | undefined): SummaryRoute | undefined {
@@ -177,12 +179,15 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
 
     ctx.on('agent/pre-step', async (
-      { agent, signal },
+      { agent, modelSelection, signal },
       next,
     ): Promise<PreStepDecision> => {
       if (!signal.aborted && !this.skipPressureStep(agent)) {
         try {
           if (this.config.proactiveToolResultPruning) this.pruneConsumedResults(agent)
+          const previous = routedTarget(agent.session)
+          if (previous !== undefined
+            && (previous.provider !== modelSelection.provider || previous.model !== modelSelection.model)) return next()
           const result = await this.compactIfNeeded(agent, 'pressure', signal)
           this.pressureBackoff.delete(agent)
           if (result !== null) logResult(result, 'step pressure')
@@ -216,13 +221,18 @@ export class BasicCompactionEngine extends CompactionEngine {
       const previous = agent.session.requestHeader()
       if (signal.aborted || previous === undefined || config.provider === '' || config.model === ''
         || (previous.config.provider === config.provider && previous.config.model === config.model)) return config
+      const deadline = AbortSignal.timeout(MODEL_SWITCH_TIMEOUT_MS)
+      const compactionSignal = AbortSignal.any([signal, deadline])
       try {
         const header = { ...previous, config }
-        const result = await this.compactForSwitch(agent, header, signal)
+        const result = await this.compactForSwitch(agent, header, compactionSignal)
+        compactionSignal.throwIfAborted()
         if (result !== null) logResult(result, 'model switch')
       } catch (error: unknown) {
         signal.throwIfAborted()
-        const message = error instanceof Error ? error.message : String(error)
+        const message = deadline.aborted
+          ? 'timed out after 5 minutes. Completed checkpoints were saved'
+          : error instanceof Error ? error.message : String(error)
         throw new LlmError(
           `Cannot switch to ${config.provider}/${config.model}: context compaction failed: ${message}. `
           + 'The previous request model is preserved; retry or select a model with a larger context window.',
@@ -424,6 +434,8 @@ export class BasicCompactionEngine extends CompactionEngine {
       } catch (fallbackError: unknown) {
         signal.throwIfAborted()
         this.ctx.logger.warn(`summary on the destination route failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`)
+        if (error instanceof LlmError
+          && (error.code === ACCOUNT_QUOTA_EXCEEDED_CODE || error.code === QUOTA_EXCEEDED_CODE)) throw fallbackError
         throw error
       } finally {
         this.summaryRouteOverride.delete(agent)
@@ -469,29 +481,58 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
-    const prefixLimit = requireBelowThreshold && !boundToTargetWindow
+    let prefixLimit = requireBelowThreshold && !boundToTargetWindow
       ? undefined
       : summaryPrefixLimit(
         Math.min(spec.contextWindow, await this.summarizerWindow(policy, signal) ?? Number.POSITIVE_INFINITY),
         spec.maxTokens,
       )
     let result: CompactionResult | null = null
-    for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
+    let remainingSummaries = spec.compactionRetries + 1
+    let overflowRetries = 0
+    let completedSummaries = 0
+    let lastOverflow: LlmError | undefined
+    while (remainingSummaries > 0) {
       const range = selectCompactableRange(agent.session, measurement, spec.retainTokens, prefixLimit)
       if (range === null) {
         if (result === null && !requireBelowThreshold) return null
+        if (lastOverflow !== undefined) throw lastOverflow
         throw new Error(
           'no safe compaction range can reduce context below threshold '
           + `(${measurement.totalTokens} estimated tokens >= threshold ${spec.thresholdTokens})`,
         )
       }
-      result = await this.compactRegion(range.start, range.end, agent, signal)
+      try {
+        result = await this.compactRegion(range.start, range.end, agent, signal)
+      } catch (error: unknown) {
+        signal.throwIfAborted()
+        if (!requireBelowThreshold || !(error instanceof LlmError)
+          || error.code !== CONTEXT_WINDOW_EXCEEDED_CODE || overflowRetries >= 4) throw error
+
+        // Use the rejected balanced prefix as the ceiling. The provider may
+        // have a smaller effective window than the advertised one.
+        measurement = meter.measure(agent.session, header)
+        const start = measurement.nodes.findIndex(node => node.seq === range.start)
+        const end = measurement.nodes.findIndex(node => node.seq === range.end)
+        if (start < 0 || end < start) throw error
+        const overhead = Math.max(0, measurement.totalTokens - measurement.surfaceTokens)
+          + measurement.nodes.slice(0, start).reduce((total, node) => total + node.tokens, 0)
+        const span = measurement.nodes.slice(start, end + 1).reduce((total, node) => total + node.tokens, 0)
+        if (span < 2) throw error
+        prefixLimit = overhead + Math.floor(span / 2)
+        if (overflowRetries === 0) remainingSummaries = Math.max(remainingSummaries, 8)
+        lastOverflow = error
+        overflowRetries += 1
+        continue
+      }
+      remainingSummaries -= 1
+      completedSummaries += 1
       measurement = meter.measure(agent.session, header)
       if (measurement.totalTokens < spec.thresholdTokens) return result
     }
 
     throw new Error(
-      `compaction still above threshold after ${spec.compactionRetries + 1} compaction attempts `
+      `compaction still above threshold after ${completedSummaries} compaction attempts `
       + `(${measurement.totalTokens} estimated tokens >= threshold ${spec.thresholdTokens})`,
     )
   }

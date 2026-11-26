@@ -1861,6 +1861,29 @@ describe('model-switch pressure', () => {
       .toHaveLength(1)
   })
 
+  it('ends a stalled switch on its deadline and leaves the original model selected', async () => {
+    const { ctx, adapter } = harness()
+    const controller = new AbortController()
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal)
+    onTestFinished(() => { timeout.mockRestore() })
+    const calls = vi.spyOn(adapter, 'stream').mockImplementationOnce(async function* (options) {
+      controller.abort()
+      options.signal?.throwIfAborted()
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    })
+    const session = conversation(4, 'fixture '.repeat(80))
+    const previous = session.requestHeader()
+    const previousSurface = [...session.surface.nodes]
+
+    const result = request(ctx, session, { provider: 'small', model: 'small' })
+    await expect(result).rejects.toMatchObject({ code: 'MODEL_SWITCH_COMPACTION_FAILED' })
+    await expect(result).rejects.toThrow('timed out after 5 minutes')
+    expect(timeout).toHaveBeenCalledWith(300_000)
+    expect(calls).toHaveBeenCalledTimes(1)
+    expect(session.requestHeader()).toEqual(previous)
+    expect(session.surface.nodes).toEqual(previousSurface)
+  })
+
   it('uses the proposed output reservation and the destination retention policy', async () => {
     const { ctx, adapter } = harness({
       modelPolicies: [{ provider: 'small', model: 'small', retainTokens: 0 }],
@@ -1958,6 +1981,27 @@ describe('model-switch pressure', () => {
     expect(session.snapshotEvents().filter(event => event.type === 'compaction/end')).toHaveLength(3)
   })
 
+  it('shrinks an overflowing summary prefix before switching models', async () => {
+    const { ctx, adapter } = harness({ compactionRetries: 0 })
+    const overflow = new ScriptedAdapter([], {
+      kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE, message: 'Prompt is too long' },
+    })
+    const calls = vi.spyOn(adapter, 'stream').mockImplementationOnce(options => overflow.stream(options))
+    const session = conversation(6, 'fixture '.repeat(80))
+    const previous = session.requestHeader()
+    const selected = { provider: 'small', model: 'small' }
+
+    await expect(request(ctx, session, selected)).resolves.toEqual(selected)
+
+    expect(calls.mock.calls.length).toBeGreaterThan(2)
+    const [rejected = 0, smaller = 0] = calls.mock.calls.map(([options]) => options.messages.length)
+    expect(smaller).toBeGreaterThan(0)
+    expect(smaller).toBeLessThan(rejected)
+    expect(session.snapshotEvents().filter(event => event.type === 'compaction/summary').length).toBeGreaterThan(1)
+    expect(ctx.tokenMeter.measure(session, { config: selected }).totalTokens).toBeLessThan(500)
+    expect(session.requestHeader()).toEqual(previous)
+  })
+
   it('retains an explicit summary target when switching models', async () => {
     const { ctx, adapter } = harness({ summarizationProvider: 'summary', summarizationModel: 'summary' })
     ctx.llm.registerAdapter(['summary'], adapter)
@@ -2018,6 +2062,34 @@ describe('model-switch pressure', () => {
 
     expect(destination.lastOptions).toMatchObject({ provider: 'dest', model: 'dest', purpose: 'compaction' })
     expect(ctx.tokenMeter.measure(session, { config: selected }).totalTokens).toBeLessThan(500)
+    expect(session.requestHeader()).toEqual(previous)
+  })
+
+  it.each([false, true])('leaves a quota-exhausted model via the destination summarizer (destination fails: %s)', async (fails) => {
+    const { ctx, adapter } = harness({}, {
+      kind: 'error', failure: { code: 'ACCOUNT_QUOTA', message: 'Fable quota exhausted' },
+    })
+    class DestinationAdapter extends ScriptedAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider, id: model, name: model, context: { contextWindow: 2_000 } })
+      }
+    }
+    const destination = new DestinationAdapter([{ type: 'text', text: 'checkpoint' }], fails
+      ? { kind: 'error', failure: { code: 'AUTH', message: 'Opus needs sign-in' } }
+      : { kind: 'stop' })
+    ctx.llm.registerAdapter(['claude-sub-w0'], destination)
+    const session = conversation(4, 'fixture '.repeat(80))
+    const previous = session.requestHeader()
+    const selected = { provider: 'claude-sub-w0', model: 'opus' }
+
+    const switching = request(ctx, session, selected)
+    if (fails) await expect(switching).rejects.toThrow('Opus needs sign-in')
+    else {
+      await expect(switching).resolves.toEqual(selected)
+      expect(ctx.tokenMeter.measure(session, { config: selected }).totalTokens).toBeLessThan(500)
+    }
+    expect(adapter.lastOptions).toMatchObject({ provider: MODEL, purpose: 'compaction' })
+    expect(destination.lastOptions).toMatchObject({ ...selected, purpose: 'compaction' })
     expect(session.requestHeader()).toEqual(previous)
   })
 
@@ -2101,12 +2173,26 @@ describe('model-switch pressure', () => {
 })
 
 describe('automatic listener and loader composition', () => {
-  function preStep(ctx: Context, owner: Agent, signal = SIGNAL) {
+  function preStep(ctx: Context, owner: Agent, signal = SIGNAL,
+    modelSelection = owner.session.requestHeader()?.config ?? { provider: MODEL, model: MODEL },
+  ) {
     return agentEvents(ctx, owner).waterfall(
-      'agent/pre-step', { modelSelection: { provider: 'mock', model: 'mock' }, messages: [], turn: 1, step: 1, signal },
+      'agent/pre-step', { modelSelection, messages: [], turn: 1, step: 1, signal },
       () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
     )
   }
+
+  it('lets the switch check handle compaction when the next step has a new route', async () => {
+    const ctx = createContext()
+    onTestFinished(() => ctx.fiber.dispose())
+    const engine = new BasicCompactionEngine(ctx, { headroomTokens: 0, maxTokens: 32 })
+    const pressure = vi.spyOn(engine, 'compactIfNeeded').mockResolvedValue(null)
+    const session = conversation(4)
+    await preStep(ctx, agent(session, MODEL), SIGNAL, { provider: 'dest', model: 'dest' })
+    expect(pressure).not.toHaveBeenCalled()
+    await preStep(ctx, agent(session, MODEL))
+    expect(pressure).toHaveBeenCalledTimes(1)
+  })
 
   function recover(
     ctx: Context,

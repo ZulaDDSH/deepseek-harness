@@ -1,0 +1,9 @@
+# GitHub Review Status
+
+This optional plugin adds GitHub PR and CI status to Master Control’s Review queue. After a lead submits a GitHub PR to Auto Auditor, open **Settings → GitHub review status** and connect its repository either with **Use Git credentials** (recommended for private collaborator repositories already authenticated with Git) or with a GitHub personal access token (fine-grained `github_pat_…` with read permissions for Pull requests, Contents, Checks, and Commit statuses, or classic `ghp_…`).
+
+Stored tokens stay in the Harness credential store; **Use Git credentials** reads the host’s Git credential helper on demand without duplicating the token. The host reads GitHub for reviews on the current queue page and shares recent results across clients. An approved revision becomes **Ready for review** when its head and target still match and GitHub confirms the required checks. A check that has not reported or a ruleset whose result cannot be verified stays **Unverified**. Links to failed GitHub checks are shown when available.
+
+The plugin supplies read-only PR source-branch details to Auto Auditor’s existing-PR workflow. Publishing uses the worktree’s Git credentials and verifies the exact destination branch, expected head, and candidate. The GitHub token is used only for reads.
+
+Run `npm pack` in this directory and add the tarball with `dsh plugin --profile desktop add <tarball>`. This plugin targets the Harness `0.2.2-rc.5` desktop runtime.

@@ -1,0 +1,13 @@
+{
+  "name": "dsh-master-control",
+  "version": "1.5.2",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.9.0", "dsh": "0.2.2-rc.5" },
+  "exports": { ".": "./index.js", "./preset": "./preset.js", "./tools": "./tools.js", "./handoff": "./handoff.mjs", "./client": "./client.js", "./package.json": "./package.json" },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml", "listedByDefault": false },
+    "client": { "platform": "web", "inject": ["@deepseek-ai/dsh-client-ui-sidebar", "@deepseek-ai/dsh-client-ui-workspace", "@deepseek-ai/dsh-client-ui-conversation", "@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-ui-layout"] }
+  },
+  "files": ["index.js", "preset.js", "tools.js", "sessions.js", "transcript.js", "control-policy.js", "handoff.mjs", "client.js", "cordis.patch.yml", "README.md"]
+}

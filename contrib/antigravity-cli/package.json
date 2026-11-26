@@ -1,0 +1,39 @@
+{
+  "name": "dsh-antigravity-cli",
+  "version": "2.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./accounts": "./accounts.js",
+    "./client": "./client.js"
+  },
+  "files": [
+    "index.js",
+    "acp-session.js",
+    "catalog.js",
+    "mcp-server.js",
+    "prompt.js",
+    "cordis.patch.yml",
+    "README.md",
+    "accounts.js",
+    "client.js",
+    "command.js",
+    "turn-result.js",
+    "tool-bridge.js"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml",
+      "listedByDefault": false
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-connection"
+      ],
+      "platform": "web"
+    }
+  }
+}
