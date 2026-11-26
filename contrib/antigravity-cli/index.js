@@ -3,6 +3,7 @@ import {once} from 'node:events'
 import {promisify} from 'node:util'
 import {LlmAdapter,LlmError} from '@deepseek-ai/dsh-llm'
 import {agyCommand} from './command.js'
+import {parseTurn} from './turn-result.js'
 
 const exec=promisify(execFile)
 export const name='antigravity-cli'
@@ -35,10 +36,14 @@ export function apply(ctx,config={}) {
       const prompt=JSON.stringify({system:options.system,messages:options.messages})
       const child=spawn(command,['--model',model,'--disable-slash-commands','--settings',settings,
         '--input-format','stream-json','--output-format','stream-json','--print-timeout','10m'],
-      {cwd,signal:options.signal,windowsHide:true,stdio:['pipe','pipe','ignore']})
+      {cwd,signal:options.signal,windowsHide:true,stdio:['pipe','pipe','pipe']})
       const closed=once(child,'close').then(([code])=>({code}),error=>({error}))
       child.stdin.on('error',()=>{}) // The process status owns early stdin failures.
       child.stdin.end(JSON.stringify({event:'user',message:{content:prompt}})+'\n')
+      child.stdout.setEncoding('utf8')
+      child.stderr.setEncoding('utf8')
+      let diagnostic=''
+      child.stderr.on('data',text=>{diagnostic=(diagnostic+text).slice(-32_768)})
       let output=''
       try {
         for await(const chunk of child.stdout) {
@@ -47,10 +52,9 @@ export function apply(ctx,config={}) {
         }
         const {code,error}=await closed
         if(error) throw error
-        const result=output.trim().split(/\r?\n/).map(line=>JSON.parse(line)).findLast(event=>event.event==='result')?.result
-        if(code!==0 || result?.status!=='SUCCESS' || !result.response?.trim())
-          throw new LlmError('Antigravity CLI could not complete the turn. Check its sign-in, model availability, and quota.','INVALID_REQUEST')
-        yield {type:'text-delta',index:0,text:result.response}
+        const result=parseTurn(output,diagnostic,code)
+        if(result.code) throw new LlmError(result.message,result.code)
+        yield {type:'text-delta',index:0,text:result.text}
         yield {type:'finish',reason:{kind:'stop'}}
       } finally {
         child.kill()
