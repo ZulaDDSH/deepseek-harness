@@ -1956,6 +1956,27 @@ describe('model-switch pressure', () => {
     expect(session.snapshotEvents().filter(event => event.type === 'compaction/end')).toHaveLength(3)
   })
 
+  it('shrinks an overflowing summary prefix before switching models', async () => {
+    const { ctx, adapter } = harness({ compactionRetries: 0 })
+    const overflow = new ScriptedAdapter([], {
+      kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE, message: 'Prompt is too long' },
+    })
+    const calls = vi.spyOn(adapter, 'stream').mockImplementationOnce(options => overflow.stream(options))
+    const session = conversation(6, 'fixture '.repeat(80))
+    const previous = session.requestHeader()
+    const selected = { provider: 'small', model: 'small' }
+
+    await expect(request(ctx, session, selected)).resolves.toEqual(selected)
+
+    expect(calls.mock.calls.length).toBeGreaterThan(2)
+    const [rejected = 0, smaller = 0] = calls.mock.calls.map(([options]) => options.messages.length)
+    expect(smaller).toBeGreaterThan(0)
+    expect(smaller).toBeLessThan(rejected)
+    expect(session.snapshotEvents().filter(event => event.type === 'compaction/summary').length).toBeGreaterThan(1)
+    expect(ctx.tokenMeter.measure(session, { config: selected }).totalTokens).toBeLessThan(500)
+    expect(session.requestHeader()).toEqual(previous)
+  })
+
   it('retains an explicit summary target when switching models', async () => {
     const { ctx, adapter } = harness({ summarizationProvider: 'summary', summarizationModel: 'summary' })
     ctx.llm.registerAdapter(['summary'], adapter)

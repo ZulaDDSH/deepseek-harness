@@ -388,7 +388,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     try {
       const info = await this.ctx.llm.resolveModelInfo(policy.summarizationProvider, policy.summarizationModel, signal)
       return info.context?.contextWindow
-    } catch (error: unknown) {
+    } catch {
       signal.throwIfAborted()
       return undefined
     }
@@ -459,29 +459,58 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
-    const prefixLimit = requireBelowThreshold && !boundToTargetWindow
+    let prefixLimit = requireBelowThreshold && !boundToTargetWindow
       ? undefined
       : summaryPrefixLimit(
         Math.min(spec.contextWindow, await this.summarizerWindow(policy, signal) ?? Number.POSITIVE_INFINITY),
         spec.maxTokens,
       )
     let result: CompactionResult | null = null
-    for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
+    let remainingSummaries = spec.compactionRetries + 1
+    let overflowRetries = 0
+    let completedSummaries = 0
+    let lastOverflow: LlmError | undefined
+    while (remainingSummaries > 0) {
       const range = selectCompactableRange(agent.session, measurement, spec.retainTokens, prefixLimit)
       if (range === null) {
         if (result === null && !requireBelowThreshold) return null
+        if (lastOverflow !== undefined) throw lastOverflow
         throw new Error(
           'no safe compaction range can reduce context below threshold '
           + `(${measurement.totalTokens} estimated tokens >= threshold ${spec.thresholdTokens})`,
         )
       }
-      result = await this.compactRegion(range.start, range.end, agent, signal)
+      try {
+        result = await this.compactRegion(range.start, range.end, agent, signal)
+      } catch (error: unknown) {
+        signal.throwIfAborted()
+        if (!requireBelowThreshold || !(error instanceof LlmError)
+          || error.code !== CONTEXT_WINDOW_EXCEEDED_CODE || overflowRetries >= 4) throw error
+
+        // Use the rejected balanced prefix as the ceiling. The provider may
+        // have a smaller effective window than the advertised one.
+        measurement = meter.measure(agent.session, header)
+        const start = measurement.nodes.findIndex(node => node.seq === range.start)
+        const end = measurement.nodes.findIndex(node => node.seq === range.end)
+        if (start < 0 || end < start) throw error
+        const overhead = Math.max(0, measurement.totalTokens - measurement.surfaceTokens)
+          + measurement.nodes.slice(0, start).reduce((total, node) => total + node.tokens, 0)
+        const span = measurement.nodes.slice(start, end + 1).reduce((total, node) => total + node.tokens, 0)
+        if (span < 2) throw error
+        prefixLimit = overhead + Math.floor(span / 2)
+        if (overflowRetries === 0) remainingSummaries = Math.max(remainingSummaries, 8)
+        lastOverflow = error
+        overflowRetries += 1
+        continue
+      }
+      remainingSummaries -= 1
+      completedSummaries += 1
       measurement = meter.measure(agent.session, header)
       if (measurement.totalTokens < spec.thresholdTokens) return result
     }
 
     throw new Error(
-      `compaction still above threshold after ${spec.compactionRetries + 1} compaction attempts `
+      `compaction still above threshold after ${completedSummaries} compaction attempts `
       + `(${measurement.totalTokens} estimated tokens >= threshold ${spec.thresholdTokens})`,
     )
   }
