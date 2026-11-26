@@ -1,9 +1,12 @@
 import {execFile, spawn} from 'node:child_process'
 import {once} from 'node:events'
+import {randomUUID} from 'node:crypto'
+import {tmpdir} from 'node:os'
 import {promisify} from 'node:util'
 import {LlmAdapter,LlmError} from '@deepseek-ai/dsh-llm'
 import {agyCommand} from './command.js'
 import {parseTurn} from './turn-result.js'
+import {bridgePrompt,bridgeResult,bridgeSchema} from './tool-bridge.js'
 
 const exec=promisify(execFile)
 export const name='antigravity-cli'
@@ -29,14 +32,15 @@ export function apply(ctx,config={}) {
       const session=options.sessionId && ctx.sessions.get(options.sessionId)
       if(!session || ctx.permissionPresets.current(session)!=='danger-full-access')
         throw new LlmError('Antigravity CLI requires a Full access chat because it runs its own agent.','UNSUPPORTED_OPTION')
-      const cwd=session.header.cwd
+      const tools=(options.tools ?? []).filter(tool=>!tool.deferLoading)
       const model=options.model
       if(!/^[\w.-]+$/.test(model) || model.startsWith('-'))
         throw new LlmError('Choose a model listed by agy models.','INVALID_REQUEST')
-      const prompt=JSON.stringify({system:options.system,messages:options.messages})
+      const prompt=tools.length ? bridgePrompt({...options,tools}) : JSON.stringify({system:options.system,messages:options.messages})
       const child=spawn(command,['--model',model,'--disable-slash-commands','--settings',settings,
-        '--input-format','stream-json','--output-format','stream-json','--print-timeout','10m'],
-      {cwd,signal:options.signal,windowsHide:true,stdio:['pipe','pipe','pipe']})
+        '--input-format','stream-json','--output-format','stream-json','--print-timeout','10m',
+        ...(tools.length ? ['--json-schema',JSON.stringify(bridgeSchema)] : [])],
+      {cwd:tmpdir(),signal:options.signal,windowsHide:true,stdio:['pipe','pipe','pipe']})
       const closed=once(child,'close').then(([code])=>({code}),error=>({error}))
       child.stdin.on('error',()=>{}) // The process status owns early stdin failures.
       child.stdin.end(JSON.stringify({event:'user',message:{content:prompt}})+'\n')
@@ -54,7 +58,14 @@ export function apply(ctx,config={}) {
         if(error) throw error
         const result=parseTurn(output,diagnostic,code)
         if(result.code) throw new LlmError(result.message,result.code)
-        yield {type:'text-delta',index:0,text:result.text}
+        const response=tools.length ? bridgeResult(result.text,tools) : result
+        if(response.error) throw new LlmError(response.error,'MALFORMED_RESPONSE')
+        if(response.name) {
+          yield {type:'block-end',index:0,block:{type:'tool-call',id:randomUUID(),name:response.name,arguments:response.arguments}}
+          yield {type:'finish',reason:{kind:'tool-calls'}}
+          return
+        }
+        yield {type:'text-delta',index:0,text:response.text}
         yield {type:'finish',reason:{kind:'stop'}}
       } finally {
         child.kill()
