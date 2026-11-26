@@ -1,0 +1,1 @@
+{"name":"dsh-antigravity-cli","version":"1.0.0","private":true,"type":"module","exports":{".":"./index.js","./package.json":"./package.json"},"files":["index.js","cordis.patch.yml","README.md"],"dsh":{"bundle":{"patch":"./cordis.patch.yml","listedByDefault":false}}}
