@@ -48,6 +48,8 @@ export type {
   ResolvedTargetPolicy,
 } from './types.ts'
 
+const MODEL_SWITCH_TIMEOUT_MS = 5 * 60_000
+
 /** Detach a route that names both provider and model; any other value is no route. */
 function completeRoute(route: { provider?: string; model?: string } | undefined): SummaryRoute | undefined {
   if (route?.provider === undefined || route.provider.length === 0
@@ -177,12 +179,15 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
 
     ctx.on('agent/pre-step', async (
-      { agent, signal },
+      { agent, modelSelection, signal },
       next,
     ): Promise<PreStepDecision> => {
       if (!signal.aborted && !this.skipPressureStep(agent)) {
         try {
           if (this.config.proactiveToolResultPruning) this.pruneConsumedResults(agent)
+          const previous = routedTarget(agent.session)
+          if (previous !== undefined
+            && (previous.provider !== modelSelection.provider || previous.model !== modelSelection.model)) return next()
           const result = await this.compactIfNeeded(agent, 'pressure', signal)
           this.pressureBackoff.delete(agent)
           if (result !== null) logResult(result, 'step pressure')
@@ -216,13 +221,18 @@ export class BasicCompactionEngine extends CompactionEngine {
       const previous = agent.session.requestHeader()
       if (signal.aborted || previous === undefined || config.provider === '' || config.model === ''
         || (previous.config.provider === config.provider && previous.config.model === config.model)) return config
+      const deadline = AbortSignal.timeout(MODEL_SWITCH_TIMEOUT_MS)
+      const compactionSignal = AbortSignal.any([signal, deadline])
       try {
         const header = { ...previous, config }
-        const result = await this.compactForSwitch(agent, header, signal)
+        const result = await this.compactForSwitch(agent, header, compactionSignal)
+        compactionSignal.throwIfAborted()
         if (result !== null) logResult(result, 'model switch')
       } catch (error: unknown) {
         signal.throwIfAborted()
-        const message = error instanceof Error ? error.message : String(error)
+        const message = deadline.aborted
+          ? 'timed out after 5 minutes. Completed checkpoints were saved'
+          : error instanceof Error ? error.message : String(error)
         throw new LlmError(
           `Cannot switch to ${config.provider}/${config.model}: context compaction failed: ${message}. `
           + 'The previous request model is preserved; retry or select a model with a larger context window.',

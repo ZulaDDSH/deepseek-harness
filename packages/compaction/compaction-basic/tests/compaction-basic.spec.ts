@@ -1861,6 +1861,29 @@ describe('model-switch pressure', () => {
       .toHaveLength(1)
   })
 
+  it('ends a stalled switch on its deadline and leaves the original model selected', async () => {
+    const { ctx, adapter } = harness()
+    const controller = new AbortController()
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal)
+    onTestFinished(() => { timeout.mockRestore() })
+    const calls = vi.spyOn(adapter, 'stream').mockImplementationOnce(async function* (options) {
+      controller.abort()
+      options.signal?.throwIfAborted()
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    })
+    const session = conversation(4, 'fixture '.repeat(80))
+    const previous = session.requestHeader()
+    const previousSurface = [...session.surface.nodes]
+
+    const result = request(ctx, session, { provider: 'small', model: 'small' })
+    await expect(result).rejects.toMatchObject({ code: 'MODEL_SWITCH_COMPACTION_FAILED' })
+    await expect(result).rejects.toThrow('timed out after 5 minutes')
+    expect(timeout).toHaveBeenCalledWith(300_000)
+    expect(calls).toHaveBeenCalledTimes(1)
+    expect(session.requestHeader()).toEqual(previous)
+    expect(session.surface.nodes).toEqual(previousSurface)
+  })
+
   it('uses the proposed output reservation and the destination retention policy', async () => {
     const { ctx, adapter } = harness({
       modelPolicies: [{ provider: 'small', model: 'small', retainTokens: 0 }],
@@ -2150,12 +2173,26 @@ describe('model-switch pressure', () => {
 })
 
 describe('automatic listener and loader composition', () => {
-  function preStep(ctx: Context, owner: Agent, signal = SIGNAL) {
+  function preStep(ctx: Context, owner: Agent, signal = SIGNAL,
+    modelSelection = owner.session.requestHeader()?.config ?? { provider: MODEL, model: MODEL },
+  ) {
     return agentEvents(ctx, owner).waterfall(
-      'agent/pre-step', { modelSelection: { provider: 'mock', model: 'mock' }, messages: [], turn: 1, step: 1, signal },
+      'agent/pre-step', { modelSelection, messages: [], turn: 1, step: 1, signal },
       () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
     )
   }
+
+  it('lets the switch check handle compaction when the next step has a new route', async () => {
+    const ctx = createContext()
+    onTestFinished(() => ctx.fiber.dispose())
+    const engine = new BasicCompactionEngine(ctx, { headroomTokens: 0, maxTokens: 32 })
+    const pressure = vi.spyOn(engine, 'compactIfNeeded').mockResolvedValue(null)
+    const session = conversation(4)
+    await preStep(ctx, agent(session, MODEL), SIGNAL, { provider: 'dest', model: 'dest' })
+    expect(pressure).not.toHaveBeenCalled()
+    await preStep(ctx, agent(session, MODEL))
+    expect(pressure).toHaveBeenCalledTimes(1)
+  })
 
   function recover(
     ctx: Context,
